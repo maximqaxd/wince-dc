@@ -35,4 +35,13 @@ SRSetBL:	.data.l	H'10000000	; SR.BL = 1
 pKernelStart:	.data.l	KernelStart
 	ENTRY_END StartUp
 
+;
+; OEMNMI - non-maskable interrupt hook. shexcept.src imports it as a bare asm
+; symbol (no C underscore), so it lives here. Stub: return (no NMI sources wired).
+;
+	LEAF_ENTRY OEMNMI
+	rts
+	nop
+	ENTRY_END OEMNMI
+
 	.end

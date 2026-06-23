@@ -147,13 +147,22 @@ mem/str + integer-divide + 64-bit shift in C (shift-subtract; the helper ABI is 
 C `_xxx` → `__xxx` symbol with no recursion), soft-float STUBBED. Cleared all 29 CRT symbols
 (+`__lshi64`/`__rshui64`). **Link is now 60 → 31 unresolved**, all OAL/kernel (zero CRT).
 
-### Remaining 31 (after CRT) — OAL funcs + kernel stubs
-- OAL to write: `OEMGetPlatformVersion`/`OEMPlatformVersion`/`OEMGetExtensionDRAM`, RTC
-  (`OEMGetRealTime`/`OEMSetRealTime`/`OEMSetAlarmTime`), `OEMIoControl`, parallel
-  (`OEMParallelPortInit`/`GetByte`/`SendByte`,`NoPPFS`), `SerialInit`, power/idle
-  (`OEMPowerOff`/`OEMIdle`/`OEMNMI`/`OEMClearDebugCommError`), `SH4CacheLines`, `GInterruptList`,
-  ISR stubs (`DMAC0-3ISR`/`JTAGISR`/`Timer1ISR`), `dwReschedTime` (KData global).
-- kernel stubs / missing: `CECompress`/`CEDecompress` (compile `compress.c`/`nocompr`),
-  `ModuleJit`/`InitializeJit`/`PKDInit` (JIT + kernel-dbg — stub for nknodbg), `SC_GetTickCount`.
+### Link CLOSED — `nk.exe` builds from source (zero unresolved)
+All 31 remaining symbols provided; `build-nk.bat` produces `reference\kernel-obj\nk.exe`
+(SH-4 `0x1A6`, entry `StartUp`, ~264 KB). New OAL/stub files:
+- `platform.c` — `OEMGetPlatformVersion`/`OEMPlatformVersion`(=Set 4)/`OEMGetExtensionDRAM`(=0)/`SH4CacheLines`(=512).
+- `rtc.c` — `OEMGetRealTime` (fixed 2000-01-01 for now; real DC AICA RTC @0xA0710000 TODO), `OEMSetRealTime`/`OEMSetAlarmTime` (=0, faithful).
+- `oemioctl.c` — `OEMIoControl` minimal (returns FALSE; wire HAL IOCTLs later).
+- `serial.c` — `SerialInit` (hooks SCIF), `SCIFISR` stub, `OEMParallelPort*`/`NoPPFS`/`OEMClearDebugCommError` stubs.
+- `power.c` — `OEMIdle` (no-op), `OEMPowerOff` (halt). `OEMNMI` is asm in `startup.src` (bare symbol, no `_`).
+- `intr.c` — `GInterruptList` table + `DMAC0-3ISR`/`JTAGISR`/`Timer1ISR` stubs. `timer.c` defines `dwReschedTime`.
+- `kstubs.c` — `SC_GetTickCount`(=CurMSec), `CECompress/CEDecompress` (no-compress), `ModuleJit/InitializeJit/PKDInit` stubs.
 
-Next: write the OAL stubs above + the kernel stubs, re-link to zero, then makeimg + wrap-image.ps1 → Flycast.
+Link note: linked at `/base:0x00010000 /fixed:no` (the linker sign-extends high bases and trips
+LNK1249); fixups are kept so makeimg/romimage rebases to the RAMIMAGE address.
+
+### Boot-readiness TODO (the stubs are link-satisfiers, not working HW yet)
+Real DC AICA RTC; real `OEMIoControl` HAL IOCTLs (SYSINTR request, reboot, deviceid) +
+`OEMInterruptStatus/Include/Exclude`; per-source ISRs + driver registration into `GInterruptList`;
+soft-float (or enable FPU); verify `SH4CacheLines`/`dwStoreQueueBase` for `_FlushDCache`.
+Next mechanical step: drop `nk.exe` into makeimg (rebase 0x8C040000) + `wrap-image.ps1` → Flycast.

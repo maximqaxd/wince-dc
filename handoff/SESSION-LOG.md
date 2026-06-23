@@ -101,6 +101,18 @@ cached 0x8C000000) than the stripped CE 2.12 game runtime — toward a shell / m
     (OEMInitDebugSerial/WriteDebugByte/WriteDebugString/ReadDebugByte; 8N1 @57600, no KITL) +
     SCIF regs in dc_hw.h. build-oal.bat now builds 5 objs -> oal_dc.lib clean. Ghidra ISR
     comments updated + saved. Committed kernel-core+OAL milestone as 1ec742f.
+14. **`nk.exe` LINKS FROM SOURCE — zero unresolved (the headline milestone).** Trial-linked
+    nkmain.lib + oal_dc.lib + corelibc -> got the bounded unresolved report (60), then closed it:
+    (a) wrote a minimal SH-4 CRT in `NK\CRT\SHX\` (crt.lib) — mem/str + integer-divide + 64-bit
+    shift in C (ABI is standard SH r4,r5->r0, verified vs SDK __divlu; shift-subtract avoids
+    recursion), soft-float stubbed; the DC SDK ships no static libc (only the coredll import lib).
+    60->31. (b) wrote the remaining OAL + kernel stubs (platform/rtc/oemioctl/serial/power/
+    intr-stubs/kstubs); OEMNMI had to be asm in startup.src (shexcept imports it WITHOUT the C
+    underscore). 31->0. `build-nk.bat` -> nk.exe (SH-4 0x1A6, entry StartUp, ~264 KB). Linked at
+    /base:0x10000 /fixed:no (linker sign-extends high bases -> LNK1249; fixups kept so makeimg
+    rebases to 0x8C040000). NOTE: the stubs are link-satisfiers, not working HW (fixed-time RTC,
+    OEMIoControl->FALSE, ISR/soft-float stubs) — see OAL-NOTES.md "Boot-readiness TODO". New
+    drivers: build-crt.bat, build-nk.bat. Next: makeimg + wrap-image.ps1 -> Flycast.
 
 ## How to resume (do this)
 1. Read `CLAUDE.md`, then `docs/04-kernel-build.md` (the method + exact frontier).

@@ -20,9 +20,15 @@ tools + a real SH-4 PE compiler. This repo is **self-contained except the DC SDK
   -DWINCEMACRO` (gates `kfuncs.h`→PRIVATE `pkfuncs.h`/`mkfuncs.h`), not more headers — cleared
   all 35 errors at once and validated the 4 reconstructed constants (pkfuncs.h defines them
   identically). Driver: `build-nklib.bat`. Full detail in `docs/04-kernel-build.md`.
-- 🔄 **From-source `nk.exe`** — remaining gap is the **Dreamcast OAL / boot layer** (`StartUp`
-  entry, INTC/TMU/MMU init, KITL) — NOT in the WINCEOS-only leak; it's in the closed 2.12 image.
-  This is ours to write (SH-4 manual + DC memory map). See `docs/04` §"Next — the OAL gap".
+- ✅ **From-source `nk.exe` LINKS (zero unresolved).** Reconstructed the Dreamcast OAL
+  (`NK\OAL\DREAMCAST\`: StartUp, OEMInit, INTC/TMU bring-up, polled SCIF console, RTC/platform/
+  ioctl/power, ISR + per-source stubs) from the shipped SDK kernel (reversed in Ghidra), plus a
+  minimal SH-4 CRT (`NK\CRT\SHX\`: mem/str/div/shift in C, soft-float stubbed) since the DC SDK
+  has no static libc. `build-nklib`+`build-oal`+`build-crt`+`build-nk` → `nk.exe` (SH-4 `0x1A6`,
+  entry StartUp, ~264 KB). Detail in `NK\OAL\DREAMCAST\OAL-NOTES.md`.
+- 🔄 **Boot it.** The OAL/CRT stubs are link-satisfiers, not working HW yet (fixed-time RTC,
+  `OEMIoControl`→FALSE, ISR/soft-float stubs). Next: makeimg (rebase `0x8C040000`) +
+  `wrap-image.ps1` → Flycast/lxdream, then make the stubs real per `OAL-NOTES.md` "Boot-readiness TODO".
 
 ## Setup on a fresh PC
 1. `git clone <this repo>` — includes the leak source + SH toolchain under `vendor/`.

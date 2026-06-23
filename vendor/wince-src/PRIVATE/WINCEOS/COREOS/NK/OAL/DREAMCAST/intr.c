@@ -27,8 +27,9 @@ typedef struct _INTR_VECTOR {
     PFN_INTR pfnDone;
 } INTR_VECTOR;
 
-/* Populated by the per-source registration (Maple/PVR/GD/AICA/BBA drivers). */
-extern INTR_VECTOR GInterruptList[NUM_SYSINTR];
+/* The SYSINTR dispatch table. Zeroed at boot; per-source drivers
+ * (Maple/PVR/GD/AICA/BBA) fill {enable,disable,done} as they register. */
+INTR_VECTOR GInterruptList[NUM_SYSINTR];
 
 /* ====================================================================== */
 /* SYSINTR enable/disable/done - thin dispatch to the per-source thunks.   */
@@ -106,3 +107,15 @@ ULONG KatanaISR2(void)
     if (pending)              { VUINT32(SB_IML2ERR) &= 0xFFFF7FFF; return 0x19; }
     return SYSINTR_NOP;
 }
+
+/* ====================================================================== */
+/* Per-source ISR stubs hooked by OEMInit/InitClock. No drivers attached   */
+/* during bring-up, so these acknowledge nothing and request no reschedule. */
+/* Fill in as DMA/JTAG/TMU1 sources come online.                           */
+/* ====================================================================== */
+ULONG DMAC0ISR(void) { return SYSINTR_NOP; }
+ULONG DMAC1ISR(void) { return SYSINTR_NOP; }
+ULONG DMAC2ISR(void) { return SYSINTR_NOP; }
+ULONG DMAC3ISR(void) { return SYSINTR_NOP; }
+ULONG JTAGISR(void)  { return SYSINTR_NOP; }
+ULONG Timer1ISR(void){ return SYSINTR_NOP; }

@@ -20,4 +20,10 @@ SOURCES= \
     oeminit.c   \
     timer.c     \
     intr.c      \
-    dbgserial.c
+    dbgserial.c \
+    platform.c  \
+    rtc.c       \
+    power.c     \
+    serial.c    \
+    oemioctl.c  \
+    kstubs.c

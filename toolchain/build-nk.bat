@@ -18,9 +18,12 @@ if not exist "%OBJDIR%\nkmain.lib" (echo [build-nk] missing nkmain.lib -- run bu
 if not exist "%OBJDIR%\oal_dc.lib" (echo [build-nk] missing oal_dc.lib -- run build-oal.bat & endlocal & exit /b 1)
 if not exist "%OBJDIR%\crt.lib"    (echo [build-nk] missing crt.lib -- run build-crt.bat & endlocal & exit /b 1)
 
+rem NOTE: link at a low base with relocations kept (/fixed:no). The real EXEBASE
+rem is 0x8C040000, but this linker sign-extends high bases and trips LNK1249; the
+rem image carries fixups so makeimg/romimage rebases it to the RAMIMAGE address.
 echo [build-nk] linking %OUT%
-link.exe /nologo /machine:SH4 /subsystem:windowsce,3.00 /entry:StartUp /base:0x8C040000 ^
-    /align:1024 /nodefaultlib /out:"%OUT%" ^
+link.exe /nologo /machine:SH4 /subsystem:windowsce,3.00 /entry:StartUp /base:0x00010000 ^
+    /fixed:no /align:1024 /nodefaultlib /out:"%OUT%" ^
     "%OBJDIR%\nkmain.lib" "%OBJDIR%\oal_dc.lib" "%OBJDIR%\crt.lib" > "%LOG%" 2>&1
 
 echo [build-nk] errorlevel=%errorlevel%   (log: %LOG%)
