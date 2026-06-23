@@ -21,7 +21,7 @@ rem OAL source dir first so dc_hw.h ("" includes) resolves; then the kernel chai
 set INCLUDE=%OAL%;%NK%\INC;%NK%\KERNEL\SHX;%NK%\..\CORE\INC;%GWESLAB%\ce3-oak\INC;%CE3SDK%
 set KDEFS=-DSH4=1 -DSHx=1 -DUNDER_CE=300 -D_WIN32_WCE=300 -DUNICODE -D_UNICODE -DKERNEL -DWINCEOEM=1 -DWINCEMACRO -DIN_KERNEL -DDBGSUPPORT
 
-set CSRC=oeminit timer intr
+set CSRC=oeminit timer intr dbgserial
 set OBJS=
 set FAILED=0
 

@@ -59,54 +59,50 @@ void OEMInterruptDone(DWORD idInt)
 }
 
 /* ====================================================================== */
-/* Holly IRL demuxers. Each returns the SYSINTR for the top pending source */
-/* on its level, or SYSINTR_NOP if none. (hooked in OEMInit.)              */
+/* Holly IRL demuxers (decoded from KatanaISR4/6/2 @ 0x8C03D914/D9AC/D880). */
 /*                                                                          */
-/* TODO: the exact SB_IST* bit -> SYSINTR mapping comes from the per-level  */
-/* IsrConstants table in the image (status latch + per-bit SYSINTR + ack    */
-/* mask). The returns below match the shipped kernel's SYSINTR set; the     */
-/* precise bit positions still need the IsrConstants struct decode          */
-/* (see OAL-NOTES.md "TODO"). Each device's bit is acked by writing the      */
-/* masked status back to SB_IST*.                                           */
+/* The SH-4 takes three external IRLs from the Holly; each maps to one      */
+/* Holly interrupt CLASS, read as (SB_IST<class> & SB_IML<level><class>):   */
+/*    IRL6 -> EXT  (external: Maple, GD-ROM, AICA, BBA, ...)                 */
+/*    IRL4 -> NRM  (normal: PVR render/vblank/TA, DMA done, ...)            */
+/*    IRL2 -> ERR  (error conditions)                                       */
+/* On dispatch the source's bit(s) are MASKED in SB_IML<...> (mask-on-      */
+/* receipt); OEMInterruptDone re-enables them. Each handler returns the     */
+/* CE SYSINTR for the top pending group, or SYSINTR_NOP if none.            */
+/*                                                                          */
+/* TODO: label which SB_IST bit = which DC peripheral (Maple/PVR-VBlank/    */
+/* GD/AICA/BBA) to give the 0x10-0x1B SYSINTRs real device names.           */
 /* ====================================================================== */
 
-/* IRL level 6 (highest) -> SYSINTR 0x14/0x17/0x1A/0x1B (low 4 status bits). */
+/* IRL6 / external sources -> SYSINTR 0x14/0x17/0x1A/0x1B (status bits 0..3). */
 ULONG KatanaISR6(void)
 {
-    DWORD status  = VUINT32(SB_ISTEXT);
-    DWORD pending = status & VUINT32(SB_IML6EXT);
-    static const ULONG sysintr[4] = { 0x14, 0x17, 0x1A, 0x1B };
-    int b;
-    for (b = 0; b < 4; b++) {
-        if (pending & (1u << b)) {
-            VUINT32(SB_ISTEXT) = (1u << b);     /* W1C ack */
-            return sysintr[b];
-        }
-    }
+    DWORD pending = VUINT32(SB_ISTEXT) & VUINT32(SB_IML6EXT);
+    if (pending & 0x1) { VUINT32(SB_IML6EXT) &= 0xFFFFFFFE; return 0x14; }
+    if (pending & 0x2) { VUINT32(SB_IML6EXT) &= 0xFFFFFFFD; return 0x17; }
+    if (pending & 0x4) { VUINT32(SB_IML6EXT) &= 0xFFFFFFFB; return 0x1A; }
+    if (pending & 0x8) { VUINT32(SB_IML6EXT) &= 0xFFFFFFF7; return 0x1B; }
     return SYSINTR_NOP;
 }
 
-/* IRL level 4 -> SYSINTR 0x10/0x12/0x15/0x18. */
+/* IRL4 / normal sources -> SYSINTR 0x10/0x12/0x15/0x18. */
 ULONG KatanaISR4(void)
 {
-    DWORD status  = VUINT32(SB_ISTNRM);
-    DWORD pending = status & VUINT32(SB_IML4NRM);
-    /* TODO: decode pending -> {0x10,0x12,0x15,0x18} per IsrConstants[level4]. */
-    if (pending) {
-        /* ack + return mapped SYSINTR; placeholder until bit map is decoded */
-        return SYSINTR_FIRMWARE;
-    }
+    DWORD pending = VUINT32(SB_ISTNRM) & VUINT32(SB_IML4NRM);
+    if (pending & 0x00000FFF) { VUINT32(SB_IML4NRM) &= 0xFFC7F000; return 0x10; } /* bits 0-11 */
+    if (pending & 0x00003000) { VUINT32(SB_IML4NRM) &= 0xFFFFCFFF; return 0x12; } /* bits 12-13 */
+    if (pending & 0x00004000) { VUINT32(SB_IML4NRM) &= 0xFFFFBFFF; return 0x15; } /* bit 14 */
+    if (pending & 0x00008000) { VUINT32(SB_IML4NRM) &= 0xFFFF7FFF; return 0x18; } /* bit 15 */
     return SYSINTR_NOP;
 }
 
-/* IRL level 2 (lowest) -> SYSINTR 0x11/0x13/0x16/0x19. */
+/* IRL2 / error sources -> SYSINTR 0x11/0x13/0x16/0x19. */
 ULONG KatanaISR2(void)
 {
-    DWORD status  = VUINT32(SB_ISTNRM);
-    DWORD pending = status & VUINT32(SB_IML2NRM);
-    /* TODO: decode pending -> {0x11,0x13,0x16,0x19} per IsrConstants[level2]. */
-    if (pending) {
-        return 0x11;
-    }
+    DWORD pending = VUINT32(SB_ISTERR) & VUINT32(SB_IML2ERR);
+    if (pending & 0x000000FF) { VUINT32(SB_IML2ERR) &= 0xEFFFFF00; return 0x11; } /* bits 0-7 */
+    if (pending & 0x00000F00) { VUINT32(SB_IML2ERR) &= 0xFFFFF0FF; return 0x13; } /* bits 8-11 */
+    if (pending & 0x00007000) { VUINT32(SB_IML2ERR) &= 0xFFFF8FFF; return 0x16; } /* bits 12-14 */
+    if (pending)              { VUINT32(SB_IML2ERR) &= 0xFFFF7FFF; return 0x19; }
     return SYSINTR_NOP;
 }

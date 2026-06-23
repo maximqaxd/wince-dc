@@ -44,6 +44,35 @@
 #define SH4_DMAC_DMAOR  (SH4_DMAC_BASE+0x40)    /* operation reg */
 #define SH4_DMAOR_INIT  0x00008201              /* DDT|PR|DME : enable on-demand DMA */
 
+/* ---- SH-4 SCIF (serial w/ FIFO) -- P4 ; the DC "serial"/coder's-cable UART ---*/
+#define SH4_SCIF_BASE   0xFFE80000
+#define SH4_SCSMR2      (SH4_SCIF_BASE+0x00)    /* 16: serial mode (8N1 = 0x0000) */
+#define SH4_SCBRR2      (SH4_SCIF_BASE+0x04)    /*  8: bit-rate divisor */
+#define SH4_SCSCR2      (SH4_SCIF_BASE+0x08)    /* 16: serial control (TE=0x20,RE=0x10) */
+#define SH4_SCFTDR2     (SH4_SCIF_BASE+0x0C)    /*  8: TX FIFO data */
+#define SH4_SCFSR2      (SH4_SCIF_BASE+0x10)    /* 16: FIFO status */
+#define SH4_SCFRDR2     (SH4_SCIF_BASE+0x14)    /*  8: RX FIFO data */
+#define SH4_SCFCR2      (SH4_SCIF_BASE+0x18)    /* 16: FIFO control */
+#define SH4_SCFDR2      (SH4_SCIF_BASE+0x1C)    /* 16: FIFO data count */
+#define SH4_SCSPTR2     (SH4_SCIF_BASE+0x20)    /* 16: serial port reg */
+#define SH4_SCLSR2      (SH4_SCIF_BASE+0x24)    /* 16: line status */
+/* SCSCR2 bits */
+#define SCSCR2_TE       0x0020                  /* transmit enable */
+#define SCSCR2_RE       0x0010                  /* receive enable */
+/* SCFSR2 status bits */
+#define SCFSR2_ER       0x0080                  /* receive error */
+#define SCFSR2_TEND     0x0040                  /* transmit end */
+#define SCFSR2_TDFE     0x0020                  /* TX FIFO data empty (room to write) */
+#define SCFSR2_BRK      0x0010                  /* break */
+#define SCFSR2_RDF      0x0002                  /* RX FIFO full (>= trigger) */
+#define SCFSR2_DR       0x0001                  /* RX data ready */
+/* SCFCR2 bits */
+#define SCFCR2_TFRST    0x0004                  /* reset TX FIFO */
+#define SCFCR2_RFRST    0x0002                  /* reset RX FIFO */
+/* DC peripheral clock = 50 MHz (CPU/4). divisor N = Pck/(32*baud) - 1. */
+#define DC_PCK          50000000
+#define SCIF_BRR(baud)  ((DC_PCK / (32 * (baud))) - 1)   /* 57600 -> 26 ; 115200 -> 13 */
+
 /* ---- SR bits ----------------------------------------------------------------*/
 #define SH4_SR_BL       0x10000000              /* block exceptions */
 

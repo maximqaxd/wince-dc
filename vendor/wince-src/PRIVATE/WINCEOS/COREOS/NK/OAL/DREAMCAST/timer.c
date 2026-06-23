@@ -22,10 +22,11 @@ extern void Timer1ISR(void);
 DWORD g_TicksPerPeriod;          /* TMU0 reload = 312500 -> 25 ms at PCLK/4 (12.5 MHz) */
 DWORD g_TicksTo64kMSec;          /* = 5 (scaling constant from the shipped OAL) */
 
-/* Pointer to the kernel's tick counter pair (CurMSec, reschedule accumulator).
- * The shipped OAL kept this as an indirect pointer; bind it to KData in init.
- * TODO: resolve the exact KData field offsets and set this up. */
-volatile DWORD *g_pSysTick;
+/* Kernel millisecond tick. The shipped OAL bumped the pair @ 0x8C042888 in KData
+ * (CurMSec + the reschedule accumulator) by 25 each underflow. CurMSec is the
+ * standard CE kernel tick global (GetTickCount); dwReschedTime drives preemption. */
+extern volatile DWORD CurMSec;
+extern volatile DWORD dwReschedTime;
 
 void InitClock(void)
 {
@@ -69,9 +70,7 @@ ULONG OEMTimer0ISR(void)
         tcr = VUINT16(SH4_TMU_TCR0);
     } while (tcr & 0x0100);
 
-    if (g_pSysTick) {
-        g_pSysTick[0] += 25;     /* CurMSec += 25 ms */
-        g_pSysTick[1] += 25;     /* reschedule accumulator */
-    }
+    CurMSec      += 25;          /* GetTickCount base */
+    dwReschedTime += 25;         /* preemption accumulator */
     return SYSINTR_RESCHED;
 }

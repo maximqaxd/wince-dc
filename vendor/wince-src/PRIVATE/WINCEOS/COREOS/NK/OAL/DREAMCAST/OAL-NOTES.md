@@ -94,21 +94,35 @@ jmp   @KernelStart        ; KernelStart @ 0x8C00B340 = nk:shexcept.obj (WE BUILD
 So the OAL boot stub is ~6 instructions; the real SH-4 bring-up (VBR, cache CCR, MMU/TLB,
 stacks) lives in `KernelStart`, which is part of our `nkmain.lib`. Reconstruction is trivial.
 
-## Interrupt demux: `KatanaISR2/4/6` (hal:cfwkatan.obj)  — the IRL→SYSINTR map
-Three handlers, one per SH-4 external IRL the Holly raises (hooked in OEMInit: vec 0x0D/0x0B/0x09
-= IRL 2/4/6). Each reads the Holly status latch (`SB_IST*`), ANDs the matching `SB_IML*` mask,
-picks the highest pending bit, **ACKs by writing the masked status back**, and returns a CE
-`SYSINTR` (firmware range 0x10-0x1B). `IsrConstants` is the per-level {status,mask} block.
-| handler | reads | returns SYSINTR |
-|---------|-------|-----------------|
-| KatanaISR4 (IRL4) | SB_ISTNRM & SB_IML4NRM | 0x10, 0x12, 0x15, 0x18 |
-| KatanaISR2 (IRL2) | SB_IST(+0x18) & SB_IML2(+8) | 0x11, 0x13, 0x16, 0x19 |
-| KatanaISR6 (IRL6) | SB_ISTEXT & SB_IML6 (low 4 bits) | 0x14, 0x17, 0x1A, 0x1B |
-`Timer0ISR` (vec 0x10): clear TMU0 underflow (TCR0+0x10), advance 64-bit kernel tick by 0x19
-(=25 ms/tick), return `SYSINTR_RESCHED` (1).
+## Interrupt demux: `KatanaISR2/4/6` (hal:cfwkatan.obj) — RESOLVED
+`IsrConstants` is just the Holly SB register file base `0xA05F6900` (not a struct). The three
+SH-4 IRLs the Holly raises (OEMInit hooks vec 0x0D/0x0B/0x09) each map to one Holly interrupt
+*class* — `pending = SB_IST<class> & SB_IML<level><class>` — using **mask-on-receipt**: on
+dispatch the source bit(s) are cleared in the `SB_IML` mask (can't re-fire), and the kernel
+re-enables via `OEMInterruptDone`. Each returns the CE `SYSINTR` for the top pending group.
+
+| handler | class | reads | bit-group → SYSINTR (SB_IML clear-mask) |
+|---------|-------|-------|------------------------------------------|
+| KatanaISR4 (IRL4) | NRM (PVR/TA/DMA) | `SB_ISTNRM & SB_IML4NRM` | b0-11→0x10 (`&=FFC7F000`), b12-13→0x12 (`&=FFFFCFFF`), b14→0x15 (`&=FFFFBFFF`), b15→0x18 (`&=FFFF7FFF`) |
+| KatanaISR6 (IRL6) | EXT (Maple/GD/AICA/BBA) | `SB_ISTEXT & SB_IML6EXT` | b0→0x14, b1→0x17, b2→0x1A, b3→0x1B (clear that bit) |
+| KatanaISR2 (IRL2) | ERR | `SB_ISTERR & SB_IML2ERR` | b0-7→0x11, b8-11→0x13, b12-14→0x16, else→0x19 |
+
+`Timer0ISR` (vec 0x10): clear TMU0 underflow (TCR0+0x10), advance the kernel tick (`CurMSec` +
+reschedule accumulator @ KData `0x8C042888`) by 25 ms, return `SYSINTR_RESCHED` (1).
+
+## Debug console: SCIF (ours — `dbgserial.c`)
+The shipped kernel does NOT use the SCIF for debug — `OEMWriteDebug*` route through the Sega ASE
+BIOS / hardware Debug Adapter (`g_DAPresent` + ASEBIOS_VECTOR; the `asedbg` objs). For bring-up
+we instead write plain text out the SH-4 SCIF (`0xFFE80000`), polled, 8N1 @ 57600, NO KITL/WinDbg:
+`OEMInitDebugSerial` (SCSCR2=0 → reset FIFOs → SCSMR2=8N1 → SCBRR2=divisor → SCSCR2=TE|RE),
+`OEMWriteDebugByte` (poll SCFSR2.TDFE, write SCFTDR2, clear TDFE|TEND), `OEMWriteDebugString`
+(LF→CRLF), `OEMReadDebugByte` (polled). Divisor `N = 50MHz/(32*baud)-1` (57600→26, 115200→13).
 
 ## TODO (remaining)
-- Map each Holly `SB_IST*` bit position -> the device (Maple, PVR/VBlank, GD-ROM, AICA, BBA, …)
-  to label the 0x10-0x1B SYSINTRs; decode the `IsrConstants` struct field offsets (0/4/8/0x18/0x34).
-- `mdppfs` / `oemwdm` — PCI-ish bus access (`OEMGetBusDataByOffset`) + WDM HAL glue.
+- Label each Holly `SB_IST*` bit → the DC peripheral (Maple, PVR/VBlank, GD-ROM, AICA, BBA, …)
+  to give the 0x10-0x1B SYSINTRs real device names (KOS has the SB_ISTNRM/EXT bit table).
+- `Timer1ISR` body (aux timer); `mdppfs`/`oemwdm` — bus access (`OEMGetBusDataByOffset`) + WDM glue.
 - Decode the `OEMIoControl` IOCTL constants (`DAT_8C03D440..450`) → `IOCTL_HAL_*` numbers.
+- **Trial link:** `nkmain.lib` + `oal_dc.lib` (EXEENTRY=StartUp, EXEBASE per SHX\SOURCES) — resolve
+  remaining externs (per-source ISRs `JTAG/DMAC*/SCIFISR/Timer1ISR`, `GInterruptList`, `HookInterrupt`,
+  `pTOC`, `CurMSec`/`dwReschedTime`), then makeimg + wrap-image.ps1 → Flycast.

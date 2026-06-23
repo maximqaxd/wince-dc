@@ -19,4 +19,5 @@ SOURCES= \
     startup.src \
     oeminit.c   \
     timer.c     \
-    intr.c
+    intr.c      \
+    dbgserial.c

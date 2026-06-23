@@ -90,6 +90,17 @@ cached 0x8C000000) than the stripped CE 2.12 game runtime — toward a shell / m
     demuxers), `SOURCES`, `OAL-NOTES.md`. New driver `build-oal.bat` → `oal_dc.lib` (4 objs,
     SH-4, archives clean). TODO: exact SB_IST bit->SYSINTR map for KatanaISR2/4, bind tick to
     KData, SCIF debug-out, then link nkmain.lib+oal_dc.lib into nk.exe.
+13. **OAL pass 2 — ISR demux resolved + SCIF console.** Disassembled KatanaISR4/6/2:
+    `IsrConstants` is just the Holly SB base `0xA05F6900`; the 3 IRLs map to Holly classes
+    (IRL4=NRM, IRL6=EXT, IRL2=ERR), `pending = SB_IST<cls> & SB_IML<lvl><cls>`, **mask-on-
+    receipt** (clear bit in SB_IML, kernel re-enables via OEMInterruptDone). Exact bit->SYSINTR
+    groups decoded (e.g. ISR4: b0-11->0x10, b12-13->0x12, b14->0x15, b15->0x18). Rewrote intr.c
+    KatanaISR2/4/6 accurately; bound Timer0ISR tick to CurMSec/dwReschedTime (KData 0x8C042888).
+    **SCIF:** confirmed the shipped kernel does NO SCIF debug (it uses the ASE BIOS / Debug
+    Adapter via g_DAPresent+ASEBIOS_VECTOR). Wrote our own polled SCIF console `dbgserial.c`
+    (OEMInitDebugSerial/WriteDebugByte/WriteDebugString/ReadDebugByte; 8N1 @57600, no KITL) +
+    SCIF regs in dc_hw.h. build-oal.bat now builds 5 objs -> oal_dc.lib clean. Ghidra ISR
+    comments updated + saved. Committed kernel-core+OAL milestone as 1ec742f.
 
 ## How to resume (do this)
 1. Read `CLAUDE.md`, then `docs/04-kernel-build.md` (the method + exact frontier).
