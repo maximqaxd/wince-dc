@@ -44,6 +44,12 @@ tools + a real SH-4 PE compiler. This repo is **self-contained except the DC SDK
   PSL ABI is stable → the **3.0 `coredll` thunks will be compatible with our kernel's dispatch**.
   Next: build the 3.0 user modules (`coredll`/`FSDMGR`/`DEVICE`/`GWES`, all in `vendor/wince-src`)
   so userland matches the kernel. Build with `[debug]` for verbose kernel output (`-DDEBUG`).
+  **coredll started:** `coremain.lib` — the PSL core (`apis.c`/`cscode.c` syscall table,
+  `coredll.c`, `time`/`random`/`profiler`/`strings` + SHX `chandler`/`intrlock`) — BUILDS from
+  source, SH-4 (`build-coredll.bat`). Same `WINCEOEM` unlock as the kernel; user-mode flags (no
+  `-DKERNEL`). Localized winver.h into `resource.c` (was globally aggregated in `windows.h`, broke
+  coredll's `profiler.c`). Remaining for a full `coredll.dll`: the sibling CORE libs
+  (`lmem`/`thunks`/`locale`/`corelibc`/…, see `CORE\DIRS`) + final link with `coredll.def`.
 
 ## Setup on a fresh PC
 1. `git clone <this repo>` — includes the leak source + SH toolchain under `vendor/`.
