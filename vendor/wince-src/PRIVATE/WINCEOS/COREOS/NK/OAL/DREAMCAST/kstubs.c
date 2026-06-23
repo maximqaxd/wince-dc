@@ -28,9 +28,13 @@ DWORD CEDecompress(LPBYTE bufIn, DWORD cbIn, LPBYTE bufOut, DWORD cbOut,
     return (DWORD)-1;
 }
 
-/* JIT loader (CE 3.0 .NET/AppDomain JIT) - not used at boot. */
+/* JIT loader (CE 3.0). ModuleJit is a real kernel function (also in the syscall
+ * table); InitializeJit(PFNOPEN,PFNCLOSE) returns 0 => no JIT present. */
 DWORD ModuleJit(LPCWSTR p1, LPWSTR p2, HANDLE *p3)  { return 0; }
-DWORD InitializeJit(void)                           { return 0; }
+int   InitializeJit(void *pfnOpen, void *pfnClose)  { return 0; }
 
-/* Kernel debugger init (PKD / KdStub). nknodbg has no debugger. */
-BOOL PKDInit(void)                                  { return FALSE; }
+/* Kernel debugger: PKDInit is a function-POINTER the kernel null-checks
+ * (KernelInit2: `if (PKDInit) PKDInit(...)`). It MUST be a NULL pointer for a
+ * no-debugger kernel - a stub FUNCTION makes the check non-null and the kernel
+ * then calls garbage (the cause of the PC=0xE3007FFC fault inside "KdInit"). */
+BOOLEAN (*PKDInit)(LPVOID *, LPVOID *, LPVOID *, LPVOID, LPVOID *, LPVOID *) = NULL;
