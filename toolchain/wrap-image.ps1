@@ -29,6 +29,28 @@ $phys  = $start -band 0x1FFFFFFF        # cached 0x8Cxxxxxx -> physical 0x0Cxxxx
 $rawBytes = [System.IO.File]::ReadAllBytes($raw)
 Remove-Item $raw -Force
 
+# --- Flycast WinCE/MMU detector ---------------------------------------------
+# Flycast (core/hw/sh4/modules/mmu.cpp mmu_set_state) only enables full MMU
+# emulation if it finds the UTF-16 string "SH-4 Kernel" at virtual 0x8C0110A8
+# (= RAMIMAGE 0x8C010000 + 0x10A8 = rawBytes[0x10A8]). The stock kernel has its
+# mdsh3 banner there; our link order puts ours elsewhere, leaving 0x10A8 as
+# zero padding. Plant the magic there so Flycast turns the MMU on (our kernel
+# enables address translation in KernelStart; without this it faults). Only
+# write if the slot is zero-pad or already the magic, so we never clobber code.
+$magic = [Text.Encoding]::Unicode.GetBytes("SH-4 Kernel`r`n")   # UTF-16LE
+$mo = 0x10A8
+$slotClear = $true
+for ($i=0; $i -lt $magic.Length; $i++) {
+  $b = $rawBytes[$mo+$i]
+  if ($b -ne 0 -and $b -ne $magic[$i]) { $slotClear = $false; break }
+}
+if ($slotClear) {
+  [Array]::Copy($magic, 0, $rawBytes, $mo, $magic.Length)
+  "  CE/MMU magic planted at 0x10A8 (-> VA 0x8C0110A8) for Flycast full-MMU"
+} else {
+  Write-Warning "0x10A8 holds non-zero, non-magic data - NOT planting CE magic (would clobber)."
+}
+
 $hdrSize = 0x800
 $padLen  = [int]([math]::Ceiling($rawBytes.Length / [double]$hdrSize) * $hdrSize)
 

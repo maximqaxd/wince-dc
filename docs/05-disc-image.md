@@ -70,3 +70,14 @@ Load `wince.cdi` in Flycast.
   shell yet. Watch Flycast's serial output for our OEMInit/`OEMWriteDebugString` traffic.
 - For CDI the boot LBA lives in IP.BIN; cdi4dc handles the layout. If you switch to a GDI
   flow, the bootfile LBA must match the high-density track base (45000).
+
+## Flycast full-MMU gate ("SH-4 Kernel" magic)
+Most DC games never use the SH-4 MMU, so Flycast only enables full MMU emulation
+when it detects Windows CE: `core/hw/sh4/modules/mmu.cpp` `mmu_set_state()` checks
+for the UTF-16 string **"SH-4 Kernel"** at virtual **0x8C0110A8** or **0x8C011118**
+(= RAMIMAGE 0x8C010000 + 0x10A8 / 0x1118) when `MMUCR.AT` is set. The stock kernel's
+mdsh3 banner lands at 0x10A8; our link order puts ours deep in the image, leaving
+0x10A8 as zero padding — so Flycast left the MMU off and our kernel faulted the
+instant `KernelStart` enabled address translation ("exception while SR.BL=1").
+`wrap-image.ps1` now plants `"SH-4 Kernel"` at rawBytes[0x10A8] (only if that slot
+is zero/already-magic, never over real code) so Flycast turns the MMU on.
