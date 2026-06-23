@@ -42,14 +42,19 @@ tools + a real SH-4 PE compiler. This repo is **self-contained except the DC SDK
   `Process` (176 vs 156) / `Thread` (540 vs 324) differ only because we built the full 3.0 source
   and Sega shipped an older 2.12 kernel (self-consistent; `ERRFALSE` asserts pass, it boots). So the
   PSL ABI is stable → the **3.0 `coredll` thunks will be compatible with our kernel's dispatch**.
-  Next: build the 3.0 user modules (`coredll`/`FSDMGR`/`DEVICE`/`GWES`, all in `vendor/wince-src`)
-  so userland matches the kernel. Build with `[debug]` for verbose kernel output (`-DDEBUG`).
-  **coredll started:** `coremain.lib` — the PSL core (`apis.c`/`cscode.c` syscall table,
-  `coredll.c`, `time`/`random`/`profiler`/`strings` + SHX `chandler`/`intrlock`) — BUILDS from
-  source, SH-4 (`build-coredll.bat`). Same `WINCEOEM` unlock as the kernel; user-mode flags (no
-  `-DKERNEL`). Localized winver.h into `resource.c` (was globally aggregated in `windows.h`, broke
-  coredll's `profiler.c`). Remaining for a full `coredll.dll`: the sibling CORE libs
-  (`lmem`/`thunks`/`locale`/`corelibc`/…, see `CORE\DIRS`) + final link with `coredll.def`.
+  **coredll core BUILDS:** `coremain.lib` — the PSL core (`apis.c`/`cscode.c` syscall table,
+  `coredll.c`, `time`/`random`/`profiler`/`strings` + SHX `chandler`/`intrlock`), SH-4
+  (`build-coredll.bat`). Same `WINCEOEM` unlock as the kernel; user-mode flags (no `-DKERNEL`).
+  Localized winver.h into `resource.c` (was globally aggregated in `windows.h`, broke `profiler.c`).
+  ⚠️ **BLOCKER — the leak is kernel-focused; the userland CANNOT be rebuilt from it.** Only `NK`
+  (complete) + thin fragments: coredll = `dll`+`lmem` only (missing thunks/locale/corelibc/imm/sip/
+  fpemul/…); DEVICE = `LIB\` only; FSDMGR = 7 `.c`; **GWES has NO window/GDI source** (only
+  `MGDI\GPE\*.cpp`, the SW graphics primitives). So "build the 3.0 userland to match the kernel"
+  is not achievable. Combined with the ABI diff proving the PSL/`cinfo`/`KData`/`CONTEXT` ABI is
+  **byte-identical** (`docs/06`), the correct path is: **keep the stock 2.12 modules and debug the
+  kernel-side `SC_GetOwnerProcess`/`GetKHeap` TLB-miss directly** (slot-1 `0x03d50000`, first-process
+  load) against the Ghidra SDK kernel spec — it's a kernel loader/VM bug, not an ABI wall. Build with
+  `[debug]` for verbose kernel output (`-DDEBUG`).
 
 ## Setup on a fresh PC
 1. `git clone <this repo>` — includes the leak source + SH toolchain under `vendor/`.

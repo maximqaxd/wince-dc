@@ -52,3 +52,21 @@ dispatch**. The fault is the 3.0-kernel ↔ stock-2.12-module wall; building the
 ```
 toolchain\probe-abi.bat retail     :: emits sizeof/offsetof via compiler diagnostics
 ```
+
+## Addendum — the leak can't rebuild the userland (so don't)
+Enumerating `vendor/wince-src/PRIVATE/WINCEOS` after building `coremain.lib`: the leak
+is a **kernel-focused snapshot** (~121 `.c` + 8 `.cpp` total). `NK` is complete; the
+userland is fragmentary:
+
+| module | present | missing |
+|---|---|---|
+| coredll (`CORE`) | `dll` (→`coremain.lib`) + `lmem` | thunks, locale, corelibc/fulllibc, imm, sip, fpemul, lpc, mui, res, asyncio, fmtmsg |
+| DEVICE | `LIB\` (device/devload/pcmcia) | the rest of the device manager |
+| FSDMGR | 7 `.c` (alloc/apis/init/misc/serv/stubs/tables) | — (likely buildable) |
+| GWES (`GWE`) | only `MGDI\GPE\*.cpp` (SW blt/line/fill) | **the entire window mgr / GDI / message queue** |
+
+A full from-source `coredll.dll`/`GWES`/`DEVICE` is therefore impossible from this leak.
+Since the cross-boundary ABI is byte-identical (above), the productive path is to **keep
+the stock 2.12 modules** and debug the kernel-side `SC_GetOwnerProcess`/`GetKHeap` fault
+(first-process load, slot-1 `0x03d50000` TLB miss) against the Ghidra SDK-kernel spec.
+`coremain.lib` stands as proof the userland toolchain + header chain work.
