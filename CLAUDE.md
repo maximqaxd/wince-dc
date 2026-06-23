@@ -26,9 +26,14 @@ tools + a real SH-4 PE compiler. This repo is **self-contained except the DC SDK
   minimal SH-4 CRT (`NK\CRT\SHX\`: mem/str/div/shift in C, soft-float stubbed) since the DC SDK
   has no static libc. `build-nklib`+`build-oal`+`build-crt`+`build-nk` → `nk.exe` (SH-4 `0x1A6`,
   entry StartUp, ~264 KB). Detail in `NK\OAL\DREAMCAST\OAL-NOTES.md`.
-- 🔄 **Boot it.** The OAL/CRT stubs are link-satisfiers, not working HW yet (fixed-time RTC,
-  `OEMIoControl`→FALSE, ISR/soft-float stubs). Next: makeimg (rebase `0x8C040000`) +
-  `wrap-image.ps1` → Flycast/lxdream, then make the stubs real per `OAL-NOTES.md` "Boot-readiness TODO".
+- ✅ **Bootable disc built.** `nk.exe` → makeimg (romimage relocates our kernel to `8c010400`,
+  needs `/DEBUG /DEBUGTYPE:BOTH,FIXUP`) → `NK.bin` → `wrap-image.ps1` → `0winceos.bin` → `mkisofs`
+  (`-G ip_drago.bin` as IP.BIN) → `cdi4dc` → **`wince.cdi`** (Flycast-loadable). `make-disc.ps1`;
+  tools `c:\dev\cdrtools\mkisofs.exe` + `c:\dev\cdi4dc`. See `docs/05-disc-image.md`.
+- 🔄 **Make it actually boot.** The OAL/CRT are still bring-up stubs (fixed-time RTC,
+  `OEMIoControl`→FALSE, ISR/soft-float stubs) and the user modules are stock 2.12 (ABI-mismatched
+  with a 3.0 kernel). Next: load `wince.cdi` in Flycast, watch the SCIF console for our
+  `OEMWriteDebugString`/OEMInit output, and make stubs real per `OAL-NOTES.md` "Boot-readiness TODO".
 
 ## Setup on a fresh PC
 1. `git clone <this repo>` — includes the leak source + SH toolchain under `vendor/`.
@@ -45,7 +50,9 @@ powershell -File wrap-image.ps1 -NkBin C:\wcedreamcast\release\retail\NK.bin ^
 build-nklib.bat retail                 :: build whole kernel core -> reference\kernel-obj\nkmain.lib
 build-oal.bat   retail                 :: build reconstructed DC OAL -> reference\kernel-obj\oal_dc.lib
 build-crt.bat   retail                 :: build minimal SH-4 C runtime -> reference\kernel-obj\crt.lib
-build-nk.bat    retail                 :: TRIAL LINK nkmain.lib+oal_dc.lib -> nk.exe (lists unresolved)
+build-nk.bat    retail                 :: link nkmain.lib+oal_dc.lib+crt.lib -> nk.exe
+build-image.bat retail                 :: makeimg (swap our nk.exe in for nknodbg.exe first) -> NK.bin
+powershell -File make-disc.ps1 -Image reference\0winceos.ours.bin -Cdi  :: -> wince.cdi (Flycast)
 build-kernel.bat retail [file.c]       :: compile one NK/SHX C source (smoke / per-file)
 build-asm.bat    retail [file.src]     :: assemble one SHX shasm source (-cpu=SH4 -DCELOG=0)
 ```
