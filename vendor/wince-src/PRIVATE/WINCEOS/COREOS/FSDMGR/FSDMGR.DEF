@@ -1,0 +1,16 @@
+; Copyright (c) 1999-2000 Microsoft Corporation.  All rights reserved.
+LIBRARY     FSDMGR
+
+EXPORTS
+    FSDMGR_InitEx
+    FSDMGR_DeinitEx
+    FSDMGR_GetDiskInfo
+    FSDMGR_ReadDisk
+    FSDMGR_WriteDisk
+    FSDMGR_ReadDiskEx
+    FSDMGR_WriteDiskEx
+    FSDMGR_RegisterVolume
+    FSDMGR_GetVolumeName
+    FSDMGR_DeregisterVolume
+    FSDMGR_CreateFileHandle
+    FSDMGR_CreateSearchHandle

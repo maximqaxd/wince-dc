@@ -1,0 +1,17 @@
+!if 0
+Copyright (c) 1995-2000 Microsoft Corporation.  All rights reserved.
+!endif
+
+EXEENTRY=StartUp
+CDEFINES=$(CDEFINES) -Zi -I.\x86
+LDEFINES=-subsystem:native -align:4096 /DEBUG /DEBUGTYPE:BOTH,FIXUP /STACK:64000,64000
+EXEBASE=0x8C040000
+
+x86_SOURCES=    \
+    ..\x86\init.asm        \
+    ..\x86\sysinit.c       \
+    ..\x86\mdx86.c         \
+    ..\x86\fault.c    \
+    ..\x86\strings.c       \
+    ..\x86\exsup.c     \
+

@@ -1,0 +1,12 @@
+# Copyright (c) 1995-2000 Microsoft Corporation.  All rights reserved.
+# Machine dependent defines
+CDEFINES=$(CDEFINES) -Zi -I.\arm
+
+ARM_SOURCES=    \
+    ..\arm\mdarm.c      \
+    ..\arm\unwind.c     \
+    ..\arm\thmunwnd.c   \
+    ..\arm\strings.c    \
+    ..\arm\armtrap.s    \
+    ..\arm\intrlock.s   \
+    ..\arm\celogarm.c

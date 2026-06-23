@@ -1,0 +1,144 @@
+//+-------------------------------------------------------------------------
+//
+//  Microsoft Windows
+//  Copyright 1995-1997 Microsoft Corporation. All Rights Reserved.
+//
+//--------------------------------------------------------------------------
+
+#ifndef DO_NO_IMPORTS
+import "unknwn.idl";
+#endif
+
+cpp_quote("// Private File")
+cpp_quote("// This file is not included in the Internet SDK")
+cpp_quote("// Use msnotify or subsmgr headers for public interfaces")
+
+cpp_quote("extern const IID CLSID_WebCheckDefaultProcess;               ")
+
+cpp_quote("#include <subsmgr.h>")
+
+
+[
+    uuid(10BD2E25-F235-11CF-B5DD-00A0C90348EC),     // LIBID_WebCheck
+    helpstring("Microsoft WebCheck 0.70"),
+    lcid(0x0000),
+    version(0.70)
+]
+library WebCheck
+{
+    importlib("stdole2.tlb");
+
+//---------------------------------------------------------------
+//          Webcheck Core
+//---------------------------------------------------------------
+    // Webcheck class
+    [
+        uuid(E6FB5E20-DE35-11CF-9C87-00AA005127ED), // CLSID_WebCheck
+        helpstring("WebCheck class"),
+        appobject
+    ]
+    coclass WebCheck
+    {
+        [default] interface IUnknown;
+    }
+
+
+    // Webcrawler object
+    [
+        uuid(08165EA0-E946-11CF-9C87-00AA005127ED)
+    ]
+    coclass WebCrawlerAgent
+    {
+        [default] interface IUnknown;
+    }
+
+    // Channel Agent object
+    [
+        uuid(E3A8BDE6-ABCE-11d0-BC4B-00C04FD929DB)
+    ]
+    coclass ChannelAgent
+    {
+        [default] interface IUnknown;
+    }
+
+//---------------------------------------------------------------
+//                  Mail Notification Agent
+//---------------------------------------------------------------
+
+    //
+    // Mail Notification Agent Object
+    //
+    [
+        uuid(140c9ab0-69ca-11d0-adb8-00c04fd75d13), // CLSID_MailAgent
+        helpstring("Mail Notification Object")
+    ]
+    coclass MailAgent
+    {
+        [default] interface IUnknown; // this should be INotificationSink 
+    }
+
+//---------------------------------------------------------------
+//                  Tray Notification Agent
+//---------------------------------------------------------------
+
+    //
+    // Tray Notification Agent Object
+    //
+    [
+        uuid(E8BB6DC0-6B4E-11d0-92DB-00A0C90C2BD7), // CLSID_OfflineTrayAgent
+        helpstring("Tray Notification Object")
+    ]
+    coclass OfflineTrayAgent
+    {
+        [default] interface IUnknown; // this should be INotificationSink 
+    }
+
+//---------------------------------------------------------------
+//                  Connection agent
+//---------------------------------------------------------------
+
+    //
+    // Connection Agent Object
+    //
+    [
+        uuid(E6CC6978-6B6E-11D0-BECA-00C04FD940BE), // CLSID_ConnectionAgent
+        helpstring("Connection Agent Object")
+    ]
+    coclass ConnectionAgent
+    {
+        [default] interface IUnknown; // this should be INotificationSink 
+    }
+
+//---------------------------------------------------------------
+//                  Post Agent
+//---------------------------------------------------------------
+
+    //
+    // Post Agent Object
+    //
+    [
+        uuid(d8bd2030-6fC9-11d0-864f-00aa006809d9), // CLSID_PostAgent
+    ]
+    coclass PostAgent
+    {
+        [default] interface IUnknown; // this should be INotificationSink 
+    }
+
+
+//---------------------------------------------------------------
+//                  Code Download Agent
+//---------------------------------------------------------------
+
+    //
+    // Code Download Agent Object
+    //
+    [
+        uuid(7D559C10-9FE9-11d0-93F7-00AA0059CE02), // CLSID_CDLAgent
+        helpstring("Code Download Agent Object")
+    ]
+    coclass CDLAgent
+    {
+        [default] interface IUnknown; // this should be INotificationSink 
+    }
+}
+

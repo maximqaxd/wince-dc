@@ -1,0 +1,14 @@
+; Copyright (c) 1995-2000 Microsoft Corporation.  All rights reserved.
+LIBRARY         OHCD
+
+EXPORTS         HCD_Init
+                HCD_PowerUp
+                HCD_PowerDown
+                HCD_Deinit
+                HCD_Open
+                HCD_Close
+                HCD_Read
+                HCD_Write
+                HCD_Seek
+                HCD_IOControl
+

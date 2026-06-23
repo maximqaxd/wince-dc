@@ -1,0 +1,89 @@
+!IF "$(_TGTCPUTYPE)"=="THUMB"
+BUILDASARM=1
+
+TARGETTYPE=LIBRARY
+!ELSE
+TARGETTYPE=
+!ENDIF
+
+TARGETNAME=kdthumb
+
+
+WINCEOEM=1
+WINCEPROJ=COMMON
+
+!IF "$(_TGTCPUTYPE)"=="SHx"
+CDEFINES=-DSPEED_HACK
+INCLUDES=shx
+!ENDIF
+
+!IF "$(_TGTCPUTYPE)"=="x86"
+CDEFINES=-DSPEED_HACK
+INCLUDES=x86
+!ENDIF
+
+!IF "$(_TGTCPUTYPE)"=="MIPS"
+INCLUDES=mips
+!ENDIF
+
+!IF "$(_TGTCPUTYPE)"=="PPC"
+INCLUDES=ppc
+!ENDIF
+
+!IF "$(_TGTCPUTYPE)"=="ARM" || "$(_TGTCPUTYPE)"=="THUMB"
+CDEFINES=-DSPEED_HACK
+INCLUDES=arm
+!ENDIF
+
+!IFDEF DBGOTHER
+CDEFINES=$(CDEFINES) -DDBGOTHER
+!ENDIF
+
+
+# Machine independent defines
+AFPUDEFINES=-DMIPS_HAS_FPU $(AFPUDEFINES)
+CFPUDEFINES=-DMIPS_HAS_FPU $(CFPUDEFINES)
+
+CDEFINES=$(CDEFINES) -DBUILDING_DEBUGGER -DWINCEMACRO -DCOREDLL 
+NOMIPS16CODE=1
+INCLUDES=$(INCLUDES);$(_PRIVATEROOT)\winceos\coreos\nk\inc;$(_PRIVATEROOT)\winceos\coreos\nk\kdstub;
+
+CONDITIONAL_INCLUDES=shx\shx.h
+
+SOURCES= \
+   ..\kddata.c \
+   ..\KDCOMIO.c \
+   ..\KDAPI.c \
+   ..\KDMOVE.c \
+   ..\dbg.c \
+   ..\KDDBGIO.c \
+   ..\kdinit.c \
+   ..\kdtrap.c \
+   ..\kdtran.c \
+   ..\kdctrl.c \
+   ..\odebug.c 
+
+SHx_SOURCES= \
+   ..\kdbreak.c  \
+   ..\shx\kdkernel.c \
+   ..\shx\kdasm.src   \
+
+MIPS_SOURCES= \
+   ..\mips\kdbreak.c    \
+   ..\mips\kdkernel.c  \
+   ..\mips\kdasm.s     \
+
+PPC_SOURCES= \
+   ..\kdbreak.c  \
+   ..\ppc\kdkernel.c  \
+   ..\ppc\kdasm.s     \
+
+x86_SOURCES=	\
+   ..\kdbreak.c  \
+   ..\x86\kdkernel.c \
+   ..\x86\dbgasync.c
+
+ARM_SOURCES= \
+   ..\kdbreak.c  \
+   ..\arm\kdkernel.c  \
+   ..\arm\kdasm.s

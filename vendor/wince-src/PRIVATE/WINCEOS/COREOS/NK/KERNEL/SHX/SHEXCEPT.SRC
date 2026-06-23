@@ -1,0 +1,2518 @@
+	.HEADING "SH3 Interrupt and Exception Processing"
+;++
+;
+; Copyright (c) 1995-2000 Microsoft Corporation.  All rights reserved.
+;
+; Module Name:
+;
+;    shexcept.src
+;
+; Abstract:
+;
+;    This module implements the code necessary to field and process SH3
+;    interrupt and exception conditions.
+;
+;    WARNING: This module executes in KSEG0 and, in general, cannot
+;	tolerate a TLB Miss. Registers k0 and k1 are used during initial
+;	interrupt and exception processing, and therefore, extreme care must
+;	be exercised when modifying this module.
+;
+; Revision History:
+;
+;--
+
+	.list OFF
+	.include "ksshx.h"
+	.list ON
+
+VALIDATE_CACHE: .equ 0			; set to force cache validation.
+INTRLOCK_LEDS: .equ 0
+
+API_MAX: .equ	FIRST_METHOD - (h'3fff * 2)
+
+	.import	_DoPowerOff
+	.import _DumpFrame
+	.import _HandleException
+	.import _KernelInit
+	.import	_NextThread
+	.import _KCNextThread
+	.import	_RunList
+	.import _SleepList
+	.import	_ObjectCall
+	.import	_ServerCallReturn
+	.import _SH3Init
+	.import _ExceptionDispatch
+	.import	OEMNMI
+	.import	_OEMIdle
+	.import	_SetBadHandleError
+  .aif SH_CPU eq h'40
+	.import _dwStoreQueueBase
+	.import _SH4CacheLines
+  .aelse
+   	.import _SH3CacheLines
+  .aendi
+  .aif CELOG eq h'01
+        .import _CeLogInterruptSHx
+        .import _CELOG_ThreadMigrateSHx
+        .import _dwCeLogTLBMiss
+  .aendi
+
+	.PAGE
+	.section .data,data
+	.align	4
+	.export _InterruptTable
+	.export	ExceptionTable
+ExceptionTable:
+	.data.l	_UnusedHandler		; 0x000 power-on reset (intr resched)
+	.data.l	_UnusedHandler		; 0x020 manual restart
+	.data.l	_UnusedHandler		; 0x040 TLB miss load
+	.data.l	_UnusedHandler		; 0x060 TLB miss store
+	.data.l	_UnusedHandler		; 0x080 initial page write
+	.data.l	_UnusedHandler		; 0x0A0 TLB protection violation (load)
+	.data.l	_UnusedHandler		; 0x0c0 TLB protection violation (store)
+	.data.l	_UnusedHandler		; 0x0e0 address error (load)
+	.data.l	_UnusedHandler		; 0x100 address error (store)
+	.data.l	_UnusedHandler		; 0x120 reserved
+	.data.l	_UnusedHandler		; 0x140 reserved
+	.data.l	_UnusedHandler		; 0x160 TRAPA instruction
+	.data.l	_UnusedHandler		; 0x180 reserved instruction
+	.data.l	_UnusedHandler		; 0x1A0 invalid delay slot instruction
+	.data.l	OEMNMI				; 0x1C0 NMI (general interrupt request)
+	.data.l	_UnusedHandler		; 0x1E0 user breakpoint (HW breakpoints)
+_InterruptTable:
+	.arepeat 112				; 0x200-0xfe0 HW interrupts
+	.data.l	_UnusedHandler
+	.aendr
+  .aif SH_CPU eq h'40
+_bEnableRAMMode:
+	.res.l 1
+  .aendi
+ .export _IntrPrio
+_IntrPrio:
+	.data.b 0xf,0xe,0xd,0xc,0xb,0xa,0x9,0x8,0x7,0x6,0x5,0x4,0x3,0x2,0x1,0x0 ; 0x200-0x3e0
+	.data.b 0x1,0x1,0x1,0x1,0x1,0x1,0x1,0x1,0x1,0x1,0x1,0x1,0x1,0x1,0x1,0x1 ; 0x400-0x5e0
+	.data.b 0x1,0x1,0x1,0x1,0x1,0x1,0x1,0x1,0x1,0x1,0x1,0x1,0x1,0x1,0x1,0x1 ; 0x600-0x7e0
+	.data.b 0x1,0x1,0x1,0x1,0x1,0x1,0x1,0x1,0x1,0x1,0x1,0x1,0x1,0x1,0x1,0x1 ; 0x800-0x9e0
+	.data.b 0x1,0x1,0x1,0x1,0x1,0x1,0x1,0x1,0x1,0x1,0x1,0x1,0x1,0x1,0x1,0x1 ; 0xa00-0xbe0
+	.data.b 0x1,0x1,0x1,0x1,0x1,0x1,0x1,0x1,0x1,0x1,0x1,0x1,0x1,0x1,0x1,0x1 ; 0xc00-0xde0
+	.data.b 0x1,0x1,0x1,0x1,0x1,0x1,0x1,0x1,0x1,0x1,0x1,0x1,0x1,0x1,0x1,0x1 ; 0xe00-0xfe0
+
+	.section .KDATA,stack
+	.export _KDBase
+	.export _KStack
+_KDBase: .res.b h'1000	; reserve an extra page for the debugger
+	 .res.b	h'7e0
+_KStack: .res.l	8
+	.export	_KData
+_KData:	.res.b	cMsec
+	.export _CurMSec
+_CurMSec: .res.b 4
+	.export _DiffMSec
+_DiffMSec: .res.b h'400 - cDMsec
+
+	.section .text,code,align=16
+
+KPAGE_PTEL: .equ _KData + h'14a	; user read-only, 1k, cachable, !dirty, shared, valid
+
+   .aif SH_CPU eq h'40
+
+PR_B1_BK: .equ h'70008000	; privileged mode, bank 1, exceptions blocked
+PR_B0_IE: .equ h'40008000	; privileged mode, bank 0, un-blocked, intr unmasked
+PR_B0_IM: .equ h'400080f0	; privileged mode, bank 0, un-blocked, intr masked
+PR_B0_BK: .equ h'50008000	; privileged mode, bank 0, exceptions blocked
+
+	.aelse
+
+PR_B1_BK: .equ h'70000000	; privileged mode, bank 1, exceptions blocked
+PR_B0_IE: .equ h'40000000	; privileged mode, bank 0, un-blocked, intr unmasked
+PR_B0_IM: .equ h'400000f0	; privileged mode, bank 0, un-blocked, intr masked
+PR_B0_BK: .equ h'50000000	; privileged mode, bank 0, exceptions blocked
+
+	.aendi
+
+	START_REGION	ExceptionBase	; base to load into VBR
+
+	LEAF_ENTRY _DebugBreak
+	trapa	#1
+	rts
+	nop
+	.endf
+
+	LEAF_ENTRY _INTERRUPTS_ON
+	mov	#h'ffffff0f, r1
+	stc	SR, r0
+	and	r1, r0
+	ldc	r0, SR
+	rts
+	nop
+	.endf
+
+	LEAF_ENTRY _INTERRUPTS_OFF
+	stc	SR, r0
+	or	#h'f0, r0
+	ldc	r0, SR
+	rts
+	nop
+	.endf	
+
+	.align	4
+	.export	_PtrCurMSec
+_PtrCurMSec: .data.l _CurMSec
+
+
+; SetCPUASID - set address space id
+;
+;   SetCPUASID updates the MMU control registers and kernel page info
+; when a thread's current process or access key is changed.
+;
+;	Entry	(r4) = ptr to thread
+;	Return	nothing
+;	Uses	r0, r1, r2, r3, r7
+
+	LEAF_ENTRY _SetCPUASID
+
+  .aif CELOG eq h'01
+        ;
+        ; NOTE : To make things relatively consistent, I'm going to make
+        ; the registers R0-R3, R6 available for use. On entry to
+        ; CeLogThreadMigrateSHx R0 will contain the handle of the process.
+        ;
+        ; I'm assuming that at this point the only registers that I need to
+        ; preserve are R4 (ptr to thread) and PR (return address)
+        ;
+
+        mov.l	@(ThProc,r4), r0	; (r0) = ptr to current process
+        mov	@(PrcHandle,r0), r0	; (r0) = handle of current process
+        mov	#_KData+hCurProc, r1	; (r1) = &hCurProc
+	mov	@r1, r1			; (r1) = old process handle
+        cmp/eq  r0, r1                  ; if new process == old process
+        bt/s    celog10                 ; then skip CeLog call
+        nop
+
+        sts     pr, @-r15               ; Save current return address
+        mov.l   r4, @-r15               ; Save register
+
+        mov.l	@(ThProc,r4), r5	; (r5) = ptr to current process
+        mov	@(PrcHandle,r5), r4	; (r4) = handle of current process
+
+        mov     #_CELOG_ThreadMigrateSHx, r2
+        jsr     @r2                     ; CELOG_ThreadMigrateSHx(hProc)
+        nop
+
+        mov.l   @r15+, r4               ; Restore register
+        lds     @r15+, pr               ; Restore return address
+
+celog10:
+
+  .aendi
+
+        mov.l	@(ThProc,r4), r1	; (r1) = ptr to current process
+        mov	#_KData+hCurProc, r0	; (r0) = &hCurProc
+        mov	@(PrcHandle,r1), r7	; (r7) = handle of current process
+	mov	#2-VA_SECTION, r2	; (r2) = right shift count
+	mov	r7, @r0			; set current process handle
+	add	#bResched-hCurProc, r0	; (r0) = &bResched
+	mov.l	r1, @(pCurPrc-bResched,r0)	; set current process pointer	   |
+	add	#aSections-bResched, r0	; (r0) = ptr to SectionTable		   |
+	mov.l	@(PrcVMBase,r1), r3	; (r3) = memory section base address	   |
+	mov	#SH3CTL_BASE, r7	;					   |
+	ERRNZ PrcID			;					   |
+	mov.b	@r1, r1			; (r1) = process ID			   |
+	shld	r2, r3			; (r3) = section index * 4		   |
+	mov.l	@(r0,r3), r2		; (r2) = process's memory section	   |
+	mov.l	r1, @(MMUPTEH,r7)	; set ASID				   |
+	rts
+	mov.l	r2, @r0			; swap in default process slot
+        .endf
+
+	LEAF_ENTRY _SetCPUGlobals
+	mov #_KData+pCurThd, r0
+	mov @r0, r0
+	ldc	r0, r4_bank
+	rts
+	nop
+	.endf
+
+	.PAGE
+	LEAF_ENTRY KernelStart
+;* Inititalize Status register:
+;	Kernel mode,
+;	exceptions blocked,
+;	register bank 1
+	mov	#PR_B1_BK, r0
+	ldc	r0, SR			; (SR) = kmode, blocked, bank1
+	mov	#SH3CTL_BASE, r7	; (r7_priv) = ptr to SH3 control registers
+	mov	#h'A0000000, r2		; (r2) = un-cached, un-mapped region base
+	mov	#_SH3Init, r1
+	mov	#_KStack, r15
+	or	r2, r15			; (r15) = un-cached stack
+	or	r2, r1			; (r1) = un-cached destination
+
+	mov	#SH_CPU, r4		; (r4) = processor type
+	mov	#ExceptionBase, r3	; (r3) = kernel exception handlers
+	jsr	@r1			; perform general SH3 initialization
+	ldc	r3, VBR			; switch to kernel's exception handlers
+
+; Switch stack to cached, un-mapped region.
+	mov	#_KStack, r15		; switch to normal kernel stack
+
+; Load new status register with:
+;	kernel mode,
+;	excpetions enabled,
+;	register bank 0,
+;	interrupts un-masked.
+
+	mov	#SH3CTL_BASE, r7	; (r7_priv) = ptr to SH3 control registers
+	mov	#PR_B0_IE, r1
+	mov	#_KernelInit, r8
+	ldc	r1, SR			; (SR) = privileged, bank 0, unblocked
+	jsr	@r8
+	nop
+	bra	resched
+	mov	#0, r14			; no current thread
+	.endf
+
+	.PAGE
+;++
+; The following code is never executed. Its purpose is to support unwinding
+; through the call to the exception dispatcher.
+;--
+	NESTED_ENTRY APICall
+	sts.l	pr, @-r15
+	add	#-24, r15
+	PROLOG_END
+
+	.PAGE
+; Bank 1 registers are pre-loaded with the following values:
+;
+;	(r4) - ptr to current thread
+;	(r5) - ptr to context save area
+;	(r7) - SH3CTL_BASE (used to access MMU & exception data)
+
+	.org	h'100
+	mov	@(EXPEVT,r7), r0	; (r0) = exception code
+	mov	#h'e0, r1		; (r1) = address error load/excecute code
+	cmp/eq	r1, r0
+	bf/s	geh30			; not an address error,
+	or	#h'20, r0		; turn TLB load into 0x60 instead of 0x40
+
+; Address error on load or execute: check if system call. System calls are generated as
+; a jump to an odd address at the high end of the address space.
+
+	mov	#FIRST_METHOD, r1
+	stc	SPC, r0
+	mov	#API_MAX, r3		; (r3) = lower bound of API addresses
+	tst	#1, r0
+	bt	geh35			; SPC even: not a system call
+	cmp/hs	r3, r0			; 'T' set iff SPC >= API_MAX
+	bf	geh35			; address is outside of API range
+	sub	r1, r0
+	shar	r0			; (r0) = method index
+	stc	SSR, r2			; (r2) = previous status
+	mov	#PR_B0_IE, r1
+	ldc	r0, r3_user		; pass method index
+	ldc	r2, r2_user		; pass previous mode
+	ldc	r1, SR			; (SR) = privileged, bank 0, unblocked
+
+; Interrupts and preemption enabled but executing in kernel mode. Process system call or
+; return.
+;
+;	(r2) = previous status
+;	(r3) = iMethod
+;	(r0) = possible return value
+;	(r4-r7) = first four function arguments
+
+	mov	#SYSCALL_RETURN, r1
+	mov.l	r1, @-r15		; space for "extra info"
+
+	shlr16	r2
+	shlr8	r2			; (r2) = old status >> 24
+	mov	#h'40, r1
+	and	r1, r2			; (r2) = thread mode
+	mov	r2, @-r15		; save current thread mode
+
+	mov	#-1, r1
+	cmp/eq	r1, r3
+	bt	geh20			; PSL call returning
+
+;	Process system call. Save argument registers onto the stack.
+
+	mov.l	r4, @(8,r15)
+	mov.l	r5, @(12,r15)
+	mov.l	r6, @(16,r15)
+	mov.l	r7, @(20,r15)
+	sts	PR, r5			; (r5) = return address (arg1)
+	mov	r15, r6
+	add	#8, r6			; (r6) = ptr to argument list (arg2)
+	mov	#_ObjectCall, r0
+	mov	r15, r4			; (r4) = pMode (arg0)
+	add	#-20, r15		; make space for args
+	jsr	@r0
+	mov	r3, r7			; (r7) = method index (arg3)
+
+	mov.l	@(20,r15), r2		; (r2) = thread's execution mode
+	mov.l	@(28,r15), r4		;\				;
+	mov.l	@(32,r15), r5		; \				;
+	mov.l	@(36,r15), r6		;  > reload function arguments	;
+	mov.l	@(40,r15), r7		; /				;
+
+; Dispatch system call.
+;
+;	(r0) = API function address
+;	(r2) = mode to dispatch API call in
+;	(r4-r7) = first 4 API arguments
+
+	mov	#SYSCALL_RETURN, r3
+	tst	r2, r2
+	bf/s	geh19			; invoke API function in kernel mode
+	add	#28, r15		; clear ObjectCall parameters from the stack
+	lds	r3, PR			; (pr) = PSL call return
+
+; Continue thread in user mode. This may be either an API call or
+; an API return.
+;
+;	(r0) = address to continue at
+;	(r3) = API return value (if returning)
+
+geh15:	mov	#PR_B0_BK, r1
+	ldc	r1, SR			; bank 0, exceptions blocked
+	ldc	r0, SPC
+
+	; handle fpu
+	.aif SH_CPU eq h'40
+	mov #_KData+g_CurFPUOwner, r1
+	mov @r1, r1
+	mov #_KData+pCurThd, r0
+	mov @r0, r0
+	cmp/eq r0,r1
+	bt geh16
+	mov #h'8000, r1
+	or r1, r2
+    .aelse
+    ;  SH3. Check for DSP owner in case of SH3DSP (else CurDSPOwner == 0)
+    mov     #_KData+g_CurDSPOwner, r1
+    mov     @r1, r1
+    mov     #_KData+pCurThd, r0
+    mov     @r0, r0
+    cmp/eq  r0, r1
+    bf      geh16
+    mov     #h'1000, r1             ; set DSP enable (bit 12)
+    or      r1, r2
+	.aendi
+geh16:
+
+	ldc	r2, SSR
+	rte
+	mov	r3, r0			; (r0) = possible API return value
+	.nopool
+
+; Invoke API function in kernel mode.
+;
+;	(r0) = function address
+;	(r4-r7) = first 4 api arguments
+
+geh19:
+	jsr	@r0
+	nop
+  ALTERNATE_ENTRY _APICallReturn
+	mov	#h'40, r2		; (r2) = KERNEL_MODE
+	mov.l	r2, @-r15		; "extra info"
+	mov.l	r2, @-r15		; (TOS) = previous mode
+
+; The exception PC is SYSCALL_RETURN. Restore the thread's access key,
+; ASID and return to the original caller.
+;
+;	(r2) = previous status
+;	(r0) = return value
+;	(TOS) = previous mode
+;	(TOS+4) = space for "extra info"
+
+	.align	4
+geh20:
+	mov	#_ServerCallReturn, r1
+	mov	r15, r4			; (r4) = pMode (arg0)
+	mov.l	r0, @-r15		; save return value
+	jsr	@r1
+	add	#-16, r15		; make room for argument spill area
+
+	mov.l	@(20,r15), r2		; (r2) = mode to return to
+	mov.l	@(16,r15), r3		; (r3) = API return value
+	tst	r2, r2
+	bt/s	geh15			; return to user mode
+	add	#28, r15		; clear parameters from the stack
+	jmp	@r0
+	mov	r3, r0			; (r0) = API return value
+  	.endf
+
+;++
+; The following code is never executed. Its purpose is to support unwinding
+; through the call to the exception dispatcher.
+;--
+	NESTED_ENTRY GeneralException
+	;;add	#CtxR8-CtxSizeof, r14		; (r14) = ptr to CtxR8
+	mov.l	r14, @(CtxR14-CtxR8,r14)	; save R14
+	mov.l	r15, @(CtxR15-CtxR8,r14)	; save stack pointer
+	stc	SSR, r1
+	mov.l	r1, @(CtxPsr-CtxR8,r14)		; save processor status
+	stc	SPC, r1
+	mov.l	r1, @(CtxFir-CtxR8,r14)		; save original PC
+	add	#-CtxR8, r14			; (r14) = ptr to
+	sts	PR, r1
+	mov.l	r1, @(CtxPR,r14)
+	add	#-THREAD_CONTEXT_OFFSET, r14
+	PROLOG_END
+
+; Non-address error load exeception. Check for TLB Miss due to invalid entry and send
+; to the tlb miss handler if necessary.
+;
+;	(r0) = EXPEVT | 0x20
+
+	.align	4
+geh30:	cmp/eq	#h'60, r0
+	bf	geh35			; not a TLB Miss
+	bra	TLBMissHandler
+	nop
+	.nopool
+
+; General exception or TLB miss which cannot be resolved by the TLB miss handler.
+
+TLBMissError:	; return here from TLB miss handler if invalid address
+geh35:	mov	#_KData+bResched, r1
+	mov.b	@(1,r1), r0		; (r0) = kernel reentrancy flag
+	dt	r0			; decrement for each entry
+	bf/s	geh33			; nested exception
+	mov.b	r0, @(1,r1)		; save reentrancy level
+
+; Handle a general exception that is NOT a system call.
+;
+;	(r5) = ptr to CtxPSR+4.
+;	in register bank 1
+
+	stc	SSR, @-r5		; save status register
+	stc	SPC, @-r5		; save PC
+	mov.l	r15, @-r5		; save stack pointer
+	mov.l	r14, @-r5		; save register for ptr to current thread
+	mov	r4, r14			; (r14) = ptr to current thread
+	mov	#_KStack, r15		; switch to kernel's stack
+geh36:	mov.l	@(EXPEVT,r7), r0	; (r0) = exception event code
+	mov	#h'160, r2
+	mov.l	@(MMUTEA,r7), r1	; (r1) = translation address
+	cmp/eq	r0, r2
+	bf	geh41			; not a TRAPA exception
+	bra	geh41
+	mov.l	@(TRPA,r7), r1		; (r1) = trapa value
+	.nopool
+
+; A nested exception has occured. Create a temporary thread
+; structure on the stack and save the current state into that.
+;
+;	(r2) = old stack pointer
+;	in register bank 1
+
+geh33:	mov	r15, r5			; (r5) = ptr to context save area
+  .aif SH_CPU eq h'40
+	add	#h'80-CtxSizeof, r5
+	add	#(CtxPsr+4)-h'80, r5 ; (r5) = ptr to PSR save
+  .aelse
+	add	#(CtxPsr+4)-CtxSizeof, r5 ; (r5) = ptr to PSR save
+  .aendi
+	stc	SSR, @-r5		; save status register
+	stc	SPC, @-r5		; save PC
+	mov.l	r15, @-r5		; save stack pointer
+	mov.l	r14, @-r5		; save register for ptr to current thread
+	mov	r5, r15
+	add	#-CtxR14, r15
+	add	#-THREAD_CONTEXT_OFFSET, r15
+	mov	r15, r14		; (r14) = ptr to fake thread
+	mov	#-1, r3
+	mov.l 	r3, @(ThAKey, r14)	; Set access key to FFFFFFFF
+	bra	geh36
+	add	#-16, r15		; make room for argument spill area
+	.nopool
+
+; An interrupt has caused a reschedule. Setup the registers for a general
+; exception and jump into the context save & exception dispatch.
+;
+;	(r4) = ptr to current thread
+;	(r5) - ptr to context save area
+;	(r7) - SH3CTL_BASE (used to access MMU & exception data)
+;	cNest == 0 (not inside another exception)
+;	in register bank 1
+
+InterruptResched:
+	stc	SSR, @-r5		; save status register
+	stc	SPC, @-r5		; save PC
+	mov.l	r15, @-r5		; save stack pointer
+	mov.l	r14, @-r5		; save register for ptr to current thread ptr
+	mov	#0, r0			; (r0) = fake EXPEVT value
+	mov	#_KStack, r15		; switch to kernel's stack
+	mov	r4, r14			; (r14) = ptr to current thread
+
+geh41:	mov.l	r13, @-r5
+	mov.l	r12, @-r5
+	mov.l	r11, @-r5
+	mov.l	r10, @-r5
+	mov.l	r9, @-r5
+	mov.l	r8, @-r5
+	stc	r7_user, @-r5
+	stc	r6_user, @-r5
+	stc	r5_user, @-r5
+	stc	r4_user, @-r5
+	stc	r3_user, @-r5
+	stc	r2_user, @-r5
+	stc	r1_user, @-r5
+	stc	r0_user, @-r5
+	ldc	r1, r6_user		; (r6) = TEA or TRAPA value (arg2)
+	stc	GBR, @-r5
+	sts	MACL, @-r5
+	mov	#CONTEXT_FULL, r1
+	sts	MACH, @-r5
+	sts	PR, @-r5
+	mov.l	r1, @-r5		; set context flags
+	mov	#PR_B0_IE, r1
+	mov	r0, r8			; (r8) = exception cause
+	ldc	r1, SR			; (SR) = privileged, bank 0, unblocked
+
+; Check for interlocked API in progress. The interlocked apis setup the registers
+; as follows: (r1) = starting address of sequence, (r2) = ending address of
+; sequence, (r3) = (r1) ^ INTRLOCK_KEY.
+;
+;	(r6) = TEA or TRAPA code (arg2)
+;	(r8) = exception cause (from EXPEVT, 0 if interrupt reschedule)
+;	(r14) = ptr to current thread
+;	in register bank 0.
+
+	mov	#INTERLOCKED_END, r1	; (r1) = end of interlocked api block
+	mov	r14, r9
+	add	#THREAD_CONTEXT_OFFSET+CtxR2, r9
+	mov.l	@(CtxFir-CtxR2,r9), r5	; (r5) = resume address
+	cmp/hi	r5, r1			; 'T' = r1 > r5
+	bt	geh70			; PC < INTERLOCKED_END
+
+; Dispatch general exception.
+;
+;	(r6) = TEA or TRAPA code (arg2)
+;	(r8) = exception cause
+;	(r9) = ptr to CtxR2 in Current Thread's context
+;	(r14) = ptr to current thread
+;	All user registers saved into thread context
+;	in register bank 0
+
+geh45:	tst	r8, r8
+	bt	geh55			; this is a reschedule request
+ 	mov	#_HandleException, r1
+	mov	r8, r5			; (r5) = exception cause (arg1)
+	jsr	@r1
+	mov	r14, r4			; (r4) = ptr to current thread (arg0)
+
+	tst	r0,r0
+	bt	geh55			; must reschedule
+	bra	geh60			; resume the current thread
+	nop
+	.nopool
+
+; The current thread is yielding. Save the permanent registers into the
+; thread's context structure and invoke NextThread.
+;
+;	(r14) = ptr to current thread
+;	in register bank 0
+
+	.align	4
+SaveAndResched:
+	mov	r14, r4
+	add	#THREAD_CONTEXT_OFFSET, r4; (r4) = ptr to CtxFlags
+	mov	#0, r0
+	mov.l	r0, @(CtxContextFlags,r4)
+	add	#CtxR8, r4		; (r4) = ptr to CtxR8
+	mov.l	r8, @(CtxR8-CtxR8,r4)
+	mov.l	r9, @(CtxR9-CtxR8,r4)
+	mov.l	r10, @(CtxR10-CtxR8,r4)
+	mov.l	r11, @(CtxR11-CtxR8,r4)
+	mov.l	r12, @(CtxR12-CtxR8,r4)
+	mov.l	r13, @(CtxR13-CtxR8,r4)
+
+; The current thread has been blocked or a reschedule is pending.
+; Call the scheduler to obtain the highest priority thread to run.
+;
+;	(r14) = ptr to current thread
+;	register bank unknown
+
+resched:
+geh55:	mov	#PR_B0_IE, r1
+	mov	#_KData+bResched, r9
+	ldc	r1, SR			; (SR) = privileged, bank 0, unblocked
+	mov.b	@(bPowerOff-bResched,r9), r0	; (r0) = "power off" flag
+	mov	#_NextThread, r8
+	tst	r0, r0
+	bf	PowerOff			; go do power off processing
+	mov.b	r0, @(bProfileOn-bResched,r9)	; clear profiling bit
+
+renextthread:
+	mov.b @r9, r0
+	cmp/eq #1, r0
+	bf nonextthread
+
+	mov #0, r0
+	jsr	@r8
+	mov.w	r0, @r9			; clear reschedule, still in kernel
+
+nonextthread:
+
+	mov @(dwKCRes-bResched, r9), r0
+	cmp/eq #1, r0
+	bf nokcresched
+
+	mov #_KCNextThread, r8
+	mov #0, r0
+	jsr @r8
+	mov r0, @(dwKCRes-bResched, r9)
+
+	mov @(dwKCRes-bResched,r9), r0
+	cmp/eq #1, r0
+	bt renextthread
+
+nokcresched:
+
+	mov #_RunList, r1
+	mov @(4,r1), r0
+
+	cmp/eq	#0, r0
+	bt	Idle			; no thread to run
+	cmp/eq	r0, r14
+	bt	geh60			; resume current thread
+
+; Switch to a different thread. Update current thread, current process, thread
+; local storage data, and process virtual memory context.
+;
+;	(r0) = ptr to thread to dispatch
+;	(r9) = ptr to bResched
+
+	.align	4
+geh56:	mov	#_KData+lpvTls, r6	; (r6) = &lpvTLS in KPage
+	mov	r0, r14			; (r14) = ptr to thread
+	mov.l	@(ThHandle,r14), r0	; (r0) = thread's handle
+	mov	#SH3CTL_BASE, r7
+	mov.l	r0, @(hCurThread-lpvTls,r6)	; save current thread handle in KPage
+	mov.l	@(ThProc,r14), r1	; (r1) = ptr to current process
+	mov.l	r14, @(pCurThd-bResched,r9)	; save current thread ptr in KPage
+	mov.l	r1, @(pCurPrc-bResched,r9)	; save current process ptr
+	mov.l	@(PrcHandle,r1), r0	; (r0) = process's handle
+	add	#aSections-bResched, r9	; (r9) = ptr to SectionTable
+	mov.l	r0, @(hCurProc-lpvTls,r6); save current process handle in KPage
+	mov.l	@(PrcVMBase,r1), r0	; (r0) = memory section base address	    |
+	mov	#2-VA_SECTION, r2	; (r2) = right shift count		    |
+	mov.l	@(ThTlsPtr,r14), r3	; (r3) = thread local storage pointer	    |
+	shld	r2, r0			; (r0) = section index * 4		    |
+	mov.l	r3, @r6			; set TLS pointer			    |
+	ldc	r14, r4_bank		; (r4_bank1) = ptr to current thread	    |
+	ERRNZ PrcID			;					    |
+	mov.b	@r1, r4			; (r4) = process ID			    |
+	mov.l	@(r0,r9), r2		; (r2) = process's memory section	    |
+	mov.l	r4, @(MMUPTEH,r7)	; set ASID				    |
+	mov.l	r2, @r9			; swap in default process slot		    |
+
+; Restore thread state.
+;
+;	(r14) = ptr to thread structure
+
+geh60:	mov	r14, r7
+	add	#THREAD_CONTEXT_OFFSET, r7
+	mov	r7, r11
+	mov.l	@r7+, r0		; (r0) = ContextFlags
+	lds	@r7+, PR		; restore return address
+	tst	r0, r0
+	bt	geh65			; only partial restore needed
+	lds	@r7+, MACH
+	lds	@r7+, MACL
+	ldc	@r7+, GBR
+	add	#4, r7
+	mov.l	@r7+, r1
+	mov.l	@r7+, r2
+	mov.l	@r7+, r3
+	mov.l	@r7+, r4
+	mov.l	@r7+, r5
+	mov.l	@r7+, r6
+	mov.l	@r7, r7
+
+; Reload thread's permanent registers and return value.
+;
+;	(r11) = ptr to Current Thread's context structure
+;	(r13) = ptr to float save area
+;	(r14) = ptr to current thread
+
+geh65:	mov.l	@(CtxR8,r11), r8
+	mov.l	@(CtxR9,r11), r9
+	mov	#PR_B1_BK, r10		; (r10) = new SR value
+	mov.l	@(CtxR0,r11), r0	; (r0) = return value
+	mov	#_KData+bResched, r12
+	ldc	r10, SR			; (SR) = privileged, bank 1, blocked
+	;++++ now in bank 1 ++++
+	mov.w	@r12, r0		; (r0) = kernel reentrancy flag
+	mov.l	@(CtxR10,r11), r10
+
+	cmp/eq	#1, r0
+	bt	resched			; reschedule required
+
+	shlr8	r0
+	add	#1, r0
+	mov.b	r0, @(1,r12)		; save reentrancy level
+
+; if high bit of wPriority is set, profiling should be on, else profiling off
+;
+;	(r12) = ptr to bResched
+;	(r14) = ptr to current thread
+
+	mov.w	@(ThwInfo,r14), r0	; (r0) = thread's wInfo field
+	mov	r11, r5
+	shlr16	r0			; (r0) = 0xFFFF iff high bit was set
+	mov.b	r0, @(bProfileOn-bResched,r12)
+	add	#CtxR11, r5		; (r5) = ptr to CtxR11
+
+	mov.l	@r5+, r11
+	mov.l	@r5+, r12
+	mov.l	@r5+, r13
+	mov.l	@r5+, r14
+	mov.l	@r5+, r15		; restore stack pointer
+	ldc	@r5+, SPC
+	ldc @r5+, SSR
+
+	rte
+	nop
+	.nopool
+
+; PC is below the end of the INTERLOCKED APIs, check lower bound and adjust the PC
+; to restart the routine.
+;
+;	(r5) = resume address
+;	(r9) = ptr to CtxR2 in Current Thread's context
+;	(r14) = ptr to current thread.
+
+geh70:	mov	#INTERLOCKED_START, r1	; (r1) = start of interlocked api block
+	mov	#1, r0
+	tst	r0,r5
+	bf	geh75			; PC is odd, don't change it
+	cmp/hi	r5, r1			; 'T' = r1 > r5
+	bt	geh75			; out of range, no backup
+	mov	#-8, r1
+	and	r1, r5			; (old PC) &= ~7
+
+	.aif INTRLOCK_LEDS eq 1
+	mov	#h'AA001010, r2		; (r2) = LED address
+	mov.l	@r2, r0
+	add	#1,r0
+	mov.l	r0, @r2			; put it in lights
+	.aendi
+
+	mov.l	r5, @(CtxFir-CtxR2,r9)	; backup PC to start of intrlocked sequence
+geh75:	bra	geh45
+	nop
+	.nopool
+
+; There are no threads which are ready to run. Put the cpu to sleep until
+; something is made ready. Since an interrupt may occur between when NextThread
+; returns and we get here, the reschedule flag must be checked. To avoid a timing
+; race between checking the flag and sleeping, interrupts are blocked but not
+; masked before checking the flag. The CPU will acknowledge interrupts regardless
+; of the block bit when it is in sleep state.
+;
+;	(r9) = ptr to bResched
+
+Idle:	mov	#PR_B0_BK, r1
+	mov	#_OEMIdle, r8
+	ldc	r1, SR			; (SR) = privileged, bank 0, exceptions blocked
+	mov.b	@r9, r0			; (r0) = reschedule flag
+	tst	r0, r0
+	bf	geh55			; reschedule needed, don't sleep
+	jsr	@r8			; call OEMIdle to sleep
+	nop
+
+	mov	#_KData+bResched, r1
+	mov #1, r0
+	mov.b	r0, @r1		; (r0) = reschedule flag
+
+	bra	geh55
+	nop
+	.nopool
+
+; The power off flag has been set. Mask off interrupts, and call DoPowerOff() to
+; notify the file system and invoke OEMPowerOff. Since the cpu state may be unknown
+; upon return, the kernel's well known bank 1 registers must restored.
+;
+;	(r9) = ptr to bResched
+;	(r14) = current thread
+
+PowerOff:
+	mov	#PR_B0_IM, r1
+	mov	#_DoPowerOff, r2
+	ldc	r1, SR			; (SR) = privileged, bank 0, ints masked
+	mov	#0, r0
+	jsr	@r2
+	mov.w	r0, @r9			; clear reschedule, still in kernel
+	mov	#SH3CTL_BASE, r0
+	ldc	r0, r7_bank		; (r7_priv) = ptr to SH3 control registers
+	mov	#0, r14			; (r14) = 0 (no current thread)
+	mov	#0, r0
+	bra	geh55
+	mov.b	r0, @(bPowerOff-bResched,r9)
+	.endf
+
+	.PAGE
+	.org	h'400
+; TLB Miss handler
+;
+; Bank 1 registers are pre-loaded with the following values:
+;
+;	(r4) - ptr to current thread
+;	(r5) - ptr to context save area
+;	(r7) - SH3CTL_BASE (used to access MMU & exception data)
+
+	LEAF_ENTRY TLBMissHandler
+	mov.l	@(MMUTEA,r7), r1	; (r1) = faulting virtual address
+	mov.l	@(MMUTTB,r7), r0	; (r0) = ptr to SectionTable array
+tlb10:	cmp/pz	r1
+	bf	tlb55			; address >2GB, out of SectionTable bounds
+	shlr8	r1
+	mov	r1, r2			; (r2) = TEA >> 8
+	shlr16	r1			; (r1) = TEA >> 24
+	shlr	r1			; (r1) = section table index (TEA>>25)
+	shll2	r1
+	mov.l	@(r1,r0), r0		; (r0) = ptr to section
+	mov	r2, r1			; (r1) = TEA >> 8
+	mov	#BLOCK_MASK, r3
+	shlr8	r1			; (r1) = TEA >> 16
+	and	r3, r1			; (r1) = block index
+	shll2	r1
+	mov.l	@(r1,r0), r1		; (r1) = ptr to MEMBLOCK structure
+	mov.l	@(ThAKey,r4), r3	; (r3) = thread's access key
+	cmp/pz	r1
+	bt/s	tlb60			; unmapped block
+	mov	r2, r0			; (r0) = TEA >> 8
+	mov.l	@(mb_lock,r1), r2	; (r2) = block's access lock
+	add	#mb_pages, r1		; (r1) = ptr to array of TLB entries
+	tst	r2, r3			; (T) = 1 iff access is allowed
+	bt	tlb60			; thread cannot access this block
+  .aif VA_PAGE eq 12
+	shlr2	r0			; (r0) = TEA >> 10
+  .aendi
+	and	#PAGE_MASK4, r0		; (r0) = page index * 4
+	mov.l	@(r0,r1), r0		; (r0) = TLB entry
+	tst	#1, r0
+	bt	tlb60			; invalid entry
+tlb40:
+  .aif SH_CPU eq h'40
+  	mov.l	r0, r1
+	add #-1, r0			; // clear "write through" bit
+  	mov #-9, r3
+  	shld r3, r1
+        mov #1, r3
+        tst r3, r1
+  	mov #-20, r3
+  	shld r3, r1
+        bt tlb40a
+        add #16, r1
+tlb40a:
+	mov.l	r1, @(MMUPTEA,r7)	; set assistance part of TLB entry
+  .aendi
+	mov.l	r0, @(MMUPTEL,r7)	; set lower part of TLB entry
+	ldtlb
+	nop
+	nop
+
+  .aif CELOG eq h'01
+        ;
+        ; Update the TLBMiss counter for CELOG
+        ;
+        mov     #_dwCeLogTLBMiss, r2
+        mov.l   @r2, r1
+        add     #1, r1
+        mov.l   r1, @r2
+  .aendi
+
+tlb45:	rte
+	nop
+	.nopool
+
+; Sh3 chip bug work around. When an RTS at a page boundary causes an address
+; error (PSL return) and delay slot fetch causes a TLB miss, the CPU incorrectly
+; reports the TEA as the address error value instead of the TLB miss address.
+;
+;	(r1) = TEA
+;	(r4) = ptr to current thread
+
+tlb55:
+  .aif SH_CPU eq h'40
+	mov r1, r0
+  	mov #-26, r3
+  	shld r3, r0
+  	and #h'3f, r0
+  	mov #h'38, r3
+  	cmp/eq r0, r3
+  	bf tlb56
+	mov	#h'E0000000, r0
+	sub r0, r1
+	mov #h'fff00000, r0
+	and r0, r1
+	mov #_dwStoreQueueBase, r0
+	mov @r0, r0
+	add r1, r0
+	bra tlb40
+	nop
+tlb56:
+	.aendi
+	cmp/eq	r4, r1
+	bf	tlb60			; TEA != ptr to current thread, fault
+	stc	SPC, r1			; (r1) = SHDB address of RTS
+	bra	tlb10			; continue with correct TEA
+	add	#8, r1			; put into the next page
+
+; Invalid virtual address or this thread's key does not allow access to the
+; memory block. Jump to the general exception handler to process the fault.
+
+tlb60:
+	bra	TLBMissError
+	nop
+	.nopool
+
+	.PAGE
+	ALTERNATE_ENTRY _LoadKPage
+; Load User KPage entry into TLB.	
+	mov	#KPAGE_PTEL, r1
+	mov	#SH3CTL_BASE, r3
+	mov	@(MMUPTEH,r3), r0	; (r0) = ASID in LSByte
+	mov	#USER_KPAGE, r4
+	and	#h'FF, r0		; (r0) = ASID
+	or	r4, r0			; (r0) = User KPage | ASID
+	shll	r1
+	mov.l	r0, @(MMUPTEH,r3)
+	shlr	r1			; clear hit bit of entry
+	mov.l	r1, @(MMUPTEL,r3)
+	ldtlb
+	nop
+	nop
+	rts
+	nop
+	.nopool
+
+	.PAGE
+	ALTERNATE_ENTRY	_VerifyAccess
+; VerifyAccess(PVOID pvAddr, DWORD dwFlags, ACCESSKEY aky)
+;		- verify access to a pointer
+;
+;	VerifyAccess checks to see if the current thread has access to
+; the given address. If bWrite is TRUE, both read & write access are
+; verified.
+;
+;	Entry	(r4) = virtual address to verify
+;		(r5) = type of access to verify
+;		(r6) = access key to use for validation
+;	Return	TRUE - access is OK
+;		FALSE - if access is not valid
+;	Uses	r0, r1, r2, r3
+
+	mov	#SH3CTL_BASE, r0
+	mov.l	@(MMUTTB,r0), r0	; (r0) = ptr to SectionTable array
+	cmp/pz	r4
+	bf	vfy60			; address >2GB, out of SectionTable bounds
+	mov	r4, r1
+	shlr8	r1
+	mov	r1, r2
+	shlr16	r2			; (r2) = TEA >> 24
+	shlr	r2			; (r2) = section table index
+	shll2	r2
+	mov.l	@(r2,r0), r0		; (r0) = ptr to section
+	mov	r1, r2
+	mov	#BLOCK_MASK, r3
+	shlr8	r1
+	and	r3, r1			; (r1) = block index
+	shll2	r1
+	mov.l	@(r1,r0), r1		; (r1) = ptr to MEMBLOCK structure
+	cmp/pz	r1
+	bt/s	vfy35			; unmapped block
+	mov	r2, r0
+	mov.l	@(mb_lock,r1), r2	; (r2) = block's access lock
+	add	#mb_pages, r1		; (r1) = ptr to array of TLB entries
+  .aif VA_PAGE eq 12
+	shlr2	r0			; (r0) = TEA >> 10
+  .aendi
+	and	#PAGE_MASK4, r0		; (r0) = page index * 4
+	mov.l	@(r0,r1), r0		; (r0) = TLB entry
+	tst	r2, r6			; (T) = 1 iff access is allowed
+	bt	vfy50			; thread cannot access this block
+	tst	#1, r0
+	bt	vfy50			; invalid entry
+  .aif VA_PAGE eq 12
+	mov	#h'fff, r1
+  .aelse
+	mov	#h'3ff, r1
+  .aendi
+
+vfy20:	mov	#VERIFY_WRITE_FLAG, r2
+	tst	r2, r5
+	bf	vfy40			; need to validate write permission
+vfy30:	and	r1, r4			; (r4) = offset w/in page
+	not	r1, r1			; (r1) = PFN mask
+	and	r1, r0			; (r0) = physical page address
+	mov	#h'80000000, r1		; (r1) = unmapped region base
+	or	r4, r0			; (r0) = physical byte address
+	rts
+	or	r1, r0			; (r0) = unmapped byte address
+	.nopool
+
+; Unmapped virtual address. If the address is the kernel data page, load a
+; shared TLB entry to map that page. Otherwise, jump to the general exception
+; handler to process the fault.
+;
+;	(r0) = Address >> 8
+
+vfy35:	shlr2	r0			; (r0) = Address >> 10
+	cmp/eq	#USER_KPAGE_SHR10, r0
+	mov	#KPAGE_PTEL, r0
+	mov	#h'3ff, r1		; (r1) = page offset mask (KPage is always 1K)
+	bt	vfy20			; the address is the User KPage
+	;** Fall through to vfy40. The write verify will fail.
+
+; Verify write access.
+;
+;	(r0) = page table entry
+
+vfy40:	tst	#h'20, r0
+	bf	vfy30			; access allowed
+	;** Fall through into vfy50 to return failure.
+
+; Invalid virtual address or this thread's key does not allow access to the
+; memory block. Return 0 to indicate an invalid address.
+
+vfy50:	rts
+	mov	#0, r0
+	.nopool
+
+; Address is in the kernel's memory space. Check the caller indicated that
+; kernel access was OK and that the address is not within the kernel mapped
+; address space from 0xC0000000 to 0xE0000000.
+;
+;	(r4) = address to verify
+
+vfy60:	mov	#h'C0000000, r3
+	mov	#VERIFY_KERNEL_OK, r2
+	tst	r2, r5
+	bf	vfy61			; access OK - flag was set
+	stc	r4_bank, r5		; (r5) = pCurThd
+	add	#THREAD_CONTEXT_OFFSET+CtxR2, r5
+	mov.l 	@(CtxPsr-CtxR2, r5), r5
+	shll	r5
+	shll	r5			; 'T' bit = Kernel mode status
+	bf	vfy50			; access not allowed - not in kernel mode
+
+vfy61:	cmp/hs	r3, r4			; 'T' set if Addr >= 0xC0000000
+	mov	#h'E0000000, r2
+	bf	vfy62			; access OK
+	cmp/hs	r2, r4			; 'T' set if Addr >= 0xE0000000
+	bf	vfy50			; don't allow access to kernel mapped space
+
+vfy62:	rts
+	mov	r4, r0			; access OK, return pointer unchanged
+	.endf
+
+	.PAGE
+	LEAF_ENTRY _ZeroPage
+;	void ZeroPage(void *vpPage)
+;
+;	Entry	(r4) = (vpPage) = ptr to address of page to zero
+;	Return	none
+;	Uses	r0, r1, r4
+
+	mov	#1 << (VA_PAGE-4), r1	; (r1) = # of 16 bytes units to zero
+	mov	#0, r0
+zp10:	mov.l	r0, @r4
+	mov.l	r0, @(4,r4)
+	mov.l	r0, @(8,r4)
+	mov.l	r0, @(12,r4)
+	dt	r1			; (r1) = # of units left
+	bf/s	zp10
+	add	#16, r4			; (r4) = next 16 byte unit
+	rts
+	nop
+	.endf
+
+	.PAGE	
+
+	LEAF_ENTRY _UnusedHandler
+	rts
+	mov	#SYSINTR_NOP, r0	; ignore the interrupt
+	.endf
+
+	.PAGE
+	.org	h'600
+; An interrupt exception has occured. Dispatch to an interrupt handler based
+; upon the higest unmasked pending interrupt bit which is set.
+;
+; Bank 1 registers are pre-loaded with the following values:
+;
+;	(r4) - ptr to current thread
+;	(r5) - ptr to context save area
+;	(r7) - SH3CTL_BASE (used to access MMU & exception data)
+
+	LEAF_ENTRY InterruptExceptionHandler
+	mov.l	@(INTEVT,r7), r6
+
+	mov	#ExceptionTable, r0
+	mov	r6, r2
+	shlr2	r2
+	shlr	r2			; (r1) = exception code >> 3
+	mov.l	@(r0,r2), r1		; (r1) = interrupt handler function
+	shlr2	r2
+	mov #_IntrPrio, r0
+	add #-16, r2
+	mov.b	@(r0,r2), r3
+
+	mov	#_KData+bResched, r2
+	mov.b	@(1,r2), r0		; (r0) = kernel reentrancy flag
+	dt	r0					; decrement for each entry
+	bf/s	ieh01			; nested exception
+	mov.b	r0, @(1,r2)		; save reentrancy level
+	mov	r15, r2
+	mov	#_KStack, r15		; switch to kernel's stack
+	mov.l	r2, @-r15		; save stack pointer
+ieh01:
+
+  .aif CELOG eq h'01
+        ;
+        ; NOTE : To make things relatively consistent, I'm going to make
+        ; the registers R0-R3, R6 available for use. On entry to CeLogInterruptSHx
+        ; R0 will contain the value to be logged (cNest + SYSINTR value)
+        ;
+        ; I'm assuming that at this point the only register of these that
+        ; I need to preserve is R1, R3, and PR
+        ;
+        sts     PR, @-r15               ; save current return address
+        mov.l   r0, @-r15               ; save registers
+        mov.l   r1, @-r15               ; save registers
+        mov.l   r2, @-r15               ; save registers
+        mov.l   r3, @-r15               ; save registers
+        mov.l   r6, @-r15               ; save registers
+
+        mov     #_CeLogInterruptSHx, r2
+	mov	#h'80000000, r3		; r3 = mark as ISR entry
+        jsr     @r2                     ; CeLogInterruptSHx(dwLogValue)
+        mov     r3, r0			; delay slot: r0 = r3
+
+        mov.l   @r15+, r6               ; Restore register
+        mov.l   @r15+, r3               ; Restore register
+        mov.l   @r15+, r2               ; Restore register
+        mov.l   @r15+, r1               ; Restore register
+        mov.l   @r15+, r0               ; Restore register
+        lds     @r15+, PR               ; Restore return address
+  .aendi
+
+	sts	PR, @-r15
+	stc	SPC, @-r15
+	stc	SSR, @-r15
+	stc	r0_user, @-r15
+	stc	r1_user, @-r15
+	stc	r2_user, @-r15
+	stc	r3_user, @-r15
+	stc	r6_user, @-r15
+
+	ldc	r1, r1_user
+
+	mov	#PR_B0_IE, r2
+
+	shll2	r3
+	shll2	r3
+	or	r3, r2
+
+	ldc	r2, SR		; bank 0, lower prio interrupts masked
+
+	jsr	@r1			; invoke interrupt service routine
+	nop
+
+	mov #PR_B1_BK, r2
+	ldc r2, SR
+
+	stc r0_user, r3
+
+	ldc @r15+, r6_user
+	ldc @r15+, r3_user
+	ldc @r15+, r2_user
+	ldc @r15+, r1_user
+	ldc @r15+, r0_user
+	ldc @r15+, SSR
+	ldc @r15+, SPC
+	lds @r15+, PR
+
+  .aif CELOG eq h'01
+        ;
+        ; NOTE : To make things relatively consistent, I'm going to make
+        ; the registers R0-R3, R6 available for use. On entry to CeLogInterruptSHx
+        ; R0 will contain the value to be logged (cNest + SYSINTR value)
+        ;
+        ; I'm assuming that at this point the only register of these that
+        ; I need to preserve is R3 (SYSINTR value) and PR (return address)
+        ;
+        sts     PR, @-r15               ; save current return address
+        mov.l   r3, @-r15               ; save registers
+        mov     #_KData+cNest, r1
+        mov.b   @r1, r1                 ; r1 = nest level (0, -1, -2, etc)
+        neg     r1, r1                  ; r1 = nest level (0,  1,  2, etc)
+        shll16  r1                      ; r1 <<= 16
+
+        mov     #_CeLogInterruptSHx, r2
+        or      r1, r3                  ; r3 = (-cNest << 16) | SYSINTR_val
+        jsr     @r2                     ; CeLogInterruptSHx(dwLogValue)
+        mov     r3, r0
+
+        mov.l   @r15+, r3               ; Restore register
+        lds     @r15+, PR               ; Restore return address
+  .aendi
+
+	mov	#_KData+bResched, r2
+	mov.b @(1,r2), r0
+	add #1, r0
+	mov.b r0, @(1,r2)
+	cmp/eq #1, r0
+	bf ieh02
+	mov @r15, r15
+ieh02:
+
+  	mov r3, r0
+
+	mov	#SH3CTL_BASE, r7
+	cmp/eq	#SYSINTR_NOP, r0
+	bt	ieh50			; no additional processing needed
+	cmp/eq	#SYSINTR_BREAK, r0
+	bt	ieh60			; external break button pushed
+	add	#-SYSINTR_DEVICES, r0
+	cmp/pz	r0
+	bf ieh40
+	mov	#_KData+PendEvents, r1	; r1 = &PendEvents
+	mov	#1, r3
+	mov.l	@r1, r2				; r2 = PendEvents
+	shld	r0, r3				; r3 = bit signifying current interrupt
+	or	r3, r2					; r2 = all interrupts so far (bitmask)
+	mov.l r2, @r1				; store PendEvents
+ieh40:	mov	#_KData+bResched, r1
+	mov.b @(1,r1), r0			; cNest
+	mov #1, r2
+	cmp/eq #1, r0
+	bf ieh49
+	bra	InterruptResched	; jump to general exception handler
+	mov.w	r2, @r1
+	.nopool
+
+; Check for interlocked API in progress. The interlocked apis are all located
+; at the end of the user kernel page. If the PC is less than INTERLOCKED_END and
+; greater than INTERLOCKED_START, then the PC is adjusted to restart the routine.
+;
+;	in register bank 1.
+
+ieh49:	mov.b	r2, @r1			; set bResched flag
+ieh50:	mov	#INTERLOCKED_END, r1	; (r1) = end of interlocked api block
+	stc	SPC, r0			; (r0) = interrupted PC
+	cmp/hi	r0, r1			; 'T' = r1 > r0
+	bt	ieh70			; PC < INTERLOCKED_END
+ieh55:	rte
+	nop
+	.nopool
+
+; External break button. Trap into the debugger.
+
+ieh60:	mov	#16, r0
+	mov	r0, @(TRPA,r7)		; set trapa code to 16 (trapa #4)
+	mov	#h'160, r0		; (r0) = trapa expevt value
+	bra	TLBMissError
+	mov	r0, @(EXPEVT,r7)	; set event code
+	.nopool
+
+; PC is below the end of the INTERLOCKED APIs, check lower bound and adjust the PC
+; to restart the routine.
+;
+;	(r0) = interrupted PC
+
+ieh70:	mov	#INTERLOCKED_START, r1	; (r1) = start of interlocked api block
+	tst	#1,r0
+	bf	ieh55			; PC is odd, don't change it
+	cmp/hi	r0, r1			; 'T' = r1 > r0
+	bt	ieh55			; out of range, no backup
+	mov	#-8, r1
+	and	r1, r0			; (old PC) &= ~7
+	ldc	r0, SPC			; update PC
+
+	.aif INTRLOCK_LEDS eq 1
+	mov	#h'AA001010, r2		; (r2) = LED address
+	mov.l	@r2, r0
+	add	#1,r0
+	mov.l	r0, @r2			; put it in lights
+	.aendi
+	rte
+	nop
+
+	.endf
+
+	NESTED_ENTRY xKCall
+;++
+; The following code is never executed. Its purpose is to support unwinding
+; through the call to the exception dispatcher.
+;--
+	mov.l	r15, @(0,r15)		; caller's stack pointer
+	sts.l	PR, @-r15		; return address
+	add	#-16, r15		; argument save area
+	PROLOG_END
+
+	ALTERNATE_ENTRY _KCall
+; KCall - call kernel function
+;
+;	KCall invokes a kernel function in a non-preemtable state by incrementing
+; the kernel nest level and switching onto a kernel stack.
+;
+;	While in a preemtible state, the thread's register save area is
+; volatile. On the way in, nothing can be saved into the thread
+; structure until KNest is set and on the way out anything needed from the
+; thread structure must be loaded before restoring KNest.
+;
+;	The sequence of stack switching must be handled carefully because
+; whenever KNest != 1, the general exception handler assumes that the kernel
+; stack is current and will not switch stacks. On the way in, we must switch
+; to the kernel stack before setting KNest but not use it until after KNest
+; is set.  On the way out, we must reset KNest before restoring the thread's
+; stack pointer.
+;
+;	Entry	(r4) = ptr to function to call
+;		(r5) = first function arg
+;		(r6) = second fucntion arg
+;		(r7) = third function arg
+;	Exit	(r0) = function return value
+;	Uses	r0-r7
+
+	mov	#_KData+bResched, r1
+	mov	r4, r3			; (r3) = ptr to function to call
+	mov.b	@(1,r1), r0		; (r0) = kernel nest level
+	mov	r5, r4			; ripple args down
+	mov	r6, r5
+	dt	r0
+	bf/s	kc50			; already in non-preemtible state
+	mov	r7, r6
+
+; Entering non-preemptible state. We must switch onto the kernel stack
+; before setting KNest in case an interrupt occurs during the switch.
+
+	mov	r15, r2			; (r2) = original stack pointer
+	mov	#_KStack, r15		; switch to kernel stack
+	mov.b	r0, @(1,r1)		; enter non-preemtible state (KNest = 0)
+	sts	PR, r0
+	mov.l	r2, @(20,r15)		; save thread's stack pointer
+	jsr	@r3			; invoke non-preemtible function
+	mov.l	r0, @(16,r15)		; save return address
+
+; Function complete. Return to preemtible state then check if a reschedule
+; is needed.
+
+	mov	#_KData+bResched, r1
+	mov	r0, r3			; (r3) = function return value
+	mov.l	@(16,r15), r2		; (r2) = return address
+	mov.l	@(20,r15), r5		; (r5) = original stack pointer
+	mov	#PR_B0_IM, r7		; (r7) = new status: bank0, priv, ints masked
+	stc	SR, r6			; (r6) = old status
+	ldc	r7, SR			; mask all interrtupts
+
+	mov.b	@r1, r0			; (r0) = reschedule flag
+	lds	r2, pr
+	cmp/eq	#1, r0
+	bt	kc20			; reschedule required.
+
+	mov @(dwKCRes-bResched,r1), r0
+	cmp/eq #1, r0
+	bt	kc20
+
+	mov	#1, r0
+	mov.b	r0, @(1,r1)		; leave non-preemtible state
+	mov	r3, r0			; (r0) = function return value
+	ldc	r6, SR			; restore interrupt mask state
+	rts
+	mov	r5, r15			; restore stack pointer
+	.nopool
+
+
+; ReschedFlag set, so must run the scheduler to find which thread
+; to dispatch next.
+;
+;	(r1) = ptr to bResched in KPage
+;	(r2) = return address
+;	(r3) = KCall return value
+;	(r5) = original stack pointer
+;	(r6) = old status register value
+
+kc20:	ldc	r6, SR			; restore interrupt mask state
+	mov.l	@(pCurThd-bResched, r1), r4	; (r4) = ptr to current THREAD
+	mov	r4, r1
+	add	#THREAD_CONTEXT_OFFSET, r1	; (r1) = ptr to thread's register context
+	mov.l	r3, @(CtxR0, r1)	; save return value
+	add	#CtxR8, r1		; (r1) = ptr to thread's R8
+	mov	#PR_B0_IE, r3		; (r3) = kernel mode PSR
+	mov.l	r2, @(CtxFir-CtxR8, r1)	; thread resumes at the return address
+	mov.l	r3, @(CtxPsr-CtxR8, r1)	;   & in kernel mode.
+	mov.l	r14, @(CtxR14-CtxR8, r1); save thread's R14
+	mov.l	r5, @(CtxR15-CtxR8, r1)	; save thread's stack pointer
+	bra	SaveAndResched
+	mov	r4, r14			; (r14) = ptr to current THREAD
+
+kc25:	bra	resched
+	mov	#0, r14			; no current thread
+
+; Nested KCall. Just invoke the function directly.
+;
+;	(r3) = function address
+;	(r4) = 1st function argument
+;	(r5) = 2nd function argument
+;	(r6) = 3rd function argument
+
+kc50:	jmp	@r3
+	nop
+
+	.endf
+
+  .aif SH_CPU eq h'40
+
+	LEAF_ENTRY _GetAndClearFloatCode
+	sts.l	fpscr, r1
+	mov	r1, r0
+	mov #h'3f000, r2
+	and r2, r0
+	not r2, r2
+	and r2, r1
+	lds r1, fpscr
+	shlr8 r0
+	shlr2 r0
+	shlr2 r0
+	rts
+	nop
+
+	LEAF_ENTRY _GetCauseFloatCode
+	sts.l	fpscr, r0
+	mov #h'3f000, r2
+	and r2, r0
+	shlr8 r0
+	shlr2 r0
+	rts
+	shlr2 r0
+
+	.endf
+
+	LEAF_ENTRY _SaveFloatContext
+	stc	SR, r0
+	mov #h'ffff7fff, r1
+	and r0, r1
+	ldc	r1, SR	
+	add #THREAD_CONTEXT_OFFSET, r4
+	add #CtxFpul+4, r4
+	sts.l	fpul, @-r4
+	sts.l	fpscr, @-r4
+	add	#(4*16)+8, r4	; (r4) = ptr to end of CtxFRegs
+  	add	#(4*16), r4	; (r4) = ptr to end of CtxXFregs
+  	mov	#0, r1
+  	lds	r1, fpscr
+  	.data.w h'FBFD		; frchg instr.
+	fmov.s	fr15, @-r4
+	fmov.s	fr14, @-r4
+	fmov.s	fr13, @-r4
+	fmov.s	fr12, @-r4
+	fmov.s	fr11, @-r4
+	fmov.s	fr10, @-r4
+	fmov.s	fr9, @-r4
+	fmov.s	fr8, @-r4
+	fmov.s	fr7, @-r4
+	fmov.s	fr6, @-r4
+	fmov.s	fr5, @-r4
+	fmov.s	fr4, @-r4
+	fmov.s	fr3, @-r4
+	fmov.s	fr2, @-r4
+	fmov.s	fr1, @-r4
+	fmov.s	fr0, @-r4
+	.data.w h'FBFD		; frchg instr.
+	fmov.s	fr15, @-r4
+	fmov.s	fr14, @-r4
+	fmov.s	fr13, @-r4
+	fmov.s	fr12, @-r4
+	fmov.s	fr11, @-r4
+	fmov.s	fr10, @-r4
+	fmov.s	fr9, @-r4
+	fmov.s	fr8, @-r4
+	fmov.s	fr7, @-r4
+	fmov.s	fr6, @-r4
+	fmov.s	fr5, @-r4
+	fmov.s	fr4, @-r4
+	fmov.s	fr3, @-r4
+	fmov.s	fr2, @-r4
+	fmov.s	fr1, @-r4
+	fmov.s	fr0, @-r4
+	ldc	r0, SR	
+	rts
+	nop
+	.endf
+
+	LEAF_ENTRY _RestoreFloatContext
+	stc	SR, r0
+	mov #h'ffff7fff, r1
+	and r0, r1
+	ldc	r1, SR
+	add #THREAD_CONTEXT_OFFSET, r4
+	add #CtxFpscr, r4
+	mov.l	@r4+, r2		; (r2) = new value for FPSCR
+	mov.l	@r4+, r3		; (r3) = new value for FPUL
+	mov	#0, r1
+	lds	r1, fpscr
+	fmov.s	@r4+, fr0
+	fmov.s	@r4+, fr1
+	fmov.s	@r4+, fr2
+	fmov.s	@r4+, fr3
+	fmov.s	@r4+, fr4
+	fmov.s	@r4+, fr5
+	fmov.s	@r4+, fr6
+	fmov.s	@r4+, fr7
+	fmov.s	@r4+, fr8
+	fmov.s	@r4+, fr9
+	fmov.s	@r4+, fr10
+	fmov.s	@r4+, fr11
+	fmov.s	@r4+, fr12
+	fmov.s	@r4+, fr13
+	fmov.s	@r4+, fr14
+	fmov.s	@r4+, fr15
+	.data.w h'FBFD		; frchg instr.
+	fmov.s	@r4+, fr0
+	fmov.s	@r4+, fr1
+	fmov.s	@r4+, fr2
+	fmov.s	@r4+, fr3
+	fmov.s	@r4+, fr4
+	fmov.s	@r4+, fr5
+	fmov.s	@r4+, fr6
+	fmov.s	@r4+, fr7
+	fmov.s	@r4+, fr8
+	fmov.s	@r4+, fr9
+	fmov.s	@r4+, fr10
+	fmov.s	@r4+, fr11
+	fmov.s	@r4+, fr12
+	fmov.s	@r4+, fr13
+	fmov.s	@r4+, fr14
+	fmov.s	@r4+, fr15
+	lds	r2, fpscr
+	lds	r3, fpul
+	ldc	r0, SR	
+	rts
+	nop
+	.endf
+
+  .aelse
+;
+; SH3DSP DSP Context Save and restore
+;
+
+	LEAF_ENTRY _SaveSH3DSPContext
+
+    stc     SR, r0
+    mov     #h'1000, r1
+    or      r0, r1
+    ldc     r1, SR
+    mov     #(THREAD_CONTEXT_OFFSET+CtxDSPRegs), r5
+    add     r5, r4
+    mov     r4, r5
+    stc.l   RE, @-r5                ; Repeat End register
+    stc.l   RS, @-r5                ; Repeat Start
+    stc.l   MOD, @-r5               ; Modulo addressing register
+    sts.l   DSR, @-r5               ; DSP Status register
+    movs.l  A0, @r4+                ; Save DSP Regs A0,A1
+    movs.l  A1, @r4+
+    movs.l  M0, @r4+                ; M0, M1
+    movs.l  M1, @r4+
+    movs.l  X0, @r4+                ; X0, X1
+    movs.l  X1, @r4+
+    movs.l  Y0, @r4+                ; Y0, Y1
+    movs.l  Y1, @r4+
+    movs.w  A0G, @r4+               ; Save the guard bits.
+    movs.w  A1G, @r4+
+
+    ldc     r0, SR
+	rts
+	  nop
+
+	.endf
+
+	LEAF_ENTRY _RestoreSH3DSPContext
+
+    stc     SR, r0
+    mov     #h'1000, r1
+    or      r0, r1
+    ldc     r1, SR
+    mov     #(THREAD_CONTEXT_OFFSET+CtxDsr), r5
+    add     r5, r4
+
+    lds.l   @r4+, DSR               ; DSP Status Register
+    ldc.l   @r4+, MOD               ; Modulo addressing register
+    ldc.l   @r4+, RS                ; Repeat Start
+    ldc.l   @r4+, RE                ; Repeat End
+
+    movs.l  @r4+, A0                ; Restore DSP registers A0, A1
+    movs.l  @r4+, A1
+    movs.l  @r4+, M0                ; M0, M1
+    movs.l  @r4+, M1
+    movs.l  @r4+, X0                ; X0, X1
+    movs.l  @r4+, X1
+    movs.l  @r4+, Y0                ; Y0, Y1
+    movs.l  @r4+, Y1
+    movs.w  @r4+, A0G               ; Restore the guard bits.
+    movs.w  @r4+, A1G
+
+    ldc     r0, SR
+    rts
+	  nop
+
+	.endf
+
+
+  .aendi
+
+	.PAGE
+; This code is copied to the kernel's data page so that it is accessible from
+; the kernel & user code. The kernel checks if it is interrupting an interlocked
+; api by range checking the PC to be between UserKPage+0x3c0 & UserKPage+0x400.
+; The routines are organized such that they can be restarted by masking off the
+; lower 3 bits of the PC. Each routine is at most 4 instructions with the store
+; instruction as the last instruction in the 4 inst. block.
+
+	.align	8
+	LEAF_ENTRY _InterlockedAPIs
+ILMaskByte:
+	mov.b	@r4, r0			; (r0) = original byte value
+	and	r5, r0			; clear some bits
+	or	r6, r0			; set some bits
+	mov.b	r0, @r4			; update byte value
+	rts
+	nop
+
+	.align 8
+ILPopList:
+	mov.l	@r4, r0			; (r0) = ptr to item at head
+	nop
+	tst	r0, r0
+	bf	popx			; list is not empty
+	rts
+	nop
+	.align	8
+	bra	ILPopList
+	nop
+popx:	mov.l	@r0, r1
+	mov.l	r1, @r4
+	rts
+	nop
+
+	.align	8
+ILPushList:
+	mov.l	@r4, r0			; (r0) = old head of list
+	nop
+	mov.l	r0, @r5			; store linkage
+	mov.l	r5, @r4			; store new list head
+	rts
+	nop
+
+	.align	8
+ILExchange:
+	mov.l	@r4, r0			; (r0) = original contents
+	nop
+	nop
+	mov.l	r5, @r4			; store new contents
+	rts
+	nop
+
+	.align	8
+ILTestExchange:
+	mov.l	@r4, r0			; (r0) = original contents
+	cmp/eq	r0, r5
+	bf	ITExEnd			; no match, skip store
+	mov.l	r6, @r4			; store new contents
+ITExEnd: rts
+	nop
+
+	.align	8
+ILIncrement:
+	mov.l	@r4, r0			; (r0) = original contents
+	nop				; load delay + align end label
+	add	#1, r0
+	mov.l	r0, @r4			; store new contents
+	rts
+	nop
+
+	.align	8
+ILDecrement:
+	mov.l	@r4, r0			; (r0) = original contents
+	nop				; load delay + align end label
+	add	#-1, r0
+	mov.l	r0, @r4			; store new contents
+	rts
+	nop
+	.align	8
+	.export _InterlockedEnd
+_InterlockedEnd:
+	.endf
+
+; CaptureContext is invoked in kernel context on the user thread's stack to
+; build a context structure to be used for exception unwinding.
+;
+;	(r15) = aligned stack pointer
+;	(r0-r14), etc. - CPU state at the time of exception
+
+	LEAF_ENTRY _CaptureContext
+  .aif SH_CPU eq h'40
+	add	#h'80-CtxSizeof, r15	; must happen BEFORE the prolog
+	add	#CtxR15-h'80, r15
+  .aelse
+	add	#CtxR15-CtxSizeof, r15	; must happen BEFORE the prolog
+	nop
+  .aendi
+	.endf
+	NESTED_ENTRY xxCaptureContext
+	mov.l	r15, @(0,r15)		; for the unwinder (updated by EXceptionDispatch)
+	mov.l	r14, @-r15
+	stc	SPC, r14
+	mov.l	r14, @(CtxFir-CtxR14,r15) ; for unwinding (updated by ExceptionDispatch)
+	stc	SSR, r14
+	mov.l	r14, @(CtxPsr-CtxR14,r15)
+	mov.l	r13, @-r15
+	mov.l	r12, @-r15
+	mov.l	r11, @-r15
+	mov.l	r10, @-r15
+	mov.l	r9, @-r15
+	mov.l	r8, @-r15
+	mov.l	r7, @-r15
+	mov.l	r6, @-r15
+	mov.l	r5, @-r15
+	mov.l	r4, @-r15
+	mov.l	r3, @-r15
+	mov.l	r2, @-r15
+	mov.l	r1, @-r15
+	mov.l	r0, @-r15
+	stc	GBR, r2
+	mov.l	r2, @-r15
+	sts	MACL, r2
+	mov.l	r2, @-r15
+	mov	#CONTEXT_FULL, r1
+	sts	MACH, r2
+	mov.l	r2, @-r15
+	sts	PR, @-r15
+	mov	r15, r14		; (r14) = ptr to context.PR
+        PROLOG_END
+
+	mov.l	r1, @-r15		; set context flags
+	mov	#_ExceptionDispatch, r0
+	mov	r15, r4			; (r4) = arg1 = ptr to context structure
+	jsr	@r0
+	add	#-16, r15		; allocate argument save area
+
+; Reload updated context and resume thread execution.
+;
+;	(r14) = ptr to context.PR
+
+	lds	@r14+, PR
+	lds	@r14+, MACH
+	lds	@r14+, MACL
+	ldc	@r14+, GBR
+	mov.l	@r14+, r0
+	mov.l	@r14+, r1
+	mov.l	@r14+, r2
+	mov.l	@r14+, r3
+	mov.l	@r14+, r4
+	mov.l	@r14+, r5
+	mov.l	@r14+, r6
+	mov.l	@r14+, r7
+	mov.l	@r14+, r8
+	mov.l	@r14+, r9
+	mov.l	@r14+, r10
+
+; Load Psr & Fir now just in case we're crossing a page boundary
+; because TLB misses fail with exceptions blocked.
+	mov	#PR_B0_IM, r15
+	ldc	r15, SR
+
+; handle fpu
+  .aif SH_CPU eq h'40
+	mov #_KData+g_CurFPUOwner, r12
+	mov @r12, r12
+	mov #_KData+pCurThd, r13
+	mov @r13, r13
+	cmp/eq r12,r13
+	mov #h'0, r12
+	bt cc2
+	mov #h'8000, r12
+    .aelse
+    ;  SH3. Check for DSP owner in case of SH3DSP (else CurDSPOwner == 0)
+    mov     #_KData+g_CurDSPOwner, r12
+    mov     @r12, r12
+    mov     #_KData+pCurThd, r13
+    mov     @r13, r13
+    cmp/eq  r12, r13
+	mov     #h'0, r12
+    bt      cc2
+    mov     #h'1000, r12            ; DSP enable (bit 12)
+	.aendi
+cc2:
+
+; Touch page 1, page 2, and then page 1 (assuming we span a page boundary)
+; This will force both into the TLB
+
+	mov.l	@r14+, r11
+	mov	@(CtxFir-CtxR12,r14), r13
+	mov	@(CtxPsr-CtxR12,r14), r15
+; handle fpu
+  .aif SH_CPU eq h'40
+	or r12,r15
+  .aelse
+    not r12, r12
+    and r12, r15                    ; clear DSP enable bit if not owner
+  .aendi
+	mov.l	@r14+, r12
+
+; Reload final state with exceptions disabled.
+;
+;	(r13) = thread's Fir
+;	(r14) = ptr to Context.R13
+;	(r15) = thread's SR
+
+; We should not take any exceptions below this point, but we don't bother blocking
+; them to save instructions
+
+	ldc	r13, SPC
+	mov.l	@r14+, r13
+
+	ldc	r15, SSR
+
+	mov.l	@(4,r14), r15
+
+	rte
+	mov.l	@r14, r14
+	.endf
+
+;
+; Define call frame for calling exception handlers.
+;
+
+CfArg:			.equ	0						; argument save area for exception handlers
+CfCStk:			.equ	16						; CALLSTACK struct for mode switching
+CfRa:			.equ	(CfCStk + CstkSizeof)	; saved return address
+
+CfFrameLength	.equ	(CfCStk + CstkSizeof + 4)
+
+CfA0:			.equ	(CfFrameLength + 0)		; caller argument save area
+CfA1:			.equ	(CfFrameLength + 4)
+CfA2:			.equ	(CfFrameLength + 8)
+CfA3:			.equ	(CfFrameLength + 12)
+CfExr:			.equ	(CfFrameLength + 16)	; address of exception routine
+CfPsr:			.equ	(CfFrameLength + 20)	; mode to run exception routine in
+
+;++
+; EXCEPTION_DISPOSITION
+; RtlpExecuteHandlerForException (
+;    IN PEXCEPTION_RECORD ExceptionRecord,
+;    IN ULONG EstablisherFrame,
+;    IN OUT PCONTEXT ContextRecord,
+;    IN OUT PDISPATCHER_CONTEXT DispatcherContext,
+;    IN PEXCEPTION_ROUTINE ExceptionRoutine
+;    )
+;
+; Routine Description:
+;    This function allocates a call frame, stores the establisher frame
+;    pointer in the frame, establishes an exception handler, and then calls
+;    the specified exception handler as an exception handler. If a nested
+;    exception occurs, then the exception handler of this function is called
+;    and the establisher frame pointer is returned to the exception dispatcher
+;    via the dispatcher context parameter. If control is returned to this
+;    routine, then the frame is deallocated and the disposition status is
+;    returned to the exception dispatcher.
+;
+; Arguments:
+;    ExceptionRecord (r4) - Supplies a pointer to an exception record.
+;
+;    EstablisherFrame (r5) - Supplies the frame pointer of the establisher
+;       of the exception handler that is to be called.
+;
+;    ContextRecord (r6) - Supplies a pointer to a context record.
+;
+;    DispatcherContext (r7) - Supplies a pointer to the dispatcher context
+;       record.
+;
+;    ExceptionRoutine (4 * 4(r15)) - supplies a pointer to the exception handler
+;       that is to be called.
+;
+; Return Value:
+;    The disposition value returned by the specified exception handler is
+;    returned as the function value.
+;--
+
+	EXCEPTION_HANDLER RtlpExceptionHandler
+
+	NESTED_ENTRY _RtlpExecuteHandlerForException
+	sts	PR, @-r15		; save return address
+	add	#CfArg-CfRa, r15	; allocate argument area
+
+	PROLOG_END
+
+	mov.l	@(CfPsr,r15), r1	; (r1) = target status
+	mov.l	@(CfExr,r15), r0	; (r0) = address of exception routine
+	addv	r1, r1			; 'T' set iff kernel mode
+	bf/s	ehfe20			; must switch to user mode
+	mov.l	r7, @(CfA3,r15)		; save address of dispatcher context
+	jsr	@r0
+	nop
+ehfe10: mov.l	@(CfRa,r15), r3		; (r3) = return address
+	lds	r3, PR			; restore return address
+	rts				; return
+	add	#CfFrameLength, r15	;  & deallocate stack frame
+
+ehfe20:
+	stc		r4_user, r2				; (r2) = pCurThread
+	mov		r15, r3					; (r3) = sp
+	mov.l	@(ThPcstkTop, r2), r2	; (r2) = pCurThread->pcstkTop
+	add		#CfCStk, r3				; (r3) = pcstk (the one on the stack)
+	mov.l	r2, @(CstkNext, r3)		; pcstk->pcstkNext = pCurThread->pcstkTop
+	stc		r4_user, r2				; (r2) = pCurThread
+	mov.l	r3, @(ThPcstkTop, r2)	; pCurThread->pcstkTop = pcstk
+	mov		r3, r2
+
+	mov	#ehfe10, r3				; (r3) = "return address" for mode switch
+	mov.l r3, @(CstkRa,r2)		; set address to return to
+	mov	#h'40, r3
+	mov.l r3, @(CstkPrcLast,r2)	; set execution mode to return to
+	mov	#0, r3
+	mov.l r3, @(CstkAkyLast,r2)	; mark as exception call stack entry
+
+	mov	#PR_B1_BK, r2
+	shlr	r1			; (r1) = target status
+	ldc	r2, SR			; (SR) = kmode, blocked, bank1
+
+; In register bank 1, so:
+;	(r4) = current thread
+;	(r0_user) = exception handler address
+;	(r1_user) = exception handler mode
+
+	mov	#SYSCALL_RETURN, r2
+	lds	r2, PR			; setup "PSL return"
+
+	stc	r0_user, r0		; (r0) = handler address
+	stc	r1_user, r1		; (r1) = handler mode/status
+
+	; handle fpu
+  .aif SH_CPU eq h'40
+	mov #_KData+g_CurFPUOwner, r3
+	mov @r3, r3
+	cmp/eq r3,r4
+	bt ehfe21
+	mov #h'8000, r3
+	or r3, r1
+    .aelse
+    ;  SH3. Check for DSP owner in case of SH3DSP (else CurDSPOwner == 0)
+    mov     #_KData+g_CurDSPOwner, r3
+    mov     @r3, r3
+    cmp/eq  r3, r4
+    bf      ehfe21
+    mov     #h'1000, r3             ; set DSP enable (bit 12)
+    or      r3, r1
+   .aendi
+ehfe21:	
+
+	ldc	r0, SPC
+	ldc	r1, SSR
+	rte				; invoke handler
+	nop				;  & switch to user mode
+        .endf
+
+;++
+; EXCEPTION_DISPOSITION
+; RtlpExceptionHandler (
+;    IN PEXCEPTION_RECORD ExceptionRecord,
+;    IN ULONG EstablisherFrame,
+;    IN OUT PCONTEXT ContextRecord,
+;    IN OUT PDISPATCHER_CONTEXT DispatcherContext
+;    )
+;
+; Routine Description:
+;    This function is called when a nested exception occurs. Its function
+;    is to retrieve the establisher frame pointer from its establisher's
+;    call frame, store this information in the dispatcher context record,
+;    and return a disposition value of nested exception.
+;
+; Arguments:
+;    ExceptionRecord (r4) - Supplies a pointer to an exception record.
+;
+;    EstablisherFrame (r5) - Supplies the frame pointer of the establisher
+;       of this exception handler.
+;
+;    ContextRecord (r6) - Supplies a pointer to a context record.
+;
+;    DispatcherContext (r7) - Supplies a pointer to the dispatcher context
+;       record.
+;
+; Return Value:
+;    A disposition value ExceptionNestedException is returned if an unwind
+;    is not in progress. Otherwise a value of ExceptionContinueSearch is
+;    returned.
+;--
+
+	LEAF_ENTRY RtlpExceptionHandler
+	mov.l	@(ErExceptionFlags,r4), r0	; (r0) = exception flags
+	tst	#EXCEPTION_UNWIND, r0		; check if unwind in progress
+	bf	reh10				; if non-zero, unwind in progress
+
+; Unwind is not in progress - return nested exception disposition.
+	mov.l	@(CfA3-CfA0,r5), r1		; (r1) = dispatcher context address
+	mov	#ExceptionNestedException, r0	; set disposition value
+	mov.l	@(DcEstablisherFrame,r1), r2	; copy the establisher frame pointer
+	rts
+	mov.l	r2, @(DcEstablisherFrame,r7)	; to current dispatcher context
+
+; Unwind is in progress - return continue search disposition.
+
+reh10:	rts					; return
+	mov	#ExceptionContinueSearch, r0	; set disposition value
+	.endf
+
+
+;++
+; EXCEPTION_DISPOSITION
+; RtlpExecuteHandlerForUnwind (
+;    IN PEXCEPTION_RECORD ExceptionRecord,
+;    IN PVOID EstablisherFrame,
+;    IN OUT PCONTEXT ContextRecord,
+;    IN OUT PVOID DispatcherContext,
+;    IN PEXCEPTION_ROUTINE ExceptionRoutine
+;    )
+;
+; Routine Description:
+;    This function allocates a call frame, stores the establisher frame
+;    pointer and the context record address in the frame, establishes an
+;    exception handler, and then calls the specified exception handler as
+;    an unwind handler. If a collided unwind occurs, then the exception
+;    handler of of this function is called and the establisher frame pointer
+;    and context record address are returned to the unwind dispatcher via
+;    the dispatcher context parameter. If control is returned to this routine,
+;    then the frame is deallocated and the disposition status is returned to
+;    the unwind dispatcher.
+;
+; Arguments:
+;    ExceptionRecord (r4) - Supplies a pointer to an exception record.
+;
+;    EstablisherFrame (r5) - Supplies the frame pointer of the establisher
+;       of the exception handler that is to be called.
+;
+;    ContextRecord (r6) - Supplies a pointer to a context record.
+;
+;    DispatcherContext (r7) - Supplies a pointer to the dispatcher context
+;       record.
+;
+;    ExceptionRoutine (4 * 4(r15)) - supplies a pointer to the exception handler
+;       that is to be called.
+;
+; Return Value:
+;    The disposition value returned by the specified exception handler is
+;    returned as the function value.
+;--
+
+        EXCEPTION_HANDLER RtlpUnwindHandler
+
+        NESTED_ENTRY _RtlpExecuteHandlerForUnwind
+	sts	PR, @-r15		; save return address
+	add	#CfArg-CfRa, r15	; allocate argument area
+	PROLOG_END
+
+	mov	#CtxPsr, r0
+	mov.l	@(r0,r6), r1		; (r1) = target status
+	mov.l	@(CfExr,r15), r0	; (r0) = address of exception routine
+
+	addv	r1, r1			; 'T' set iff kernel mode
+	bf/s	ehfu20			; must switch to user mode
+	mov.l	r7, @(CfA3,r15)		; save address of dispatcher context
+	jsr	@r0
+	nop
+ehfu10:
+	mov.l	@(CfRa,r15), r3		; (r3) = return address
+	lds		r3, PR			; restore return address
+	rts				; return
+	add		#CfFrameLength, r15	;  & deallocate stack frame
+
+ehfu20:
+	; link a CALLSTACK struct to the thread's list
+	stc		r4_user, r2				; (r2) = pCurThread
+
+	mov		r15, r3					; (r3) = sp
+	mov.l	@(ThPcstkTop, r2), r2	; (r2) = pCurThread->pcstkTop
+	add		#CfCStk, r3				; (r3) = pcstk (the one on the stack)
+	mov.l	r2, @(CstkNext, r3)		; pcstk->pcstkNext = pCurThread->pcstkTop
+
+	stc		r4_user, r2				; (r2) = pCurThread
+	mov.l	r3, @(ThPcstkTop, r2)	; pCurThread->pcstkTop = pcstk
+
+; Switch banks	
+	mov		#PR_B1_BK, r2
+	shlr	r1			; (r1) = target status
+	ldc	r2, SR			; (SR) = kmode, blocked, bank1
+
+; In register bank 1, so:
+;	(r4) = current thread
+;	(r0_user) = exception handler address
+;	(r1_user) = exception handler mode
+
+	; Set up the CALLSTACK for SYSCALL_RETURN
+	mov	#SYSCALL_RETURN, r2
+	mov	#ehfu10, r3		; (r3) = "return address" for mode switch
+	lds	r2, PR			; setup "PSL return"
+
+	mov.l	@(ThPcstkTop, r4), r2
+	mov		#h'40, r1
+	mov.l	r3, @(CstkRa,r2)	; set address to return to
+	mov.l	r1, @(CstkPrcLast,r2)	; set execution mode to return to
+
+	; Set up for an RTE to the handler
+	stc	r0_user, r0		; (r0) = handler address
+	stc	r1_user, r1		; (r1) = handler mode/status
+
+	; handle fpu
+  .aif SH_CPU eq h'40
+	mov #_KData+g_CurFPUOwner, r3
+	mov @r3, r3
+	cmp/eq r3,r4
+	bt ehfu21
+	mov #h'8000, r3
+	or r3, r1
+    .aelse
+    ;  SH3. Check for DSP owner in case of SH3DSP (else CurDSPOwner == 0)
+    mov     #_KData+g_CurDSPOwner, r3
+    mov     @r3, r3
+    cmp/eq  r3, r4
+    bf      ehfu21
+    mov     #h'1000, r3             ; set DSP enable (bit 12)
+    or      r3, r1
+   .aendi
+ehfu21:	
+
+	ldc	r0, SPC
+	ldc	r1, SSR
+	mov	#0, r3
+	mov.l	r3, @(CstkAkyLast,r2)	; mark as exception call stack entry
+	rte				; invoke handler
+	nop				;  & switch to user mode
+        .endf
+
+;++
+; EXCEPTION_DISPOSITION
+; RtlpUnwindHandler (
+;    IN PEXCEPTION_RECORD ExceptionRecord,
+;    IN PVOID EstablisherFrame,
+;    IN OUT PCONTEXT ContextRecord,
+;    IN OUT PVOID DispatcherContext
+;    )
+;
+; Routine Description:
+;    This function is called when a collided unwind occurs. Its function
+;    is to retrieve the establisher dispatcher context, copy it to the
+;    current dispatcher context, and return a disposition value of nested
+;    unwind.
+;
+; Arguments:
+;    ExceptionRecord (r4) - Supplies a pointer to an exception record.
+;
+;    EstablisherFrame (r5) - Supplies the frame pointer of the establisher
+;       of this exception handler.
+;
+;    ContextRecord (r6) - Supplies a pointer to a context record.
+;
+;    DispatcherContext (r7) - Supplies a pointer to the dispatcher context
+;       record.
+;
+; Return Value:
+;    A disposition value ExceptionCollidedUnwind is returned if an unwind is
+;    in progress. Otherwise, a value of ExceptionContinueSearch is returned.
+;--
+
+        LEAF_ENTRY RtlpUnwindHandler
+	mov.l	@(ErExceptionFlags,r4), r0	; (r0) = exception flags
+	tst	#EXCEPTION_UNWIND, r0		; check if unwind in progress
+	bt	ruh10				; if zero, unwind not in progress
+
+; Unwind is not in progress - return nested exception disposition.
+	mov.l	@(CfA3-CfA0,r5), r1		; (r1) = dispatcher context address
+	mov	#ExceptionCollidedUnwind, r0	; set disposition value
+	mov.l	@(DcControlPc,r1), r2		; Copy the establisher frames'
+	mov.l	@(DcFunctionEntry,r1), r3	; dispatcher context to the current
+	mov.l	r2, @(DcControlPc,r7)		;
+	mov.l	r3, @(DcFunctionEntry,r7)	;
+	mov.l	@(DcEstablisherFrame,r1), r2	; dispatcher context
+	mov.l	@(DcContextRecord,r1), r3	;
+	mov.l	r2, @(DcEstablisherFrame,r7)	;
+	rts
+	mov.l	r3, @(DcContextRecord,r7)	;
+
+; Unwind is not in progress - return continue search disposition.
+
+ruh10:	rts					; return
+	mov	#ExceptionContinueSearch, r0	; set disposition value
+        .endf
+
+	.PAGE
+; NULL section array
+	.export	_NullSection
+_NullSection: .datab.l	BLOCK_MASK+1, 0
+
+
+	LEAF_ENTRY _RtlCaptureContext
+; RtlCaptureContext is invoked in kernel context on the user thread's stack to
+; build a limited context structure to be used for exception unwinding.
+;
+;	(r4) = ptr to CONTEXT
+
+
+	mov.l	r10, @(CtxR10,r4)
+	mov 	#CtxPsr, r10
+	add	r4,r10
+	sts.l	PR, @-r10  ;;Store RA as Fir to remove this frame
+	mov.l	r15, @-r10
+	mov.l	r14, @-r10
+	mov.l	r13, @-r10
+	mov.l	r12, @-r10
+	mov.l	r11, @-r10
+	add.l	#-4, r10  ;;Gets rid of r10's space
+	mov.l	r9, @-r10
+	mov.l	r8, @-r10
+	mov.l	r7, @-r10
+	mov.l	r6, @-r10
+	mov.l	r5, @-r10
+	mov.l	r4, @-r10
+	mov.l	r3, @-r10
+	mov.l	r2, @-r10
+	mov.l	r1, @-r10
+	mov.l	r0, @-r10
+	stc.l	GBR, @-r10
+	sts.l	MACL, @-r10
+	sts.l	MACH, @-r10
+	sts.l	PR, @-r10
+ 	mov	#CONTEXT_FULL, r10
+	mov.l	r10,@r4
+	rts
+	mov.l	@(CtxR10,r4), r10
+	.endf
+
+  .aif SH_CPU ne h'40
+; FlushCache - flush the cache & write back dirty lines
+;
+;	This function will invalidate the entire cache by writing 0's to the
+; address information for each cache line in the memory mapped cache space.
+; This will invaliate the entry and write it back if it is dirty.
+;
+;	Entry	none
+;	Return	none
+;	Uses	r0-r3
+
+	LEAF_ENTRY _FlushCache
+	mov		#h'F0000000, r1	; (r1) = ptr to memory mapped cache
+   	mov     #_SH3CacheLines, r2
+   	mov.l   @r2, r2        	; (r2) = # of cache entries
+	mov	#0, r0				; (r0) = 0 for clearing cache tags
+   	shlr2   r2	
+   	shlr    r2             	; (r2) = # of cache entries / 8
+
+; Flush all cache lines.
+;
+;	(r0) = 0
+;	(r1) = ptr to memory mapped cache address array
+;	(r2) = # of cache entries / 8
+;	(r4) = original SR
+
+fc10:	mov	r0, @r1			; invalidate 4 cache lines at a time
+	mov	r0, @(16,r1)
+	mov	r0, @(32,r1)
+	mov	r0, @(48,r1)
+	add	#64, r1
+	mov	r0, @r1			; invalidate 4 cache lines at a time
+	mov	r0, @(16,r1)
+	mov	r0, @(32,r1)
+	mov	r0, @(48,r1)
+	dt	r2			; (r2) = # of entries remaining
+	bf/s	fc10
+	add	#64, r1			; (r1) = ptr to next set of 4 entries
+
+	rts
+	nop
+	.endf
+
+	LEAF_ENTRY _FlushCacheNoDiscard
+	mov     #h'f0000000, r1
+   	mov     #_SH3CacheLines, r2
+   	mov.l   @r2, r2        	; (r2) = # of cache entries
+	mov		#h'0, r3
+LRD:
+	mov.l   @r1, r0
+	tst     #h'2,r0
+	bt/s    LCLN
+	dt      r2
+	mov.l   r3,@r1
+LCLN:
+	bf/s    LRD
+	add     #0x10, r1
+	rts
+	nop
+	.endf
+
+  .aelse ;; SH4 version
+
+	LEAF_ENTRY _FlushDCache
+
+   	mov     #_SH4CacheLines, r2
+   	mov.l   @r2, r2
+   	shlr2   r2	                ; (r2) = # of cache entries / 4
+	mov	#h'F4000000, r1		; (r1) = ptr to memory mapped cache
+	mov	#0, r0			; (r0) = 0 for clearing cache tags
+
+; Flush & validate all cache lines.
+;
+;	(r0) = 0
+;	(r1) = ptr to memory mapped cache address array
+;	(r2) = # of cache entries / 4
+;	(r4) = original SR
+
+fc10:
+	mov	r0, @r1			; invalidate 4 cache lines at a time
+	mov	r0, @(32,r1)
+	add	#64, r1
+	mov	r0, @r1			; invalidate 4 cache lines at a time
+	mov	r0, @(32,r1)
+	dt	r2			; (r2) = # of entries remaining
+	bf/s	fc10
+	add	#64, r1			; (r1) = ptr to next set of 4 entries
+
+	rts
+	nop
+	.endf
+
+	LEAF_ENTRY _FlushICache
+	mov	#SH3CTL_BASE, r1
+	mov.l	@(CCR,r1), r0
+	mov	#h'00000800, r2
+	or	r2, r0			; invalidate I-cache
+	rts
+	mov.l	r0, @(CCR,r1)
+	.endf
+
+	LEAF_ENTRY _DoSetRAMMode
+; (r4) = BOOL bEnable
+; (r5) = LPVOID *lplpvAddress
+; (r6) = LPDWORD lpLength
+; returns (r0) = old mode
+	tst r4,r4
+	bt disable
+	mov #h'1, r4			; force to 0 or 1
+disable:
+	mov	#h'20000000,r0		; (r0) = displacement between cached & un-cached space
+	braf r0
+	stc	SR, r0
+	.nopool
+	or	#h'f0, r0
+	ldc	r0, SR
+
+	mov	#_bEnableRAMMode, r0
+	mov @r0, r3
+	mov r4, @r0
+
+	cmp/eq r3, r4
+	bt noswitch
+	mov	#h'F4001000, r1		; (r1) = ptr to memory mapped cache
+	mov #h'128/4, r2
+	mov #h'0, r0
+loop1:
+	mov r0, @r1
+	mov r0, @(32,r1)
+	add	#64, r1
+	mov	r0, @r1
+	mov	r0, @(32,r1)
+	dt r2
+	bf/s loop1
+	add #64, r1
+	mov #h'F4003000, r1		; (r1) = ptr to 2nd half of memory mapped cache
+	mov #h'128/4, r2
+loop2:
+	mov r0, @r1
+	mov r0, @(32,r1)
+	add	#64, r1
+	mov	r0, @r1
+	mov	r0, @(32,r1)
+	dt r2
+	bf/s loop2
+	add #64, r1
+
+	mov	#SH3CTL_BASE, r1
+	mov.l @(CCR,r1), r0
+	xor #h'20, r0
+	mov.l r0, @(CCR,r1)
+
+noswitch:
+	mov	#h'ffffff0f, r1
+	stc	SR, r0
+	and	r1, r0
+	ldc	r0, SR
+	tst.l r5,r5
+	bt noaddr
+	mov #h'7c000000, r4
+	mov r4, @r5
+noaddr:
+	tst.l r6, r6
+	bt nolength
+	mov #h'2000, r4
+	mov r4, @r6
+nolength:
+	rts
+	mov r3, r0
+	.endf
+  .aendi
+
+PosTable:
+  	.data.b 0,1,2,1,3,1,2,1,4,1,2,1,3,1,2,1,5,1,2,1,3,1,2,1,4,1,2,1,3,1,2,1
+  	.data.b 6,1,2,1,3,1,2,1,4,1,2,1,3,1,2,1,5,1,2,1,3,1,2,1,4,1,2,1,3,1,2,1
+  	.data.b 7,1,2,1,3,1,2,1,4,1,2,1,3,1,2,1,5,1,2,1,3,1,2,1,4,1,2,1,3,1,2,1
+  	.data.b 6,1,2,1,3,1,2,1,4,1,2,1,3,1,2,1,5,1,2,1,3,1,2,1,4,1,2,1,3,1,2,1
+  	.data.b 8,1,2,1,3,1,2,1,4,1,2,1,3,1,2,1,5,1,2,1,3,1,2,1,4,1,2,1,3,1,2,1
+  	.data.b 6,1,2,1,3,1,2,1,4,1,2,1,3,1,2,1,5,1,2,1,3,1,2,1,4,1,2,1,3,1,2,1
+  	.data.b 7,1,2,1,3,1,2,1,4,1,2,1,3,1,2,1,5,1,2,1,3,1,2,1,4,1,2,1,3,1,2,1
+  	.data.b 6,1,2,1,3,1,2,1,4,1,2,1,3,1,2,1,5,1,2,1,3,1,2,1,4,1,2,1,3,1,2,1
+
+  	LEAF_ENTRY _GetHighPos
+	mov #PosTable, r0
+	mov #-1, r6
+	extu.b r4, r5
+	mov.b @(r0,r5),r1
+	tst.l r1,r1
+	bf res
+	add #8, r6
+	shlr8 r4
+
+	extu.b r4, r5
+	mov.b @(r0,r5),r1
+	tst.l r1,r1
+	bf res
+	add #8, r6
+	shlr8 r4
+
+	extu.b r4, r5
+	mov.b @(r0,r5),r1
+	tst.l r1,r1
+	bf res
+	add #8, r6
+	shlr8 r4
+
+	extu.b r4, r5
+	mov.b @(r0,r5),r1
+	tst.l r1,r1
+	bf res
+	mov #9, r1
+
+res:
+	add r6,r1
+	rts
+	mov r1, r0
+
+  	.endf
+
+	.end
+

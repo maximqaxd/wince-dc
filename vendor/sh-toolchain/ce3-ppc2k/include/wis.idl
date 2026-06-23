@@ -1,0 +1,703 @@
+/*******************************************************************
+
+    This file defines a number of structures that are common across
+    interfaces.
+
+    IWISModuleInfomation
+
+[Owner:]
+
+    donk
+
+Description:
+
+    Defines the interface used to access the component information.
+
+********************************************************************/
+import "unknwn.idl";
+cpp_quote("#include <WinCrypt.h>")
+cpp_quote("#include <rio.h>")
+
+/*-----------------------------------------------------------------
+
+Interface:
+
+    IRouteList
+
+Description:
+
+    This is the psudo-COM interface for the Active Air wireless
+    routing list control.  While it includes IUnknown this interface
+    is stubed and will return errors if used.
+    It is created and owned by the system router and a pointer to
+    its V-Table is passes to the translator components in the MSG
+    struct.
+
+-------------------------------------------------------------------*/
+
+#ifndef IROUTELIST_DEFINED
+#define IROUTELIST_DEFINED
+
+// This set of structures holds the basic routing information.
+typedef enum RouteDir_e
+{
+    DIR_RECEIVE,
+    DIR_TRANSMIT
+} ROUTEDIR_E;
+
+typedef struct _route_node ROUTE_NODE;
+typedef ROUTE_NODE* LPROUTE_NODE;
+struct _route_node
+{
+    DWORD           dwTagLen;
+    BYTE*           pTag;
+    LPVOID          pInterface;
+    LPCLSID         pClsid;
+    LPIID           pIid;
+    LPROUTE_NODE    pNext;
+    LPROUTE_NODE    pPrev;
+};
+
+typedef struct _route_list
+{
+    DWORD           dwNumTags;
+    LPROUTE_NODE    pHeadRL;
+    LPROUTE_NODE    pCurRL;
+    ROUTEDIR_E      Dir;
+} ROUTE_LIST, *LPROUTE_LIST;
+typedef const ROUTE_LIST *LPCROUTE_LIST;
+
+[
+    local,
+    uuid( DAB64DA0-9C27-11d1-AC28-00C04FCCAF8B ),
+    helpstring( "WIS IRouteList interface" ),
+    pointer_default( unique )
+]
+interface IRouteList : IUnknown
+{
+    DWORD   GetRL_Length( void );
+    DWORD   GetRL([in,out] BYTE* pTagList,
+                  [in] DWORD dwSize);
+    DWORD   SetRL( [in] BYTE* pTagList );
+    HRESULT CompairCurrentTag( [in] BYTE* pTag );
+
+    HRESULT Head( void );
+    HRESULT Next( void );
+    HRESULT Prev( void );
+    HRESULT Tail( void );
+    HRESULT Prepend( [in] BYTE* lpTag );
+    HRESULT Append( [in] BYTE* lpTag );
+    HRESULT InsertBefore( [in] BYTE* lpTag);
+    HRESULT InsertAfter([in] BYTE* lpTag);
+
+    // Functions to remove items from the list
+    HRESULT RemoveCur( void );
+    HRESULT RemoveAll( void );
+    HRESULT RemoveHead( void );
+    HRESULT RemoveTail( void );
+
+
+    // Initialize functions
+    // Assertions
+    // One of the following is true
+    //    CLSID  && IID are good
+    //    TAG and IID are good
+    //    TAG is good and the IID == IID_ITranslator
+    //    CLSID is good and the IID == IID_ITranslator
+    HRESULT Initialize( void );
+    HRESULT InitializeCur( void );
+}
+
+#endif // IROUTELIST_DEFINED
+
+
+/*-----------------------------------------------------------------
+
+Interface:
+
+    IWSEventLog
+
+Description:
+
+    This is the psudo-COM interface for the Active Air wireless
+    event logging.  While it includes IUnknown this interface
+    is stubed and will return errors if used.
+    It is created and owned by the system router and a pointer to
+    its V-Table is passes to the translator components in the MSG
+    struct.
+
+-------------------------------------------------------------------*/
+
+#ifndef WSEVENTLOG_DEFINED
+#define WSEVENTLOG_DEFINED
+
+[
+    local,
+    uuid( 31B2B920-EB78-11d1-8005-0000F803FFBE ),
+    helpstring( "WIS IWSEventLog interface" ),
+    pointer_default( unique )
+]
+
+interface IWSEventLog : IUnknown
+{
+        BOOL WriteEventLog (
+            [in] LPCWSTR lpwszSource,                // "Source" Property
+            [in] LPCWSTR lpwszEvent,                 // "Event" Property
+            [in] LPCWSTR lpwszData                   // "Data" Property
+            );
+        void    ShowLastError ([in] LPCTSTR lpszRoutine, [in] LPCTSTR lpszCallName);
+}
+
+#endif // WSEVENTLOG_DEFINED
+
+/*-----------------------------------------------------------------
+
+Interface:
+
+    IWisTypes
+
+Description:
+
+This set of structures and types are defined for the WIS enviroment.
+-------------------------------------------------------------------*/
+
+#ifndef WIS_DEFINED
+#define WIS_DEFINED
+
+cpp_quote("#define MAX_SOCKET_DATA_LEN 1024")
+cpp_quote("#define ROUTER_PORT 0xAA0")
+
+[ uuid(DAB64DA1-9C27-11d1-AC28-00C04FCCAF8B),
+  version(0.1), pointer_default(unique) ]
+
+interface IWisTypes
+{
+
+typedef struct _socketinfo {
+    BYTE ChannelNameLen;
+    BYTE Source;
+    DWORD Id;
+} SOCKETINFO, *LPSOCKETINFO;
+
+// These define the basic message sources
+cpp_quote("#define WIS_SOURCE_UNKNOWN  0")
+cpp_quote("#define WIS_SOURCE_RADIO    1")
+cpp_quote("#define WIS_SOURCE_DESKTOP  2")
+cpp_quote("#define WIS_SOURCE_MODEM    3")
+cpp_quote("#define WIS_SOURCE_IR       4")
+
+// This structure is used to define the current transmitter
+// settings.
+cpp_quote("#define WIS_XMIT_PACKET_REPEAT  0x00000001")
+cpp_quote("#define WIS_NO_UID_IF_NO_PACKAGING_NEEDED  0x00000002")
+
+typedef struct _xmitinfo {
+    DWORD cbSize;               // Holds the size of this struct
+    DWORD cmInterval;           // Interval time in minutes.
+    DWORD cbMaxPerInterval;     // Defines the maximum bytes that can be sent
+                                // in the given interval.
+    DWORD cbMaxBlock;           // Maximum block size.
+    DWORD csInterBlockGap;      // Sets the inter-packet gap in seconds
+                                // This regulates the rate at which the
+                                // system will send pages.
+    DWORD csInterMessageGap;    // Set the inter-message gap in seconds
+                                // This regulates the rate at which the
+                                // system sends full messages.
+    DWORD fSettings;            // Settings flags for the transmissions
+    DWORD dwRepeatCount;        // xmit repeat count.
+
+} XMITINFO, *LPXMITINFO;
+
+// This structure is used to define the current data feed in the WIS
+// and may be used on the device when two way comm is implemented.
+
+// Defines for the dwFlags member of _chaninfo
+cpp_quote("#define WIS_ACQUIRE   0x00000001")
+cpp_quote("#define WIS_TRANSMIT  0x00000002")
+cpp_quote("#define WIS_BULK		 0x00000004")
+
+typedef struct _chaninfo {
+    DWORD   cbSize;             // Holds the size of this struct
+    HWND    hParent;            // Holds the parent window.
+    LPCWSTR szDataFeedId;       // The name of the datafeed id
+    BYTE    GroupCode;          // Holds the one byte group code.
+    LPCWSTR szBaseConfigKey;    // The path to the base configuration key
+    LPCWSTR szXmitBufferPath;   // Holds the path to the current xmit buffer
+    LPCWSTR szOrignalName;      // Holds the orignal data URL or file name
+    DWORD   dwOrignalSize;      // Holds the size of the orignal data
+	DWORD	dwFlags;			// Holds the flags for the channel
+	HANDLE	hShutdownEvent;		// Event handle for shutdown notification
+								// (Set for shutdown)
+	HANDLE	hPauseEvent;		// Event handle for pause notification
+								// (Reset for pause)
+
+    XMITINFO Xmit;              // Xmit info struct for the transmitter to be
+                                // used for the current data feed.
+
+} CHANINFO, *LPCHANINFO;
+
+// this structure is used to pass additional information about the message
+typedef struct _xtramsginfo  {
+    DWORD           cbSize;         // This structures size
+    BYTE            MsgType;
+    BYTE            MsgPriority;
+    BYTE            MsgFlags;
+    BYTE            NumParts;
+    WORD            wErrorFlags;
+    WORD            wMsgSequenceNumber;
+} XTRAMSGINFO, *LPXTRAMSGINFO;
+
+// This structure is used to pass the basic routing information along
+// to the translator interfaces.
+typedef struct _msginfo
+{
+    DWORD           cbSize;         // This structures size
+    LPCWSTR         pszFileName;        // filename for the message
+    LPCWSTR         pszErrFileName;     // error data for the message
+    LPCWSTR         pszResponseFileName;// Response data for the message
+    LPCWSTR         pszOEMFileName;     // OEM data for the message
+    LPCWSTR         pszFolderName; // Holds the channel name (CDF name)
+    LPCWSTR         pszChannelName; // Holds the channel name (CDF name)
+    LPCWSTR         pszId;          // Holds the file id (CDF ID)
+    LPCWSTR         pszDeviceName;  // Holds the device name
+    BYTE            AddressTagLen;  // Defines the length of the Address Tag
+    BYTE*           pAddressTag;    // Points to the Address Tag
+    BYTE            GroupTagLen;    // Defines the length of the Group Tag
+    BYTE*           pGroupTag;      // Points to the Group Tag
+    BYTE            FilterLen;    // Defines the length of the Group Tag
+    BYTE*           pFilterBytes;      // Points to the Group Tag
+    LPCROUTE_LIST   pRL;            // Defines the current route list
+    IRouteList*     pRLControl;     // The interface used to control the routing list
+    HANDLE          hRadio;         // handle to the radio device driver on which this message arrived
+    BYTE            Source;         // Defines the message source
+    BYTE            Device;         // Defines the device that recieved the message
+    SYSTEMTIME      DateTime;       // Date/time that the message is RX'ed
+    LPROUTE_NODE    pReceiver;      // Points to the receiver
+    LPROUTE_NODE    pPackager;      // Points to the packager to use
+    LPROUTE_NODE    pXmitter;       // Points to the transmitter to use
+    DWORD           dwReturnAddressInfoLen;// The length of the return address
+    LPVOID          pReturnAddressInfo;    // Return address information
+    LPCHANINFO      lpChan;                 // Points to info used in transmission.)
+    IWSEventLog*    pWSEventLog;            // The interface used to write event logs
+    XTRAMSGINFO*    pXtraMsgInfo;           // Additional info about this message
+} MSGINFO, *LPMSGINFO;
+
+
+// **Start of Crypto stuff
+// Defaults for the crypto functions.
+cpp_quote("#define PGM_CRYPTO_PROVIDER     (PROV_RSA_FULL)")     // for CryptAcquireContext
+cpp_quote("#define PGM_CRYPTO_HASH_ALGID   (CALG_SHA)")          // Hash algorithm, for CryptCreateHash
+cpp_quote("#define PGM_CRYPTO_HASH_FLAGS   (0)")                 // for CryptCreateHash
+cpp_quote("#define PGM_CRYPTO_ALG_ID       (CALG_RC4)")          // Crypto algorithm, for CryptDeriveKey
+cpp_quote("#define PGM_CRYPTO_FLAGS        (CRYPT_EXPORTABLE)")  // for CryptDeriveKey
+
+cpp_quote("#define PGM_CRYPTO_OPTIONS_USE_DEFAULTS     0x0000")  // use default crypto options (see above)
+cpp_quote("#define PGM_CRYPTO_OPTIONS_USE_GIVEN        0x0001")  // use crypto options provided in pPgm parameter of
+                                                    // PgmEncryptAndSignPgmData() function
+
+// support routines
+cpp_quote("void DwordToNetworkOrder(BYTE *pbDest, DWORD dwSrc);")
+cpp_quote("void NetworkOrderToDword(DWORD *pdwDest, BYTE *pbSrc);")
+cpp_quote("void WordToNetworkOrder(BYTE *pbDest, WORD wSrc);")
+cpp_quote("void NetworkOrderToWord(WORD *pwDest, BYTE *pbSrc);")
+
+//*************************************************************************
+// Generic routines to sign/derive keys for encryption
+//*************************************************************************
+//      PgmSignBlob() - returns signature the blob
+//      PgmGetCryptKey() - returns handle to the derived crypto key
+//*************************************************************************
+
+
+//**--
+// returns signature of the input blob (pbBlob) in the output buffer (pbSignature)
+// if pbSignature is NULL, it returns its length
+// Return value is TRUE (success) or FALSE (fail)
+cpp_quote("HRESULT PgmSignBlob(")
+cpp_quote("    LPBYTE pbBaseKey,")       // in - Base key
+cpp_quote("    DWORD  dwBaseKeyLen,")    // in - Base key len
+cpp_quote("    LPBYTE pbUniqueData,")    // in - message specific unique data
+cpp_quote("    DWORD dwUniqueDataLen,")  // in - message specific unique data len
+cpp_quote("    LPBYTE pbBlob,")          // in - message to be signed and encrypted
+cpp_quote("    DWORD dwBlobLen,")        // in - length of the message
+cpp_quote("    HCRYPTPROV hCryptoProv,") // in - handle to the crypto provider
+cpp_quote("    DWORD dwHashAlgId,")      // in - AlgId, CALG_SHA etc.
+cpp_quote("    DWORD dwHashFlags,")      // in - flags for CryptCreateHash
+cpp_quote("    LPBYTE pbSignature,")     // out - signaure
+cpp_quote("    DWORD dwMaxSignatureSize,")  // in - size of signature buffer
+cpp_quote("    DWORD *pdwActualBytesWritten")    // out - number of bytes copied in pbSignature
+cpp_quote("    );")
+
+//**--
+// Derives an encryption key based on the unique data and base key
+cpp_quote("HCRYPTKEY PgmGetCryptKey (")
+cpp_quote("    LPBYTE pbBaseKey,")       // in - Base key
+cpp_quote("    DWORD  dwBaseKeyLen,")    // in - Base key len
+cpp_quote("    LPBYTE pbUniqueData,")    // in - message specific unique data
+cpp_quote("    DWORD dwUniqueDataLen,")   // in - message specific unique data len
+cpp_quote("    HCRYPTPROV hCryptoProv,") // in - handle to the crypto provider
+cpp_quote("    DWORD dwHashAlgId,")      // in - AlgId, CALG_SHA etc.
+cpp_quote("    DWORD dwHashFlags,")      // in - flags for CryptCreateHash
+cpp_quote("    DWORD dwCryptoAlgId,")    // in - AlgId, CALG_RC4 etc.
+cpp_quote("    DWORD dwCryptoFlags")     // in - CRYPT_EXPORTABLE etc.
+cpp_quote("    );")
+
+//*************************************************************************
+//      ** Radio Programming support **
+//*************************************************************************
+// specific to our way of signing, encrypting, and serializing a programming blob
+//      PgmEncryptAndSignBlob() - Encrypts, signs, and serializes a blob
+//      PgmVerifyAndDecryptBlob() - deserializes, decrypts, and verifies signature of a blob
+//*************************************************************************
+
+//**--
+// Input: Msg, UniqueData
+// Output: UniqueDataLen+UniqueData+SignatureLen+Signature+EncryptedMsgLen+EncryptedMsg
+// The lengths are DWORD serialized in network order (HH,LH,HL,LL)
+cpp_quote("HRESULT PgmEncryptAndSignBlob(")
+cpp_quote("    LPBYTE pbBaseKey,")       // in - Base key
+cpp_quote("    DWORD  dwBaseKeyLen,")    // in - Base key len
+cpp_quote("    LPBYTE pbUniqueData,")    // in - message specific unique data
+cpp_quote("    DWORD dwUniqueDataLen,")  // in - message specific unique data len
+cpp_quote("    LPBYTE pbBlob,")          // in - message to be signed and encrypted
+cpp_quote("    DWORD dwBlobLen,")        // in - length of the message
+cpp_quote("    HCRYPTPROV hCryptoProv,") // in - handle to the crypto provider
+cpp_quote("    DWORD dwHashAlgId,")      // in - AlgId, CALG_SHA etc.
+cpp_quote("    DWORD dwHashFlags,")      // in - flags for CryptCreateHash
+cpp_quote("    DWORD dwCryptoAlgId,")    // in - AlgId, CALG_RC4 etc.
+cpp_quote("    DWORD dwCryptoFlags,")    // in - CRYPT_EXPORTABLE etc.
+cpp_quote("    LPBYTE pbOutputBlob,")    // out - signed and encrypted blob
+cpp_quote("    DWORD dwMaxOutputBlobSize,")  // in - size of OutputBlob buffer
+cpp_quote("    DWORD *pdwActualBytesWritten")    // out - number of bytes copied in the OutputBlob buffer
+cpp_quote("    );")
+
+//**--
+// Input: UniqueDataLen+UniqueData+SignatureLen+Signature+EncryptedMsgLen+EncryptedMsg
+// Output: DecryptedMsg
+// returns TRUE if signature verified, false otherwise.
+// The lengths are DWORD serialized in network order (HH,LH,HL,LL)
+cpp_quote("HRESULT PgmVerifyAndDecryptBlob(")
+cpp_quote("    LPBYTE pbBaseKey,")       // in - Base key
+cpp_quote("    DWORD  dwBaseKeyLen,")    // in - Base key len
+cpp_quote("    LPBYTE pbBlob,")          // in - message to be decrypted and signature verified
+cpp_quote("    DWORD dwBlobLen,")        // in - length of the message
+cpp_quote("    HCRYPTPROV hCryptoProv,") // in - handle to the crypto provider
+cpp_quote("    DWORD dwHashAlgId,")      // in - AlgId, CALG_SHA etc.
+cpp_quote("    DWORD dwHashFlags,")      // in - flags for CryptCreateHash
+cpp_quote("    DWORD dwCryptoAlgId,")    // in - AlgId, CALG_RC4 etc.
+cpp_quote("    DWORD dwCryptoFlags,")    // in - CRYPT_EXPORTABLE etc.
+cpp_quote("    LPBYTE pbOutputBlob,")    // out - decrypted blob (stripped of signature etc.)
+cpp_quote("    DWORD dwMaxOutputBlobSize,")  // in - size of OutputBlob buffer
+cpp_quote("    DWORD *pdwActualBytesWritten")    // out - number of bytes copied in the OutputBlob buffer
+cpp_quote("    );")
+cpp_quote(" ")
+
+cpp_quote("typedef struct _radio_crypt  {           ")
+cpp_quote("    WORD wStructSize;                    ")
+cpp_quote("    DWORD dwMemberValidMask;             ")
+cpp_quote("    HCRYPTPROV hCryptoProv;              ")
+cpp_quote("    DWORD dwCryptoFlags;                 ")
+cpp_quote("    DWORD dwCryptoAlgId;                 ")
+cpp_quote("    BYTE AddressTagLen;                  ")
+cpp_quote("    BYTE GroupTagLen;                    ")
+cpp_quote("    WORD wMsgSpecificDataLen;            ")
+cpp_quote("//  BYTE AddressTag[AddressTagLen];      ")
+cpp_quote("//  BYTE GroupTag[GroupTagLen];          ")
+cpp_quote("} RADIO_CRYPT, *LPRADIO_CRYPT;           ")
+cpp_quote(" ")
+
+cpp_quote("BOOL DeriveEncryptionKey (")
+cpp_quote("    LPRADIO_CRYPT pSecurity,")    // IN - parameters for CryptDeriveKey() call
+cpp_quote("    BYTE *pbKeyValue,")           // IN - Key value to be used for key deriviation
+cpp_quote("    DWORD dwKeySize,")            // IN _ Number of bytes in pbKeyValue
+cpp_quote("    HCRYPTKEY *phKey")            // OUT - handle to the derived key
+cpp_quote(");")
+
+// **End of Crypto stuff
+
+}  // interface IWisTypes
+#endif  // WIS_DEFINED
+
+
+/*-----------------------------------------------------------------
+
+Interface:
+
+    IWISModuleInfomation
+
+[Owner:]
+
+    donk
+
+Description:
+
+    Defines the interface used to access the component information.
+-------------------------------------------------------------------*/
+
+#ifndef IMODULEINFORMATION_DEFINED
+#define IMODULEINFORMATION_DEFINED
+
+typedef struct _MODULE_INFO
+{
+    DWORD    dwTagSize;
+    BYTE*    lpTag;
+    LPCWSTR  szType;
+    LPCWSTR  szFriendlyName;
+    LPCWSTR  szDiscription;
+    LPCWSTR  szVersion;
+    LPCWSTR  szManufacturer;
+} MODULE_INFO, *LPMODULE_INFO;
+
+
+[
+    local,
+    uuid( 637AF7C0-99BC-11d1-AC28-00C04FCCAF8B ),
+    helpstring( "WIS IWISModuleInformation interface" ),
+    pointer_default( unique )
+]
+interface IWISModuleInformation : IUnknown
+{
+    HRESULT GetInfo( LPMODULE_INFO pInfo );
+}
+
+#endif // IMODULEINFORMATION_DEFINED
+
+/*-----------------------------------------------------------------
+
+
+Interface:
+
+    ITranslator
+
+[Owner:]
+
+    donk
+
+Description:
+
+    This is the base COM interface for the wireless Services
+    file translator.  It is intended that this provice a common
+    interface for the device and PC based apps.
+
+-------------------------------------------------------------------*/
+#ifndef ITRANSLATOR_DEFINED
+#define ITRANSLATOR_DEFINED
+
+cpp_quote("#define TRANS_CONTINUE           0x200")
+cpp_quote("#define TRANS_STOP               0x201")
+cpp_quote("#define TRANS_S_CONTINUE     MAKE_HRESULT(SEVERITY_SUCCESS, FACILITY_ITF, TRANS_CONTINUE) ")
+cpp_quote("#define TRANS_E_CONTINUE     MAKE_HRESULT(SEVERITY_ERROR, FACILITY_ITF, TRANS_CONTINUE) ")
+cpp_quote("#define TRANS_S_STOP         MAKE_HRESULT(SEVERITY_SUCCESS, FACILITY_ITF, TRANS_STOP) ")
+cpp_quote("#define TRANS_E_STOP         MAKE_HRESULT(SEVERITY_ERROR, FACILITY_ITF, TRANS_STOP) ")
+
+cpp_quote("#define TRANS_CONTINUE_PROCESSING(hresult)  (HRESULT_CODE(hresult) == TRANS_CONTINUE)")
+cpp_quote("#define TRANS_STOP_PROCESSING(hresult)      (HRESULT_CODE(hresult) == TRANS_STOP)")
+
+[
+    local,
+    uuid( CB5ACD52-FE25-11d0-AABD-00A0C90A8F90 ),
+    helpstring( "WIS ITranslator interface" ),
+    pointer_default( unique )
+]
+interface ITranslator : IWISModuleInformation
+{
+    HRESULT ProcessMSG( [in, out] LPMSGINFO pMSG );
+
+    HRESULT GetLastError( [in, out] LPWSTR pszError,
+                          [in] DWORD cbSize );
+};
+
+#endif //ITRANSLATOR_DEFINED
+
+
+/*-----------------------------------------------------------------
+
+Interface:
+    IAcquisition
+
+[Owner:]
+
+    donk
+
+Description:
+
+    These this file.
+
+-------------------------------------------------------------------*/
+#ifndef IACQUISITION_DEFINED
+#define IACQUISITION_DEFINED
+
+// There is no nore data to send on this data feed.
+cpp_quote("#define ACQUIS_E_NO_MORE_DATA    MAKE_HRESULT(SEVERITY_ERROR, FACILITY_ITF, 0x200) ")
+// The ID for the data feed is unknown.
+cpp_quote("#define ACQUIS_E_UNKNOWN_ID      MAKE_HRESULT(SEVERITY_ERROR, FACILITY_ITF, 0x201) ")
+
+[
+    local,
+    uuid( 4A092560-1E52-11d1-AACF-00A0C90A8F90 ),
+    helpstring( "WIS IAcquisition interface" ),
+    pointer_default( unique )
+]
+interface IAcquisition : IWISModuleInformation
+{
+    HRESULT Acquire( [in, out] LPMSGINFO pMSG );
+
+    HRESULT GetFirst( [in, out] LPMSGINFO pMSG );
+
+    HRESULT GetNext( [in, out] LPMSGINFO pMSG );
+
+    HRESULT GetLastError( [in, out] LPWSTR pszError,
+                          [in] DWORD cbSize );
+}
+
+#endif // IACQUISITION_DEFINED
+
+
+
+/*-----------------------------------------------------------------
+
+Interface:
+
+    ITransmitter
+
+[Owner:]
+
+    donk
+
+Description:
+
+    This is the base COM interface for the Wireless Information
+    Services (WIS) transmitter.  This interface is designed
+    to allow the WIS to connect to a communication channel and send
+    files to that channel.
+
+-------------------------------------------------------------------*/
+#ifndef IXMIT_DEFINED
+#define IXMIT_DEFINED
+
+// The comm connection has been lost
+cpp_quote("#define XMIT_E_CONNECTION_LOST   MAKE_HRESULT(SEVERITY_ERROR, FACILITY_ITF, 0x200) ")
+// The transmitter can not connect.
+cpp_quote("#define XMIT_E_CANT_CONNECT      MAKE_HRESULT(SEVERITY_ERROR, FACILITY_ITF, 0x201) ")
+// The transmitter is not connected
+cpp_quote("#define XMIT_E_NOT_CONNECTED MAKE_HRESULT(SEVERITY_ERROR, FACILITY_ITF, 0x202)")
+// The transmission had errors sending the file
+cpp_quote("#define XMIT_E_SEND_ERROR        MAKE_HRESULT(SEVERITY_ERROR, FACILITY_ITF, 0x203)")
+// The could not open the file for sending
+cpp_quote("#define XMIT_E_BAD_INPUT_FILE    MAKE_HRESULT(SEVERITY_ERROR, FACILITY_ITF, 0x204)")
+
+[
+    local,
+    uuid( 2288A560-1E3D-11d1-AACF-00A0C90A8F90 ),
+    helpstring( "WIS ITransmitter interface" ),
+    pointer_default( unique )
+]
+interface ITransmitter : IWISModuleInformation
+{
+    // The main interface
+    HRESULT MakeConnection( [in, out] LPMSGINFO pMSG );
+    HRESULT SendFile( [in, out] LPMSGINFO pMSG );
+
+    HRESULT CloseConnection( [in, out] LPMSGINFO pMSG );
+
+    HRESULT GetLastError( [in, out] LPWSTR pszError,
+                          [in] DWORD cbSize );
+
+    BOOL IsConnected( );
+
+};
+
+#endif // IXMIT_DEFINED
+
+/*-----------------------------------------------------------------
+
+Interface:
+
+    IWISAppFilter
+
+[Owner:]
+
+    donk
+
+Description:
+
+    Defines the interface used to access the application level filter
+    for the wireless services.
+
+-------------------------------------------------------------------*/
+#ifndef IWISAPPFILTER_DEFINED
+#define IWISAPPFILTER_DEFINED
+
+typedef enum _WIS_FILTER_TABLE
+{
+	WIS_FT_ACCEPT_ALL			= 0,
+
+    WIS_FT_GENERAL_SHORT_STRING	= 1,
+
+	WIS_FT_ACCEPT_GROUP_ONLY 	= 0xFE,
+    WIS_FT_ACCEPT_NONE			= 0xFF,
+} WIS_FILTER_TABLE;
+
+
+[
+    local,
+    uuid( A38339F0-8CFF-11d1-AB4B-00A0C90A8F90 ),
+    helpstring( "IWISAppFilter interface" ),
+    pointer_default( unique )
+]
+interface IWISAppFilter : IUnknown
+{
+	HRESULT  IsGroupTagRegistered( [in] LPWSTR szGroupTag,
+    							   [out] BOOL *fResult,
+                                   [in, out] LPDWORD pdwDevice);
+	HRESULT CreateFilterTable( [in, out] HANDLE *phFTable,
+    						   [in] DWORD dwNumEntries,
+                               [in] WIS_FILTER_TABLE wftFilterType);
+	HRESULT SetHashValue( [in] HANDLE hFTable,
+    					  [in] LPWSTR szValue);
+
+	HRESULT SetPreferences( [in] HANDLE hFTable,
+    						[in] DWORD dwPreferances);
+
+	HRESULT RegisterFilterTable( [in] HANDLE hFTable,
+    							 [in] LPWSTR szGroupTag,
+                                 [in] DWORD dwDevice);
+
+	HRESULT DestroyFilterTable( [in] HANDLE hFTable);
+}
+
+#endif // IWISAPPFILTER_DEFINED
+
+/*-----------------------------------------------------------------
+
+Interface:
+
+    IPropPageUI
+
+[Owner:]
+
+    a-gregbo
+
+Description:
+
+    Defines the interface used to access any property pages for
+	every WIS component.
+
+-------------------------------------------------------------------*/
+#ifndef IPROPPAGEUI_DEFINED
+#define IPROPPAGEUI_DEFINED
+[
+	local,
+	uuid(7B2685C1-CF11-11d1-8D4D-006097C51826),
+
+	helpstring("IPropPageUI Interface"),
+	pointer_default(unique)
+]
+interface IPropPageUI : IUnknown
+{
+	[helpstring("GetFirstPropSheetPage")] HRESULT GetFirstPropSheetPage(HANDLE * hPropSheetPage);
+	[helpstring("method GetNextPropSheetPage")] HRESULT GetNextPropSheetPage(HANDLE * hPropSheetPage);
+	[helpstring("method PutOpenRegKey")] HRESULT PutOpenRegKey(HKEY hOpenRegKey);
+		[helpstring("method PutTextHwnd")] HRESULT PutTextHwnd(HWND hwndText);
+};
+#endif // IPROPPAGEUI_DEFINED

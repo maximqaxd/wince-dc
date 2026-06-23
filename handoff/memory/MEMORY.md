@@ -1,0 +1,2 @@
+- [Dreamcast WinCE port](dreamcast-wince-port.md) — running fuller Windows CE on Dreamcast; assets, paths A/B/C, next steps
+- [User: Dreamcast expertise](user-dreamcast-expertise.md) — low-level DC/OS-porting hobbyist, wants expert-level answers

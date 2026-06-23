@@ -1,12 +1,14 @@
-# Large / copyrighted binaries — reproducible from the SDK, never committed
+# --- our build OUTPUTS only (regenerated; not committed) ---
 reference/*.bin
 reference/kernel-obj/
-# Build artifacts
-**/*.obj
-**/*.lib
-**/*.pdb
-**/*.log
 toolchain/smoke/
-# External clones live outside this repo (see toolchain/setenv.bat):
-#   C:\dev\Dreamcast\wince-src                       (leaked CE 3.0 source)
-#   C:\dev\Dreamcast\vendor\WindowsCE-Build-Tools    (gweslab SH compiler)
+build.log
+build.err
+
+# --- editor / OS cruft ---
+Thumbs.db
+*.user
+
+# NOTE: vendor/ IS committed on purpose (leak source + SH toolchain) so the repo
+#       clones-and-builds offline. Only C:\wcedreamcast (the DC SDK) is external
+#       and fetched separately — see RESUME.md / toolchain\bootstrap.ps1.

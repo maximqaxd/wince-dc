@@ -1,0 +1,15 @@
+; Copyright (c) 1995-2000 Microsoft Corporation.  All rights reserved.
+LIBRARY 	SERIAL
+
+EXPORTS COM_Init
+	COM_Deinit
+	COM_Open
+	COM_Close
+	COM_Read
+	COM_Write
+	COM_Seek
+	COM_PowerDown
+	COM_PowerUp
+	SerialGetDroppedByteNumber
+	COM_IOControl
+	DetectModem

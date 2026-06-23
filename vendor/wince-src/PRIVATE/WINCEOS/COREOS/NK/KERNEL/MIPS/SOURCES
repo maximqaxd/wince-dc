@@ -1,0 +1,24 @@
+# Copyright (c) 1995-2000 Microsoft Corporation.  All rights reserved.
+# Machine dependent defines
+EXEENTRY=StartUp
+LDEFINES=-subsystem:native -align:32 /DEBUG /DEBUGTYPE:BOTH,FIXUP
+EXEBASE=0x8C040000
+CDEFINES=$(CDEFINES) -Gd -Zi
+!IF $(R3000)
+CDEFINES=$(CDEFINES) -DIDT -DR3000
+!ENDIF
+
+MIPS_SOURCES= \
+    ..\mips\except.s   \
+    ..\mips\tlbmiss.s  \
+    ..\mips\startup.s  \
+    ..\mips\mdsched.c  \
+    ..\mips\mipsuwnd.c \
+    ..\mips\intrlock.s \
+    ..\mips\memmisc.s  \
+    ..\mips\xxcaptur.s \
+    ..\mips\float.c    \
+    ..\mips\x4sqrt.s   \
+    ..\mips\celogmips.s
+
+

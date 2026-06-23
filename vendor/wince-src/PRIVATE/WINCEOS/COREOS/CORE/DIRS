@@ -1,0 +1,27 @@
+!if 0
+Copyright (c) 1999-2000 Microsoft Corporation.  All rights reserved.
+!endif
+
+DIRS= \
+	res	\
+        asyncio \
+	lmem	\
+	thunks	\
+	dll	\
+	locale	\
+	locusa	\
+	fmtmsg	\
+	imm	\
+	immstub \
+	sip	\
+	fpemul	\
+	corelibc	\
+	lpc         \
+	mui			\
+	buildlib	\
+	buildflb	\
+	fmtres		\
+	buildexe	\
+	corestub	\
+	gwestub		
+

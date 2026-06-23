@@ -1,0 +1,25 @@
+!if 0
+Copyright (c) 1999-2000 Microsoft Corporation.  All rights reserved.
+!endif
+
+!IF ("$(_TGTOS)" == "CE")
+TARGETNAME=AsyncMac
+TARGETTYPE=LIBRARY
+DEFFILE=asyncmac.def
+TARGETDEFNAME=asyncmac
+!ENDIF
+
+CDEFINES=$(CDEFINES) -DNDIS_MINIPORT_DRIVER
+
+INCLUDES=..\..\inc
+CONDITIONAL_INCLUDES=macwin32.h
+
+SOURCES= \
+	AsyncMac.c \
+	tapifun.c \
+	recv.c \
+	slipframe.c \
+	pppframe.c \
+	crcppp.c
+
+WINCETARGETFILE0=$(_RELEASELIBDIR)\$(TARGETDEFNAME).def

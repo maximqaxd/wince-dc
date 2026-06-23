@@ -1,0 +1,31 @@
+!if 0
+Copyright (c) 1999-2000 Microsoft Corporation.  All rights reserved.
+!endif
+
+DIRS= \
+	gcache		\
+	controls	\
+	dlgmgr		\
+	mgdi		\
+	getpower	\
+	immthunk	\
+	msgque		\
+	IconCmn		\
+	Icon		\
+	IconCurs	\
+	loadbmp		\
+	loadstr		\
+	loadimg		\
+	userin		\
+	winmgr		\
+	oom			\
+	client		\
+	syscolor	\
+	mcursor		\
+	notify3		\
+	GWEShare	\
+	GWEStubs	\
+	gwe
+
+OPTIONAL_DIRS=	\
+	buildexe\

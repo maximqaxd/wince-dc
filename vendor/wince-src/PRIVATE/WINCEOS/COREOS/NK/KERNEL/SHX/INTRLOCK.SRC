@@ -1,0 +1,54 @@
+	.HEADING "Interlock memory operations"
+	.FORM LINES=55
+;++
+;
+; Copyright (c) 1995-2000 Microsoft Corporation.  All rights reserved.
+;
+; Module Name:
+;
+;    intrlock.src
+;
+; Abstract:
+;
+;    This module implements the InterlockedIncrement, I...Decrement,
+; I...Exchange and I...TestExchange APIs.
+;
+;    WARNING: This module makes special use of register K1 to inform the
+;	GeneralException handler in except.s that an interlocked operation
+;	is being performed. Because the exception handler code has detailed
+;	knowledge of this code, extreme care must be exercised when modifying
+;	this module. For example, the store instruction must be followed
+;	immediately by a "j ra" instruction.
+;
+; Environment:
+;
+;    Kernel mode or User mode.
+;
+; Revision History:
+;
+;--
+	.include "ksshx.h"
+
+	LEAF_ENTRY InterlockAPIs
+	ALTERNATE_ENTRY _InterlockedExchange
+	mov	#USER_KPAGE+h'3c0, r0
+	jmp	@r0
+	nop
+
+	ALTERNATE_ENTRY _InterlockedTestExchange
+	mov	#USER_KPAGE+h'3d0, r0
+	jmp	@r0
+	nop
+
+	ALTERNATE_ENTRY _InterlockedIncrement
+	mov	#USER_KPAGE+h'3e0, r0
+	jmp	@r0
+	nop
+
+	ALTERNATE_ENTRY _InterlockedDecrement
+	mov	#USER_KPAGE+h'3f0, r0
+	jmp	@r0
+	nop
+	.endf
+
+	.end

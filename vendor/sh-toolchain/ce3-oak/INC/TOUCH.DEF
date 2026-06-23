@@ -1,0 +1,13 @@
+; Copyright (c) 1995-2000 Microsoft Corporation.  All rights reserved.
+LIBRARY 	TOUCH
+
+EXPORTS
+	STDAPI(TouchPanelGetDeviceCaps,	8);
+	STDAPI(TouchPanelEnable,4);
+	STDAPI(TouchPanelDisable,0);
+	STDAPI(TouchPanelSetMode,	8);
+	STDAPI(TouchPanelReadCalibrationPoint, 8);
+	STDAPI(TouchPanelReadCalibrationAbort, 0);
+	STDAPI(TouchPanelSetCalibration, 20);
+	STDAPI(TouchPanelCalibrateAPoint, 16);
+	STDAPI(TouchPanelPowerHandler, 4);

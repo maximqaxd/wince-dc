@@ -1,0 +1,201 @@
+#if 0
+Copyright (c) 1999-2000 Microsoft Corporation.  All rights reserved.
+#endif
+
+#include "resource.h"
+#include "windows.h"
+//#include "aygshell.h"
+
+
+#define WC_TSTATIC    L"STATIC"
+#define WC_TBUTTON    L"BUTTON"
+
+
+/////////////////////////////////////////////////////////////////////////////
+//
+// Menu
+//
+
+IDR_MAINMENU MENU DISCARDABLE 
+BEGIN
+    MENUITEM "E&xit",                       65535
+END
+
+
+/////////////////////////////////////////////////////////////////////////////
+//
+// Icon
+//
+
+// Icon with lowest ID value placed first to ensure application icon
+// remains consistent on all systems.
+IDI_RNAAPP              ICON    DISCARDABLE     "rnaapp.ico"
+IDI_DIRECTCC            ICON    DISCARDABLE     "direct.ico"
+IDI_DIALUP              ICON    DISCARDABLE     "dial.ico"
+IDI_VPN                 ICON    DISCARDABLE     "vpn_cloud.ico"
+
+/////////////////////////////////////////////////////////////////////////////
+//
+// Dialog
+//
+
+IDD_USERPWD DIALOG DISCARDABLE  0, 0, 268, 105
+STYLE DS_CENTER | DS_SYSMODAL | DS_MODALFRAME | WS_POPUP | WS_CAPTION
+EXSTYLE WS_EX_TOOLWINDOW
+CAPTION "Dial-Up Connection"
+BEGIN
+
+    ICON            IDI_DIRECTCC,IDC_STATUSICON,15,6,18,20
+    LTEXT           "Static",IDC_ENTRYNAME,42,12,130,8,SS_NOPREFIX
+
+    LTEXT           "&User Name:",IDC_STATIC,15,36,38,8
+    EDITTEXT        IDC_USERNAME,65,34,70,12,ES_AUTOHSCROLL
+    LTEXT           "&Password:",IDC_STATIC,15,54,37,8
+    EDITTEXT        IDC_PASSWORD,65,52,70,12,ES_PASSWORD | ES_AUTOHSCROLL
+    LTEXT           "D&omain:",IDC_STATIC,15,72,48,8
+    EDITTEXT        IDC_DOMAIN,65,70,70,12,ES_AUTOHSCROLL
+    CONTROL         "&Save password",IDC_SAVEPASSWORD,"Button",
+                    BS_AUTOCHECKBOX | WS_TABSTOP,65,85,70,11
+
+    GROUPBOX        "",IDC_STATIC,6,25,131,78
+
+    LTEXT           "Phone:",IDC_PHONELABEL,152,36,28,8
+    LTEXT           "",IDC_PHONE,185,36,75,8,SS_NOPREFIX | SS_LEFTNOWORDWRAP
+    LTEXT           "Dial from:",IDC_DIALFROMLABEL,152,54,32,8
+    LTEXT           "",IDC_DIALFROM,185,54,75,8,SS_NOPREFIX
+    PUSHBUTTON      "&Dial Properties...",IDDIALPROPERTIES,182,68,76,12
+
+    GROUPBOX        "",IDC_STATIC,143,25,120,61
+
+    DEFPUSHBUTTON   "&Connect",IDCONNECT,154,88,50,14
+    PUSHBUTTON      "Cancel",IDCANCEL,210,88,50,14
+END
+
+IDD_USERPWD2 DIALOG DISCARDABLE  0, 0, 130, 150
+STYLE DS_CENTER | DS_MODALFRAME | WS_POPUP | WS_CAPTION | WS_SYSMENU
+EXSTYLE WS_EX_TOOLWINDOW
+CAPTION "Dial-Up Connection"
+BEGIN
+    ICON            IDI_DIRECTCC,IDC_STATUSICON,6,6,18,20
+    LTEXT           "Static",IDC_ENTRYNAME,42,12,130,8,SS_NOPREFIX
+
+    CONTROL         "User Name:",IDC_STATIC,WC_TSTATIC,SS_LEFT,6,29,38,8
+    EDITTEXT        IDC_USERNAME,56,27,70,11,ES_AUTOHSCROLL
+
+    CONTROL         "Password:",IDC_STATIC,WC_TSTATIC,SS_LEFT,6,41,37,8
+    EDITTEXT        IDC_PASSWORD,56,39,70,11,ES_PASSWORD | ES_AUTOHSCROLL
+
+    CONTROL         "Domain:",
+                    IDC_STATIC,WC_TSTATIC,SS_LEFT,6,53,46,8
+    EDITTEXT        IDC_DOMAIN,56,51,70,11,ES_AUTOHSCROLL
+
+    CONTROL         "Save password",IDC_SAVEPASSWORD,
+                    WC_TBUTTON,BS_AUTOCHECKBOX | WS_TABSTOP,56,62,70,11
+
+    GROUPBOX        "",IDC_STATIC,6,72,120,3
+
+    CONTROL         "Phone:",IDC_PHONELABEL,
+                    WC_TSTATIC,SS_LEFT,6,76,28,8
+    LTEXT           "",IDC_PHONE,56,76,86,8,SS_NOPREFIX
+    CONTROL         "Dial from:",
+                    IDC_DIALFROMLABEL,WC_TSTATIC,SS_LEFT,6,85,32,8
+    LTEXT           "",IDC_DIALFROM,56,85,83,8,SS_NOPREFIX
+    CONTROL         "Connect",IDCONNECT,WC_TBUTTON,BS_DEFPUSHBUTTON,6,94,40,14
+    CONTROL         "Dial Properties...",IDDIALPROPERTIES,
+                    WC_TBUTTON,BS_PUSHBUTTON,50,94,76,14
+END
+
+IDD_DCCSTATUS DIALOG DISCARDABLE  0, 0, 177, 65
+STYLE DS_CENTER | DS_MODALFRAME | WS_POPUP | WS_CAPTION
+EXSTYLE WS_EX_TOOLWINDOW
+CAPTION "Direct Cable Connection"
+BEGIN
+    ICON            IDI_DIRECTCC,IDC_STATUSICON,7,5,18,20
+    LTEXT           "",IDC_STATUSMSG,37,11,138,8,SS_NOPREFIX
+
+    LTEXT           "Hide this message:",IDC_STATIC,37,31,78,8
+    DEFPUSHBUTTON   "H&ide",IDDISMISS,120,29,50,14
+
+    LTEXT           "Cancel connection:",IDC_CANCEL_TEXT,37,46,67,8
+    PUSHBUTTON      "Cancel",IDCANCEL,120,45,50,14
+
+	LTEXT			"", IDC_STATUS1, 5, 70, 165, 8,SS_NOPREFIX
+	LTEXT			"", IDC_STATUS2, 5, 82, 165, 8,SS_NOPREFIX
+	
+END
+
+IDD_DCCSTATUS2 DIALOG DISCARDABLE  0, 0, 130, 65
+STYLE DS_CENTER | DS_MODALFRAME | WS_POPUP | WS_CAPTION
+EXSTYLE WS_EX_TOOLWINDOW
+CAPTION "Direct Cable Connection"
+BEGIN
+    ICON            IDI_DIRECTCC,IDC_STATUSICON,5,5,18,20
+
+    LTEXT           "",IDC_STATUSMSG,35,11,90,17,SS_NOPREFIX
+
+    LTEXT           "Hide this message:",IDC_STATIC,5,31,69,8
+    LTEXT           "Cancel connection:",IDC_CANCEL_TEXT,5,46,69,8
+
+    DEFPUSHBUTTON   "Hide",IDDISMISS,75,29,50,14
+    PUSHBUTTON      "Cancel",IDCANCEL,75,45,50,14
+
+	LTEXT			"", IDC_STATUS1, 5, 70, 120, 8,SS_NOPREFIX
+	LTEXT			"", IDC_STATUS2, 5, 82, 120, 8,SS_NOPREFIX
+	
+END
+
+
+
+/////////////////////////////////////////////////////////////////////////////
+//
+// String Table
+//
+
+STRINGTABLE DISCARDABLE 
+BEGIN
+    IDS_DIAL_WITH_NUMBER    "Dialing '%s'"
+    IDS_DIAL_NO_NUMBER      "Dialing"
+    IDS_OPENING_PORT        "Opening Port"
+    IDS_CONNECTING_TO_HOST  "Connecting to Host"
+    IDS_CONNECTING_TO_HOST_RETRY "Connecting to Host, Retry %d"
+    IDS_CONNECTING_DEVICE   "Connecting Device"
+    IDS_DEVICE_CONNECTED    "Device Connected"
+    IDS_PHY_EST             "Physical Layer Established"
+    IDS_AUTH_USER           "Authenticating User"
+    IDS_AUTH_EVENT          "Authentication Event:"
+
+    IDS_AUTH_ERROR_TITLE    "Authentication Error"
+    IDS_AUTH_ERR_REST_HOUR  "CONNECT FAILED: Restricted Logon Hours"
+    IDS_AUTH_ERR_ACCT_DISABLED "CONNECT FAILED: Account Disabled"
+    IDS_AUTH_ERR_PWD_EXP    "CONNECT_FAILED: Password Expired"
+    IDS_AUTH_ERR_NO_DIALIN  "CONNECT FAILED: No Dial-In Permission"
+END
+
+STRINGTABLE DISCARDABLE 
+BEGIN
+    IDS_AUTH_ERR_CHG_PWD    "CONNECT FAILED: Password not changed"
+    IDS_AUTH_ERR_UNKNOWN    "CONNECT_FAILED: Unknown error authenticating user"
+    IDS_AUTH_PROJ           "Projection Phase Starting"
+    IDS_AUTH_RESP           "Responding to Authentication Challenge"
+    IDS_USER_AUTH           "User Authenticated"
+    IDS_CONNECTED           "Connected"
+    IDS_DISCONNECTED        "Disconnected"
+    IDS_REM_NET             "Remote Networking"
+    IDS_DISCONNECT          "Disconnect"
+    IDS_RASDIAL_ERR         "Error from RasDial"
+    IDS_NO_CARRIER          "No Carrier detected.\nVerify phone number and then try again."
+    IDS_NO_DIALTONE         "There is no dialtone.\nMake sure your modem is connected to the phone line properly"
+    IDS_DEVICE_NOT_READY    "The modem is not plugged in or is out of service.\nConnect a modem to your computer and try again."
+    IDS_LINE_BUSY           "The line is busy.\nTry again later."
+    IDS_NO_ANSWER           "The computer you are dialing is not answering.\nTry again later."
+END
+
+STRINGTABLE DISCARDABLE 
+BEGIN
+    IDS_CARRIER_DROPPED     "You have been disconnected from the remote computer you dialed.\nRetry the connection."
+    IDS_PORT_NOT_AVAIL      "The port is not available: it is either configured incorrectly or another program is using it."
+    IDS_INVALID_PARAMETER   "Invalid parameter on command line"
+    IDS_CONNECTING_TO       "Connecting to %s"
+    IDS_CONNECTED_TO        "Connected to %s"
+	IDS_DCC_NO_CARRIER		"No Carrier detected.\nVerify connection settings and check for possible cable problems"
+END

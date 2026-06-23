@@ -1,0 +1,16 @@
+!if 0
+Copyright (c) 1999-2000 Microsoft Corporation.  All rights reserved.
+!endif
+
+TARGETNAME=device
+EXEENTRY=WinMain
+TARGETTYPE=LIBRARY
+TARGETLIBS=$(_COMMONSDKROOT)\lib\$(_CPUINDPATH)\coredll.lib
+CONDITIONAL_INCLUDES=devemul.h proxy.h shlobj.h
+SOURCES = \
+    device.c \
+    devload.c \
+    pcmcia.c
+
+
+

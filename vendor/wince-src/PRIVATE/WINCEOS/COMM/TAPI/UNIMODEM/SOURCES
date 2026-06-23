@@ -1,0 +1,25 @@
+!if 0
+Copyright (c) 1999-2000 Microsoft Corporation.  All rights reserved.
+!endif
+
+TARGETNAME=UniModem
+TARGETTYPE=LIBRARY
+RELEASETYPE=OAK
+WINCEOEM=1
+COPYRES=1
+
+TARGETDEFNAME=$(TARGETNAME)
+WINCETARGETFILE0=$(_RELEASELIBDIR)\$(TARGETDEFNAME).def
+WINCETARGETFILES=$(_RELEASELIBDIR)\$(TARGETNAME).res
+
+INCLUDES=..\..\inc
+
+SOURCES= \
+	config.c \
+	unimodem.rc \
+	unimodemnl.rc \
+	tspi.c \
+	misc.c \
+	registry.c \
+	dial.c \
+	modem.c

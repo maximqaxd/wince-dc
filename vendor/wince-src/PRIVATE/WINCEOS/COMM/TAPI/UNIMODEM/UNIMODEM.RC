@@ -1,0 +1,31 @@
+#if 0
+Copyright (c) 1999-2000 Microsoft Corporation.  All rights reserved.
+#endif
+
+//----------------------------------------------------------------------------
+//
+// This RC file MUST contain ONLY localizable resources (strings, dialogs,
+// menus, accelerators, message tables). Any other resources placed here will 
+// cause the build errors during SYSGEN
+//
+//----------------------------------------------------------------------------
+#include "resource.h"
+#include "windows.h"
+#include "commctrl.h"
+
+/////////////////////////////////////////////////////////////////////////////
+//
+// String Table
+//
+STRINGTABLE DISCARDABLE 
+BEGIN
+    // dial.c strings
+    IDS_MANUAL_DIAL_TERMINAL    "Manual Dial Terminal"
+    IDS_PRE_DIAL_TERMINAL       "Pre Dial Terminal"
+    IDS_POST_DIAL_TERMINAL      "Post Dial Terminal"
+    
+END
+
+
+
+

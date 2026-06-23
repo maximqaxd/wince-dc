@@ -1,0 +1,20 @@
+!if 0
+Copyright (c) 1999-2000 Microsoft Corporation
+!endif
+
+DIRS= \
+   kdstub \
+   kernel \
+   dbgcode \
+   dbg \
+   tools \
+   ethdbg \
+   schedlog \
+   celog \
+   compress \
+   nocompr \
+   dvcm \
+   ceft
+
+OPTIONAL_DIRS=  \
+    buildexe

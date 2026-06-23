@@ -1,0 +1,106 @@
+# Copyright (c) 1995-2000 Microsoft Corporation.  All rights reserved.
+#-------------------------------------------------------------------------------
+# PROFILING BUILD OF THE KERNEL.
+#
+TARGETNAME=nkprmain
+WINCECPU=1
+TARGETTYPE=LIBRARY
+CDEFINES=$(CDEFINES) -DIN_KERNEL -DWINCEMACRO
+NOMIPS16CODE=1
+CONDITIONAL_INCLUDES=stdio.h
+
+#vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv
+# Turn on all the profiling options for this build
+#
+CDEFINES=$(CDEFINES) -DKCALL_PROFILE -DNKPROF
+CDEFINES=$(CDEFINES) -DCELOG
+!IF "$(_TGTCPUTYPE)" == "ARM" || "$(_TGTCPUTYPE)" == "THUMB"
+ADEFINES=$(ADEFINES) -pd "CELOG SETL {TRUE}"
+!ELSE
+ADEFINES=$(ADEFINES) -DCELOG=1
+!ENDIF
+#
+#^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+
+# Machine independent defines
+CDEFINES=$(CDEFINES) -DDBGSUPPORT
+INCLUDES=..\inc;..\..\inc
+
+!IFDEF DP_SETTINGS
+CDEFINES=$(CDEFINES) -DDP_SETTINGS=$(DP_SETTINGS)
+!ENDIF
+
+!IFDEF FILELOGGING
+!IF $(FILELOGGING)
+CDEFINES=$(CDEFINES) -DFILELOGGING
+!ENDIF
+!ENDIF
+
+!IFDEF PROFILE
+!IF $(PROFILE)
+CDEFINES=$(CDEFINES) -DPROFILE
+!ENDIF
+!ENDIF
+
+!IFDEF KCALL_PROFILE
+!IF $(KCALL_PROFILE)
+CDEFINES=$(CDEFINES) -DKCALL_PROFILE
+!ENDIF
+!ENDIF
+
+!IFDEF MEMTRACKING
+!IF $(MEMTRACKING)
+CDEFINES=$(CDEFINES) -DMEMTRACKING
+!ENDIF
+!ENDIF
+
+!IF "$(DEBUG_VMEM)"=="1"
+CDEFINES=$(CDEFINES) -DDEBUG_VMEM
+!ENDIF
+
+!IF "$(_TGTCPUTYPE)"=="MIPS"
+WARNISERROR=0
+!ENDIF
+
+!IF "$(_TGTCPU)" == "SH4"
+ADEFINES=$(ADEFINES) -DSH_CPU=64
+!ENDIF
+!IF "$(_TGTCPU)" == "SH3"
+ADEFINES=$(ADEFINES) -DSH_CPU=48
+!ENDIF
+!IF "$(_TGTCPU)" == "SH3e"
+ADEFINES=$(ADEFINES) -DSH_CPU=62
+!ENDIF
+
+!IF "$(_TGTCPUTYPE)" == "ARM" || "$(_TGTCPUTYPE)" == "THUMB"
+ADEFINES=-pd "_TGTCPU SETS \"$(_TGTCPU)\"" $(ADEFINES)
+!ENDIF
+
+AFPUDEFINES=-DMIPS_HAS_FPU $(AFPUDEFINES)
+CFPUDEFINES=-DMIPS_HAS_FPU $(CFPUDEFINES)
+
+!IF "$(_TGTCPUTYPE)" == "x86"
+CDEFINES=$(CDEFINES) -Gs100000
+!ENDIF
+
+SOURCES= \
+    ..\debug.c     \
+    ..\resource.c  \
+    ..\objdisp.c   \
+    ..\heap.c      \
+    ..\ppfs.c      \
+    ..\compr2.c    \
+    ..\printf.c    \
+    ..\loader.c    \
+    ..\mapfile.c   \
+    ..\virtmem.c   \
+    ..\physmem.c   \
+    ..\schedule.c  \
+    ..\kwin32.c    \
+    ..\kmisc.c     \
+    ..\intrapi.c   \
+    ..\stubs.c     \
+    ..\exdsptch.c  \
+    ..\memtrk.c    \
+    profile.c  \

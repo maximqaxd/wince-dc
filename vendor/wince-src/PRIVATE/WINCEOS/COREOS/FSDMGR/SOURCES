@@ -1,0 +1,38 @@
+!IF 0
+
+Copyright (c) 1989-2000 Microsoft Corporation.  All rights reserved.
+
+Module Name:
+
+        sources.
+
+Abstract:
+
+        This file specifies the target component being built and the list of
+        sources files needed to build that component.  Also specifies optional
+        compiler switches and libraries that are unique for the component being
+        built.
+
+!ENDIF
+
+TARGETNAME=fsdmgr
+DLLENTRY=FSDMGR_Main
+TARGETTYPE=DYNLINK
+TARGETLIBS=$(_COMMONSDKROOT)\lib\$(_CPUINDPATH)\coredll.lib
+
+INCLUDES=$(_PUBLICROOT)\common\oak\inc ; \
+		 $(_PUBLICROOT)\common\sdk\inc ; \
+		 $(_PUBLICROOT)\common\ddk\inc ; \
+		 $(_PRIVATEROOT)\winceos\coreos\nk\inc
+
+CDEFINES = $(CDEFINES) -DWINCEOEM
+
+SOURCES = \
+    init.c      \
+    alloc.c     \
+    apis.c      \
+    misc.c      \
+    serv.c      \
+    stubs.c     \
+    tables.c
+

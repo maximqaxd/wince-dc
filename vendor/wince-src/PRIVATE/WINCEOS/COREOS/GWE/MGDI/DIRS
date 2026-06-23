@@ -1,0 +1,31 @@
+!if 0
+Copyright (c) 1999-2000 Microsoft Corporation.  All rights reserved.
+!endif
+
+DIRS=       \
+    gpe     \
+    inc     \
+    alias   \
+    base    \
+    bitmap  \
+    blt     \
+    blt2    \
+    dc      \
+    dibsec  \
+    draw    \
+    drwtxt  \
+    dx      \
+    fe      \
+    fntfix  \
+    jfonts  \
+    pal     \
+    palmin  \
+    palnat  \
+    print   \
+    rast    \
+    rast2   \
+    rgn     \
+    tci     \
+    tt      \
+    winmgr
+

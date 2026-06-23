@@ -1,0 +1,58 @@
+/*
+
+Copyright (c) 1990-1997,  Microsoft Corporation  All rights reserved.
+
+Module Name:
+
+    print.dlg
+
+Abstract:
+
+    This module contains the resource descriptions for the WinCE
+    print common dialog.
+
+Revision History:
+
+*/
+
+#include <printdlg.h>
+
+PRINTDLGTEMPLATE DIALOG DISCARDABLE  0, 0, 265, 91
+STYLE DS_MODALFRAME | WS_POPUP | WS_CAPTION | WS_SYSMENU
+EXSTYLE WS_EX_CAPTIONOKBTN | WS_EX_CONTEXTHELP
+CAPTION "Print"
+BEGIN
+    LTEXT           "&Printer:",IDC_STATIC,3,6,41,8,NOT WS_GROUP
+    COMBOBOX        IDC_PRINTER,45,4,83,50,CBS_DROPDOWNLIST | WS_VSCROLL | 
+                    WS_TABSTOP
+    LTEXT           "P&ort:",IDC_STATIC,3,21,41,8,NOT WS_GROUP
+    COMBOBOX        IDC_PORT,45,19,83,40,CBS_DROPDOWNLIST | CBS_SORT | 
+                    WS_VSCROLL | WS_TABSTOP
+    LTEXT           "Paper Si&ze:",IDC_STATIC,3,36,41,8,NOT WS_GROUP
+    COMBOBOX        IDC_PAPERSIZE,45,34,83,40,CBS_DROPDOWNLIST | CBS_SORT | 
+                    WS_VSCROLL | WS_TABSTOP
+    CONTROL         "Dra&ft Mode",IDC_DRAFTMODE,"Button",BS_AUTOCHECKBOX | 
+                    WS_TABSTOP,29,63,97,10
+    CONTROL         "A&ll",IDC_RANGE_ALL,"Button",BS_AUTORADIOBUTTON | 
+                    WS_GROUP | WS_TABSTOP,135,17,56,10
+    CONTROL         "&Selection",IDC_RANGE_SELECTION,"Button",
+                    BS_AUTORADIOBUTTON,135,30,56,10
+    GROUPBOX        "Print Range",IDC_STATIC,131,6,65,40
+    CONTROL         "Portr&ait",IDC_PORTRAIT,"Button",BS_AUTORADIOBUTTON | 
+                    WS_GROUP | WS_TABSTOP,204,17,54,10
+    CONTROL         "Lan&dscape",IDC_LANDSCAPE,"Button",BS_AUTORADIOBUTTON,
+                    204,30,54,10
+    GROUPBOX        "Orientation",IDC_STATIC,200,6,63,40
+    LTEXT           "L&eft:",IDC_STATIC,134,59,24,9
+    EDITTEXT        IDC_LEFT,159,57,34,12,ES_AUTOHSCROLL | WS_GROUP
+    LTEXT           "&Right:",IDC_STATIC,134,72,24,9
+    EDITTEXT        IDC_RIGHT,159,71,34,12,ES_AUTOHSCROLL
+    LTEXT           "&Top:",IDC_STATIC,196,59,30,9
+    EDITTEXT        IDC_TOP,227,57,34,12,ES_AUTOHSCROLL
+    LTEXT           "&Bottom:",IDC_STATIC,196,72,30,9
+    EDITTEXT        IDC_BOTTOM,227,71,34,12,ES_AUTOHSCROLL
+    GROUPBOX        "Margins",IDC_MARGINSGROUPBOX,131,47,132,39
+END
+
+
+

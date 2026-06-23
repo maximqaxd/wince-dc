@@ -1,0 +1,61 @@
+!if 0
+Copyright (c) 1999-2000 Microsoft Corporation.  All rights reserved.
+!endif
+
+TARGETNAME=coremainprof
+TARGETDEFNAME=coredllprof
+DEFFILE=..\coredll.def
+TARGETTYPE=LIBRARY
+PREPROCESSDEFFILE=1
+
+CDEFINES=-DWINCEMACRO -DCOREDLL -DCELOG
+NOMIPS16CODE=1
+INCLUDES=..\..\inc;..\..\..\inc;..\..\..\..\inc;..\..\..\nk\inc
+
+!IF "$(WINCECODETEST)" == "1"
+INCLUDES=$(INCLUDES);$(_TARGETPLATROOT)\inc
+!ENDIF
+
+CONDITIONAL_INCLUDES=..\shx\shx.h
+
+!IF "$(_TGTCPU)" == "SH4"
+ADEFINES=$(ADEFINES) -DSH_CPU=64
+!ENDIF
+!IF "$(_TGTCPU)" == "SH3"
+ADEFINES=$(ADEFINES) -DSH_CPU=48
+!ENDIF
+!IF "$(_TGTCPU)" == "SH3e"
+ADEFINES=$(ADEFINES) -DSH_CPU=62
+!ENDIF
+
+CFPUDEFINES=-DMIPS_HAS_FPU
+
+SOURCES= \
+    ..\apis.c     \
+    ..\coredll.c  \
+    ..\time.c     \
+    ..\random.c   \
+    ..\profiler.c \
+    ..\strings.c
+
+MIPS_SOURCES= \
+    ..\mips\intrlock.s \
+    ..\mips\chandler.c
+
+SHx_SOURCES= \
+    ..\shx\intrlock.src \
+    ..\shx\chandler.c
+
+PPC_SOURCES= \
+    ..\ppc\chandler.c \
+    ..\ppc\jmpuwind.s
+
+
+ARM_SOURCES= \
+    ..\arm\intrlock.s \
+    ..\arm\chandler.c
+
+x86_SOURCES= \
+    ..\x86\exsup.c
+
+WINCETARGETFILE0=$(_COMMONOAKROOT)\lib\$(_CPUINDPATH)\coredllprof.def

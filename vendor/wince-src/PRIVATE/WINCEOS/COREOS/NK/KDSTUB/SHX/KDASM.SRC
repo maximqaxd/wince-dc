@@ -1,0 +1,15 @@
+; Copyright (c) 1995-2000 Microsoft Corporation
+	.list OFF
+	.include "kxshx.h"
+	.list ON
+
+	LEAF_ENTRY _ThreadStopFunc
+	trapa	#3
+	rts
+	nop
+	.endf
+	
+	.END
+
+
+

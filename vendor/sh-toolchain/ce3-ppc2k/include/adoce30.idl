@@ -1,0 +1,611 @@
+//////////////////////////////////////////////////////////////////////////////
+//
+//	Microsoft ADOCE
+//
+// 	Copyright (c) 1997 - 2000 Microsoft Corporation. All rights reserved
+//
+//	ADOCE30.IDL interface definition 
+//
+
+import "oaidl.idl";
+
+interface _Connection;
+
+
+	typedef [uuid(EF3576D1-6630-11d3-841C-00105AC65762)]
+	enum {
+	    adGetRowsRest = -1
+	} GetRowsOptionEnum;
+
+	typedef [uuid(11303440-F682-11D2-BB62-00C04F680ACC)]
+	enum SeekEnum {
+	    adSeekFirstEQ = 1,
+	    adSeekLastEQ = 2,
+	    adSeekAfterEQ = 4,
+		adSeekAfter = 8,
+	    adSeekBeforeEQ = 16,
+	    adSeekBefore = 32
+	} SeekEnum;
+
+	typedef [uuid(11303441-F682-11D2-BB62-00C04F680ACC)]
+	enum SearchDirectionEnum {
+		adSearchForward = 1,
+		adSearchBackward = -1
+	} SearchDirectionEnum;
+
+	typedef [uuid(113033DF-F682-11D2-BB62-00C04F680ACC)]
+	enum IsolationLevelEnum {
+	    adXactUnspecified = -1,
+	    adXactChaos = 16,
+	    adXactReadUncommitted = 256,
+	    adXactBrowse = 256,
+	    adXactCursorStability = 4096,
+	    adXactReadCommitted = 4096,
+	    adXactRepeatableRead = 65536,
+	    adXactSerializable = 1048576,
+	    adXactIsolated = 1048576
+	} IsolationLevelEnum;
+
+	typedef [uuid(113033E0-F682-11D2-BB62-00C04F680ACC)] 
+	enum CursorTypeEnum {
+	    adOpenUnspecified	= -1,
+		adOpenForwardOnly	= 0,
+		adOpenKeyset		= 1,
+		adOpenDynamic		= 2,
+		adOpenStatic		= 3
+	} CursorTypeEnum;
+
+	typedef [uuid(113033E1-F682-11D2-BB62-00C04F680ACC)]
+	enum PositionEnum {
+		adPosUnknown  = -1,
+		adPosBOF      = -2,
+		adPosEOF      = -3
+	} PositionEnum;
+
+	typedef [uuid(113033E3-F682-11D2-BB62-00C04F680ACC)]
+	enum DataTypeEnum { 
+		adBigInt           = 20,
+		adBinary           = 128,
+		adBoolean          = 11,
+		adBSTR             = 8,
+		adChar             = 129,
+		adCurrency         = 6,
+		adDate             = 7,
+		adDBDate           = 133,
+		adDBTime           = 134,
+		adDBTimeStamp      = 135,
+		adDecimal          = 14,
+		adDouble           = 5,
+		adEmpty            = 0,
+		adError            = 10,
+		adGUID             = 72,
+		adIDispatch        = 9,
+		adInteger          = 3,
+		adIUnknown         = 13,
+		adLongVarBinary    = 205,
+		adLongVarChar      = 201,
+		adLongVarWChar     = 203,
+		adNumeric          = 131,
+		adSingle           = 4,
+		adSmallInt         = 2,
+		adTinyInt          = 16,
+		adUnsignedBigInt   = 21,
+		adUnsignedInt      = 19,
+		adUnsignedSmallInt = 18,
+		adUnsignedTinyInt  = 17,
+		adUserDefined      = 132,
+		adVarBinary        = 204,
+		adVarChar          = 200,
+		adVariant          = 12,
+		adVarWChar         = 202,
+		adWChar            = 130,
+	} DataTypeEnum;
+
+	typedef [uuid(113033E4-F682-11D2-BB62-00C04F680ACC)]
+	enum CursorOptionEnum {
+		adAddNew			= 0x01000400,
+		adApproxPosition    = 0x00004000,
+		adBookmark          = 0x00002000,
+		adDelete			= 0x01000800,
+		adHoldRecords		= 0x00000100,
+		adMovePrevious		= 0x00000200,
+		adResync            = 0x00020000,
+		adUpdate			= 0x01008000,
+		adUpdateBatch       = 0x00010000,
+	    adFind				= 0x00080000,
+	    adSeek				= 0x00400000,
+	    adIndex				= 0x00800000
+	} CursorOptionEnum;
+
+	typedef [uuid(113033E5-F682-11D2-BB62-00C04F680ACC)]
+	enum LockTypeEnum {
+	    adLockUnspecified		= -1,
+		adLockReadOnly			= 1,
+		adLockPessimistic		= 2,
+		adLockOptimistic		= 3,
+	} LockTypeEnum;
+
+	typedef [uuid(113033E6-F682-11D2-BB62-00C04F680ACC)]
+	enum EditModeEnum {
+		adEditNone       = 0x0000,
+		adEditInProgress = 0x0001,
+		adEditAdd        = 0x0002,
+	} EditModeEnum;
+
+	typedef [uuid(113033E8-F682-11D2-BB62-00C04F680ACC)]
+	enum FieldAttributeEnum {
+		adFldMayDefer               = 2,
+		adFldUpdatable              = 4,
+		adFldUnknownUpdatable       = 8,
+		adFldFixed                  = 16,
+		adFldIsNullable             = 32,
+		adFldMayBeNull              = 64,
+		adFldLong                   = 128,
+		adFldRowID                  = 256,
+		adFldRowVersion				= 512,
+		adFldCacheDeferred			= 4096,
+		adFldNegativeScale			= 16384,
+		adFldKeyColumn				= 32768
+	} FieldAttributeEnum; 
+
+	typedef [uuid(113033E9-F682-11D2-BB62-00C04F680ACC)]
+	enum CursorLocationEnum {
+	    adUseNone = 1,
+	    adUseServer = 2
+	} CursorLocationEnum;
+
+	typedef [uuid(113033EA-F682-11D2-BB62-00C04F680ACC)]
+	enum ConnectModeEnum {
+	    adModeUnknown = 0,
+	    adModeRead = 1,
+	    adModeWrite = 2,
+	    adModeReadWrite = 3,
+	    adModeShareDenyRead = 4,
+	    adModeShareDenyWrite = 8,
+	    adModeShareExclusive = 12,
+	    adModeShareDenyNone = 16
+	} ConnectModeEnum;
+
+	typedef [uuid(113033EB-F682-11D2-BB62-00C04F680ACC)]
+	enum SchemaEnum {
+	    adSchemaProviderSpecific = -1,
+	    adSchemaAsserts = 0,
+	    adSchemaCatalogs = 1,
+	    adSchemaCharacterSets = 2,
+	    adSchemaCollations = 3,
+	    adSchemaColumns = 4,
+	    adSchemaCheckConstraints = 5,
+	    adSchemaConstraintColumnUsage = 6,
+	    adSchemaConstraintTableUsage = 7,
+	    adSchemaKeyColumnUsage = 8,
+	    adSchemaReferentialContraints = 9,
+	    adSchemaReferentialConstraints = 9,
+	    adSchemaTableConstraints = 10,
+	    adSchemaColumnsDomainUsage = 11,
+	    adSchemaIndexes = 12,
+	    adSchemaColumnPrivileges = 13,
+	    adSchemaTablePrivileges = 14,
+	    adSchemaUsagePrivileges = 15,
+	    adSchemaProcedures = 16,
+	    adSchemaSchemata = 17,
+	    adSchemaSQLLanguages = 18,
+	    adSchemaStatistics = 19,
+	    adSchemaTables = 20,
+	    adSchemaTranslations = 21,
+	    adSchemaProviderTypes = 22,
+	    adSchemaViews = 23,
+	    adSchemaViewColumnUsage = 24,
+	    adSchemaViewTableUsage = 25,
+	    adSchemaProcedureParameters = 26,
+	    adSchemaForeignKeys = 27,
+	    adSchemaPrimaryKeys = 28,
+	    adSchemaProcedureColumns = 29,
+	    adSchemaDBInfoKeywords = 30,
+	    adSchemaDBInfoLiterals = 31,
+	    adSchemaCubes = 32,
+	    adSchemaDimensions = 33,
+	    adSchemaHierarchies = 34,
+	    adSchemaLevels = 35,
+	    adSchemaMeasures = 36,
+	    adSchemaProperties = 37,
+	    adSchemaMembers = 38,
+	    adSchemaTrustees = 39
+	} SchemaEnum;
+
+	[
+		object,
+		uuid(113033F3-F682-11D2-BB62-00C04F680ACC),
+		dual,
+		helpstring("ADOCE Collection"),
+		pointer_default(unique)
+	]
+	interface _Collection : IDispatch
+	{
+		[propget, id(1)] HRESULT Count([out, retval] long *pVal);
+		[restricted, id(DISPID_NEWENUM)] HRESULT _NewEnum([out, retval] IUnknown **ppvObject);
+		[id(0x60020002)] HRESULT Refresh(void);
+		[hidden, propget] HRESULT Element(VARIANT *pvar, int index);
+	};
+
+
+	[
+		object,
+		uuid(113033F4-F682-11D2-BB62-00C04F680ACC),
+		dual,
+		nonextensible,
+		oleautomation,
+		helpstring("ADOCE Field"),
+		pointer_default(unique)
+	]
+	interface Field : IDispatch
+	{
+		[propget, id(1)] HRESULT ActualSize([out, retval] long *pVal);
+		[propget, id(2)] HRESULT Attributes([out, retval] long *pVal);
+		[propget, id(3)] HRESULT DefinedSize([out, retval] long *pVal);
+		[propget, id(4)] HRESULT Name([out, retval] BSTR *pVal);
+		[propget, id(5)] HRESULT Type([out, retval] DataTypeEnum *pVal);
+		[propget, id(6)] HRESULT UnderlyingValue([out, retval] VARIANT *pVal);
+		[propget, id(7)] HRESULT Precision([out, retval] short *pVal);
+		[propget, id(8)] HRESULT NumericScale([out, retval] short *pVal);
+		[propget, id(0)] HRESULT Value([out, retval] VARIANT *pVal);
+		[propput, id(0)] HRESULT Value([in] VARIANT newVal);
+	};
+
+
+	[
+		object,
+		uuid(113033F5-F682-11D2-BB62-00C04F680ACC),
+		dual,
+		helpstring("ADOCE Field Collection"),
+		pointer_default(unique)
+	]
+	interface Fields : _Collection
+	{
+		[propget, id(0)] HRESULT Item([in]VARIANT varIndex,  [out, retval] Field **pVal);
+	};
+
+	[
+		object,
+		uuid(113033EE-F682-11D2-BB62-00C04F680ACC),
+		dual,
+		helpstring("ADOCE Property"),
+		pointer_default(unique)
+	]
+	interface Property : IDispatch
+	{
+	    [id(00000000), propget]
+	    HRESULT _stdcall Value([out, retval] VARIANT* pval);
+	    [id(00000000), propput]
+	    HRESULT _stdcall Value([in] VARIANT pval);
+	    [id(0x60020002), propget]
+	    HRESULT _stdcall Name([out, retval] BSTR* pbstr);
+	    [id(0x60020003), propget]
+	    HRESULT _stdcall Type([out, retval] DataTypeEnum* ptype);
+	    [id(0x60020004), propget]
+	    HRESULT _stdcall Attributes([out, retval] long* plAttributes);
+	    [id(0x60020004), propput]
+	    HRESULT _stdcall Attributes([in] long plAttributes);
+	};
+
+	[
+		object,
+		uuid(113033ED-F682-11D2-BB62-00C04F680ACC),
+		dual,
+		helpstring("ADOCE Property Collection"),
+		pointer_default(unique)
+	]
+	interface Properties : _Collection
+	{
+		[propget, id(0)] HRESULT Item([in]VARIANT varIndex, 
+									  [out, retval] Property **pVal);
+	};
+
+	[
+		object,
+		uuid(113033F0-F682-11D2-BB62-00C04F680ACC),
+		dual,
+		helpstring("ADOCE Error"),
+		pointer_default(unique)
+	]
+	interface Error: IDispatch
+	{
+		[id(0), propget]
+		HRESULT Description([out, retval] BSTR* pbstr);
+		[id(1), propget]
+		HRESULT Number([out, retval] long* pl);
+		[id(2), propget]
+		HRESULT Source([out, retval] BSTR* pbstr);
+		[id(3), propget]
+		HRESULT HelpFile([out, retval] BSTR* pbstr);
+		[id(4), propget]
+		HRESULT HelpContext([out, retval] DWORD* pl);
+		[id(5), propget]
+		HRESULT NativeError([out, retval] long* pl);
+	}
+
+	[
+		object,
+		uuid(113033EF-F682-11D2-BB62-00C04F680ACC),
+		dual,
+		helpstring("ADOCE Error Collection"),
+		pointer_default(unique)
+	]
+	interface Errors: _Collection
+	{
+		[id(00000000), propget]
+		HRESULT _stdcall Item([in] VARIANT Index, [out, retval] Error** ppvObject);
+		[id(3)] HRESULT Clear(void);
+	}
+
+
+	[
+		object,
+		uuid(113033F6-F682-11D2-BB62-00C04F680ACC),
+		dual,
+		helpstring("ADOCE Recordset"),
+		pointer_default(unique)
+	]
+	interface _Recordset : IDispatch
+	{
+		[id(1)] HRESULT AddNew([in, optional] VARIANT FieldList,
+							   [in, optional] VARIANT Values);
+		[id(2)] HRESULT CancelUpdate(void);
+		[id(3)] HRESULT Clone([in, optional, defaultvalue(adLockUnspecified)] LockTypeEnum LockType, 
+								[retval, out]  _Recordset **ppvObject);
+		[id(4)] HRESULT Close(void);
+		[id(5)] HRESULT Delete([in, defaultvalue(1)] long AffectRecords);
+		[id(6)] HRESULT GetRows([in, defaultvalue(adGetRowsRest)] long Rows, 
+								[in, optional] VARIANT Start, 
+								[in, optional] VARIANT Fields, 
+								[retval, out] VARIANT *pvar);
+		[id(7)] HRESULT Move([in] long NumRecords, 
+							 [in, optional] VARIANT Start);
+		[id(8)] HRESULT MoveFirst(void);
+		[id(9)] HRESULT MoveLast(void);
+		[id(10)] HRESULT MoveNext(void);
+		[id(11)] HRESULT MovePrevious(void);
+		[id(12)] HRESULT Open([in, optional] VARIANT Source, 
+							  [in, optional] VARIANT ActiveConnection, 
+							  [in, defaultvalue(adOpenUnspecified)] CursorTypeEnum CursorType, 
+							  [in, defaultvalue(adLockUnspecified)] LockTypeEnum LockType, 
+							  [in, defaultvalue(-1 /* adCmdUnspecified */)] long Options);
+		[id(13)] HRESULT Requery(void);
+		[id(14)] HRESULT Supports([in] CursorOptionEnum CursorOptions, 
+								  [retval, out] VARIANT_BOOL *pb);
+		[id(15)] HRESULT Update([in, optional] VARIANT Fields, 
+								[in, optional] VARIANT Values);
+
+		[propget, id(16)] HRESULT AbsolutePage([out, retval] long *pVal);
+		[propput, id(16)] HRESULT AbsolutePage([in] long newVal);
+		[propget, id(17)] HRESULT AbsolutePosition([out, retval] long *pVal);
+		[propput, id(17)] HRESULT AbsolutePosition([in] long newVal);
+		[propget, id(18)] HRESULT BOF([out, retval] VARIANT_BOOL *pVal);
+		[propget, id(19)] HRESULT Bookmark([out, retval] VARIANT *pVal);
+		[propput, id(19)] HRESULT Bookmark([in] VARIANT newVal);
+		[propget, id(20)] HRESULT CacheSize([out, retval] long *pVal);
+		[propput, id(20)] HRESULT CacheSize([in] long newVal);
+		[propget, id(21)] HRESULT CursorType([out, retval] CursorTypeEnum *pVal);
+		[propput, id(21)] HRESULT CursorType([in] CursorTypeEnum newVal);
+		[propget, id(22)] HRESULT EditMode([out, retval] EditModeEnum *pVal);
+		[propget, id(23)] HRESULT EOF([out, retval] VARIANT_BOOL *pVal);
+		[propget, id(0)]  HRESULT Fields([out, retval] Fields** pvObject); 
+		[propget, id(24)] HRESULT LockType([out, retval] LockTypeEnum *pVal);
+		[propput, id(24)] HRESULT LockType([in] LockTypeEnum newVal);
+		[propget, id(25)] HRESULT PageCount([out, retval] long *pVal);
+		[propget, id(26)] HRESULT PageSize([out, retval] long *pVal);
+		[propput, id(26)] HRESULT PageSize([in] long newVal);
+		[propget, id(27)] HRESULT RecordCount([out, retval] long *pVal);
+		[propget, id(28)] HRESULT Source([out, retval] BSTR *pVal);
+		[propput, id(28)] HRESULT Source([in] BSTR newVal);
+		[propputref, id(29)] HRESULT ActiveConnection([in] VARIANT newVal);
+		[propget, id(29)] HRESULT ActiveConnection([out, retval] VARIANT * pConn);
+		[propput, id(29)] HRESULT ActiveConnection([in] VARIANT newVal);
+		[propget, id(30)] HRESULT ErrorDescription([out, retval] BSTR *pVal);
+
+		[id(31)] HRESULT Find([in] BSTR Criteria, 
+							[in, optional, defaultvalue(0)] long SkipRecords,
+							[in, optional, defaultvalue(adSearchForward)] SearchDirectionEnum SearchDirection,
+							[in, optional] VARIANT Start);
+
+		[id(32)] HRESULT Seek(	[in] VARIANT KeyValues,
+								[in, optional, defaultvalue(adSeekFirstEQ)] SeekEnum SeekOption);
+
+
+		[propget, id(33)] HRESULT Index([out, retval] BSTR* pbstrIndex);
+		[propput, id(33)] HRESULT Index([in] BSTR pbstrIndex);
+		[propget, id(35)] HRESULT Filter([out, retval] VARIANT* Criteria);
+		[propput, id(35)] HRESULT Filter([in] VARIANT Criteria);
+		[propget, id(36)]
+		HRESULT _stdcall Properties([out, retval] Properties ** ppProperties);
+		[propget, id(37)]
+		HRESULT _stdcall State([out, retval] long* plObjState);
+	};
+
+	[
+		object,
+		uuid(113033DE-F682-11D2-BB62-00C04F680ACC),
+		dual,
+		helpstring("ADOCE Connection"),
+		pointer_default(unique)
+	]
+	interface _Connection : IDispatch
+	{
+    [id(00000000), propget]
+    HRESULT _stdcall ConnectionString([out, retval] BSTR* pbstr);
+    [id(00000000), propput]
+    HRESULT _stdcall ConnectionString([in] BSTR pbstr);
+    [id(0x00000004), propget]
+    HRESULT _stdcall Version([out, retval] BSTR* pbstr);
+    [id(0x00000005)]
+    HRESULT _stdcall Close();
+    [id(0x00000006)]
+    HRESULT _stdcall Execute(
+                    [in] BSTR CommandText, 
+                    [out, optional] VARIANT* RecordsAffected, 
+                    [in, optional, defaultvalue(-1 /*adCmdUnspecified*/)] long Options, 
+                    [out, retval] _Recordset** ppiRset);
+    [id(0x00000007)]
+    HRESULT _stdcall BeginTrans([out, retval] long* TransactionLevel);
+    [id(0x00000008)]
+    HRESULT _stdcall CommitTrans();
+    [id(0x00000009)]
+    HRESULT _stdcall RollbackTrans();
+    [id(0x0000000a)]
+    HRESULT _stdcall Open(
+                    [in, optional, defaultvalue("")] BSTR ConnectionString, 
+                    [in, optional, defaultvalue("")] BSTR UserID, 
+                    [in, optional, defaultvalue("")] BSTR Password, 
+                    [in, optional, defaultvalue(-1)] long Options);
+    [id(0x0000000b), propget]
+    HRESULT _stdcall Errors([out, retval] Errors** ppErrors);
+
+    [id(0x0000000c), propget]
+    HRESULT _stdcall DefaultDatabase([out, retval] BSTR* pbstr);
+    [id(0x0000000c), propput]
+    HRESULT _stdcall DefaultDatabase([in] BSTR pbstr);
+    [id(0x0000000d), propget]
+    HRESULT _stdcall IsolationLevel([out, retval] IsolationLevelEnum* Level);
+    [id(0x0000000d), propput]
+    HRESULT _stdcall IsolationLevel([in] IsolationLevelEnum Level);
+    [id(0x0000000e), propget]
+    HRESULT _stdcall Attributes([out, retval] long* plAttr);
+    [id(0x0000000e), propput]
+    HRESULT _stdcall Attributes([in] long plAttr);
+    [id(0x0000000f), propget]
+    HRESULT _stdcall CursorLocation([out, retval] CursorLocationEnum* plCursorLoc);
+    [id(0x0000000f), propput]
+    HRESULT _stdcall CursorLocation([in] CursorLocationEnum plCursorLoc);
+    [id(0x00000010), propget]
+    HRESULT _stdcall Mode([out, retval] ConnectModeEnum* plMode);
+    [id(0x00000010), propput]
+    HRESULT _stdcall Mode([in] ConnectModeEnum plMode);
+    [id(0x00000011), propget]
+    HRESULT _stdcall Provider([out, retval] BSTR* pbstr);
+    [id(0x00000011), propput]
+    HRESULT _stdcall Provider([in] BSTR pbstr);
+    [id(0x00000012), propget]
+    HRESULT _stdcall State([out, retval] long* plObjState);
+	[id(0x00000014), propget]
+	HRESULT _stdcall Properties([out, retval] Properties ** ppProperties);
+	};
+
+[
+	uuid(113033F7-F682-11D2-BB62-00C04F680ACC),
+	version(1.0),
+	helpstring("Microsoft CE ADO Control 3.0")
+]
+library ADOCE
+{
+	importlib("stdole32.tlb");
+	importlib("stdole2.tlb");
+
+	[
+		uuid(113033F8-F682-11D2-BB62-00C04F680ACC),
+		helpstring("Recordset Class")
+	]
+	coclass Recordset
+	{
+		[default] interface _Recordset;
+	};
+
+	[
+		uuid(113033F9-F682-11D2-BB62-00C04F680ACC),
+		helpstring("Connection Class")
+	]
+	coclass Connection
+	{
+		[default] interface _Connection;
+	};
+
+	enum BookmarkEnum {
+	    adBookmarkCurrent = 0,
+	    adBookmarkFirst = 1,
+	    adBookmarkLast = 2
+	};
+
+	enum FilterGroupEnum {
+		adFilterNone = 0
+	};
+	
+	enum PropertyAttributesEnum {
+	    adPropNotSupported = 0,
+	    adPropRequired = 1,
+	    adPropOptional = 2,
+	    adPropRead = 512,
+	    adPropWrite = 1024
+	};
+
+	enum XactAttributeEnum {
+	    adXactCommitRetaining = 131072,
+	    adXactAbortRetaining = 262144,
+	};
+
+
+	enum ObjectStateEnum {
+	    adStateClosed = 0,
+	    adStateOpen = 1,
+	};
+
+	enum ConnectPropmtEnum {
+	    adPromptAlways = 1,
+	    adPromptComplete = 2,
+	    adPromptCompleteRequired = 3,
+	    adPromptNever = 4
+	};
+
+	typedef [uuid(113033E2-F682-11D2-BB62-00C04F680ACC)]
+	enum CommandEnum {
+		adCmdUnspecified = -1,
+		adCmdText       = 1,
+		adCmdTable      = 2,
+		adCmdStoredProc = 4,
+		adCmdUnknown    = 8,
+	    adCmdTableDirect = 512
+	} CommandEnum;
+
+	typedef [uuid(113033E7-F682-11D2-BB62-00C04F680ACC)]
+	enum ErrorValueEnum {
+		adErrInvalidArgument		= 0xbb9,
+		adErrNoCurrentRecord		= 0xbcd,	
+		adErrIllegalOperation		= 0xc93,
+		adErrInTransaction			= 0xcae,
+		adErrFeatureNotAvailable	= 0xcb3,
+		adErrItemNotFound			= 0xcc1,
+		adErrObjectInCollection		= 0xd27,
+		adErrObjectNotSet			= 0xd5c,
+		adErrDataConversion			= 0xd5d,
+		adErrObjectClosed			= 0xe78,
+		adErrObjectOpen				= 0xe79,
+		adErrProviderNotFound		= 0xe7a,
+		adErrBoundToCommand			= 0xe7b,
+		adErrInvalidParamInfo		= 0xe7c,
+		adErrInvalidConnection		= 0xe7d,
+	} ErrorValueEnum;
+
+};
+
+cpp_quote("// backwards compatibility helpers")
+cpp_quote("")
+cpp_quote("typedef _Recordset		IADOCERecordset;")
+cpp_quote("typedef _Connection		IADOCEConnection;")
+cpp_quote("typedef _Collection		IADOCECollection;")
+cpp_quote("typedef Properties		IADOCEProperties;")
+cpp_quote("typedef Property			IADOCEProperty;")
+cpp_quote("typedef Errors			IADOCEErrors;")
+cpp_quote("typedef Error			IADOCEError;")
+cpp_quote("typedef Fields			IADOCEFields;")
+cpp_quote("typedef Field			IADOCEField;")
+cpp_quote("")
+cpp_quote("#define CLSID_ADOCERecordset CLSID_Recordset")
+cpp_quote("#define CLSID_ADOCEConnection CLSID_Connection")
+cpp_quote("")
+cpp_quote("#define IID_IADOCERecordset IID__Recordset")
+cpp_quote("#define IID_IADOCEConnection IID__Connection")
+cpp_quote("#define IID_IADOCECollection IID__Collection")
+cpp_quote("#define IID_IADOCEProperties IID_Properties")
+cpp_quote("#define IID_IADOCEProperty IID_Property")
+cpp_quote("#define IID_IADOCEErrors IID_Errors")
+cpp_quote("#define IID_IADOCEError IID_Error")
+cpp_quote("#define IID_IADOCEFields IID_Fields")
+cpp_quote("#define IID_IADOCEField IID_Field")
+

@@ -1,0 +1,92 @@
+;      TITLE("Jump to Unwind")
+;++
+;
+; Copyright (c) 1995-2000 Microsoft Corporation.  All rights reserved.
+;
+; Module Name:
+;
+;    jmpuwind.s
+;
+; Abstract:
+;
+;    This module implements the SH3 specific routine to jump to the runtime
+;    time library unwind routine.
+;
+; Environment:
+;
+;    Any mode.
+;
+;--
+
+	.include "kxsh3.h"
+
+;++
+;
+; ULONG
+; __C_ExecuteExceptionFilter (
+;    PEXCEPTION_POINTERS ExceptionPointers,
+;    EXCEPTION_FILTER ExceptionFilter,
+;    ULONG EstablisherFrame
+;    )
+;
+; Routine Description:
+;
+;    This function sets the static link and transfers control to the specified
+;    exception filter routine.
+;
+; Arguments:
+;
+;    ExceptionPointers (r4) - Supplies a pointer to the exception pointers
+;       structure.
+;
+;    ExceptionFilter (r5) - Supplies the address of the exception filter
+;       routine.
+;
+;    EstablisherFrame (r6) - Supplies the establisher frame pointer.
+;
+; Return Value:
+;
+;    The value returned by the exception filter routine.
+;
+;--
+
+	LEAF_ENTRY ___C_ExecuteExceptionFilter
+	jmp	@r5		; transfer control to exception filter
+	mov	r6, r0		; set static link
+	.endf
+
+;++
+;
+; VOID
+; __C_ExecuteTerminationHandler (
+;    BOOLEAN AbnormalTermination,
+;    TERMINATION_HANDLER TerminationHandler,
+;    ULONG EstablisherFrame
+;    )
+;
+; Routine Description:
+;
+;    This function sets the static link and transfers control to the specified
+;    termination handler routine.
+;
+; Arguments:
+;
+;    AbnormalTermination (r4) - Supplies a boolean value that determines
+;       whether the termination is abnormal.
+;
+;    TerminationHandler (r5) - Supplies the address of the termination handler
+;       routine.
+;
+;    EstablisherFrame (r6) - Supplies the establisher frame pointer.
+;
+; Return Value:
+;
+;    None.
+;
+;--
+
+	LEAF_ENTRY ___C_ExecuteTerminationHandler
+	jmp	@r5		; transfer control to exception filter
+	mov	r6, r0		; set static link
+	.endf
+

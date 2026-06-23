@@ -1,0 +1,131 @@
+;-------------------------------------------------------------------------------
+;
+;   Copyright (c) 1995-2000 Microsoft Corporation.  All rights reserved.
+;   
+;-------------------------------------------------------------------------------
+        .list OFF
+        .include "kxshx.h"
+        .list ON
+
+        .import _CeLogInterrupt
+        .import _CeLogThreadMigrate
+
+        .section .data,data
+        .align  4
+SaveR4:  .data.l 0
+SaveR5:  .data.l 0
+SaveR7:  .data.l 0
+SaveR8:  .data.l 0
+SaveR9:  .data.l 0
+SaveR10: .data.l 0
+SaveR11: .data.l 0
+SaveR12: .data.l 0
+SaveR13: .data.l 0
+SaveR14: .data.l 0
+SavePR:  .data.l 0
+
+        .section .text,code
+;-------------------------------------------------------------------------------
+;
+; Kernel's interrupt handler calls this routine. Registers R0-R3,R6 are 
+; available for use. On entry, R0 = the value to be logged.
+;
+;-------------------------------------------------------------------------------
+        LEAF_ENTRY _CeLogInterruptSHx
+        
+        ; save state 
+        mov     #SavePR, r2                     ; save all used regs
+        mov     r14,@-r2
+        mov     r13,@-r2
+        mov     r12,@-r2
+        mov     r11,@-r2
+        mov     r10,@-r2
+        mov     r9,@-r2
+        mov     r8,@-r2
+        mov     r7,@-r2
+        mov     r5,@-r2
+        mov     r4,@-r2
+        sts     pr,r1
+        mov     #SavePR, r2                     ; save return address
+        mov     r1,@r2
+
+        ;
+        ; Call the C function, CeLogInterrupt
+        ;
+        mov     #_CeLogInterrupt, r2
+        jsr     @r2
+        mov     r0, r4                          ; pass the parameter
+
+        mov     #SaveR4, r2                     ; restore registers
+        mov     @r2+,r4
+        mov     @r2+,r5
+        mov     @r2+,r7
+        mov     @r2+,r8
+        mov     @r2+,r9
+        mov     @r2+,r10
+        mov     @r2+,r11
+        mov     @r2+,r12
+        mov     @r2+,r13
+        mov     @r2+,r14
+        mov     @r2,r2
+        lds     r2,pr
+
+        rts
+        nop
+
+        .endf
+
+;-------------------------------------------------------------------------------
+;
+; SetCPUASID calls this routine.  Registers R0-R3,R6 are available for use. 
+; On entry, R4 = hProc.
+;
+;-------------------------------------------------------------------------------
+        LEAF_ENTRY _CELOG_ThreadMigrateSHx
+        
+        ; save state 
+        sts     pr,  @-r15              ; Save current return address
+        mov.l   r14, @-r15              ; Save registers
+        mov.l   r13, @-r15
+        mov.l   r12, @-r15
+        mov.l   r11, @-r15
+        mov.l   r10, @-r15
+        mov.l   r9,  @-r15
+        mov.l   r8,  @-r15
+        mov.l   r7,  @-r15
+        mov.l   r6,  @-r15
+        mov.l   r5,  @-r15
+        mov.l   r4,  @-r15
+
+        mov	#1, r5                  ; (r5) = 1
+        
+        ;
+        ; Call the C function, CeLogThreadMigrate
+        ;
+        mov     #_CeLogThreadMigrate, r2
+        jsr     @r2
+        nop        
+
+        mov.l   @r15+, r4               ; Restore registers
+        mov.l   @r15+, r5
+        mov.l   @r15+, r6
+        mov.l   @r15+, r7
+        mov.l   @r15+, r8
+        mov.l   @r15+, r9
+        mov.l   @r15+, r10
+        mov.l   @r15+, r11
+        mov.l   @r15+, r12
+        mov.l   @r15+, r13
+        mov.l   @r15+, r14
+        lds     @r15+, pr               ; Restore return address
+
+        rts
+        nop
+
+        .endf
+
+        .end
+
+        
+
+

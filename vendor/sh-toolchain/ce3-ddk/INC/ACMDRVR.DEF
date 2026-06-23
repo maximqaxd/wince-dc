@@ -1,0 +1,12 @@
+; Copyright (c) 1999-2000 Microsoft Corporation.  All rights reserved.
+EXPORTS
+    ACM_Init
+    ACM_Deinit
+    ACM_Open
+    ACM_Close
+    ACM_Read
+    ACM_Write
+    ACM_Seek
+    ACM_IOControl
+    ACM_PowerUp
+    ACM_PowerDown

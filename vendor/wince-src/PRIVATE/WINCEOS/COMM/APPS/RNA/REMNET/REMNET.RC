@@ -1,0 +1,526 @@
+// Copyright (c) 1995-2000 Microsoft Corporation.  All rights reserved.
+
+#include "resource.h"
+#include "windows.h"
+
+#define WC_TSTATIC    L"Static"
+#define WC_TBUTTON    L"Button"
+
+/////////////////////////////////////////////////////////////////////////////
+//
+// Menu
+//
+
+IDR_MAIN_MENU MENU DISCARDABLE 
+BEGIN
+    POPUP "&File"
+    BEGIN
+        MENUITEM "connectOrCreate",             ID_FILE_CONNECTCREATE
+        MENUITEM SEPARATOR
+        MENUITEM "Desktop &Shortcut",           ID_FILE_CREATESHORTCUT
+        MENUITEM "&Delete",                     ID_FILE_DELETE
+        MENUITEM "Rena&me",                     ID_FILE_RENAME
+        MENUITEM "P&roperties",                 ID_FILE_PROPERTIES
+        MENUITEM SEPARATOR
+        MENUITEM "&Close",                      ID_FILE_EXIT
+    END
+    POPUP "&Edit"
+    BEGIN
+        MENUITEM "Cu&t\tCtrl+X",                ID_EDIT_CUT, GRAYED
+        MENUITEM "&Copy\tCtrl+C",               ID_EDIT_COPY, GRAYED
+        MENUITEM "C&reate Copy",                ID_EDIT_CREATECOPY, GRAYED
+        MENUITEM "&Paste\tCtrl+V",              ID_EDIT_PASTE, GRAYED
+        MENUITEM SEPARATOR
+        MENUITEM "Select &All\tCtrl+A",         ID_EDIT_SELECTALL
+    END
+    POPUP "&View"
+    BEGIN
+        MENUITEM "Lar&ge Icons",                ID_VIEW_LARGEICON
+        MENUITEM "S&mall Icons",                ID_VIEW_SMALLICON
+        MENUITEM "Detai&ls",                    ID_VIEW_DETAILS
+        MENUITEM SEPARATOR
+        MENUITEM "&Refresh",                    ID_VIEW_REFRESH
+    END
+END
+
+IDR_PORTRAIT_MENU MENU DISCARDABLE
+BEGIN
+	POPUP "Connection"
+	BEGIN
+		MENUITEM "Connect",                     ID_CONN_CONN
+        MENUITEM SEPARATOR
+		MENUITEM "New...",                      ID_CONN_NEW
+		MENUITEM "Delete",                      ID_CONN_DELETE
+        MENUITEM "Rename",                      ID_CONN_RENAME
+		MENUITEM "Properties",                  ID_CONN_EDIT
+	END
+END
+
+
+IDR_CONTEXT_MENU MENU DISCARDABLE 
+BEGIN
+    POPUP "MakeNew Menu"
+    BEGIN
+        MENUITEM "Cr&eate...",                  ID_CONNECTIONS_MAKENEWCONNECTION
+
+        MENUITEM SEPARATOR
+        MENUITEM "Desktop &Shortcut",           ID_FILE_CREATESHORTCUT, GRAYED
+        MENUITEM "&Delete",                     ID_FILE_DELETE, GRAYED
+        MENUITEM "Rena&me",                     ID_FILE_RENAME, GRAYED
+        MENUITEM SEPARATOR
+        MENUITEM "P&roperties",                 ID_PROPERTIES, GRAYED
+    END
+    POPUP "Item Menu"
+    BEGIN
+        MENUITEM "C&onnect",                    ID_FILE_CONNECTCREATE
+        MENUITEM SEPARATOR
+        MENUITEM "Desktop &Shortcut",           ID_FILE_CREATESHORTCUT
+        MENUITEM "&Delete",                     ID_FILE_DELETE
+        MENUITEM "Rena&me",                     ID_FILE_RENAME
+        MENUITEM SEPARATOR
+        MENUITEM "P&roperties",                 ID_FILE_PROPERTIES
+    END
+END
+
+
+/////////////////////////////////////////////////////////////////////////////
+//
+// Icon
+//
+
+// Icon with lowest ID value placed first to ensure application icon
+// remains consistent on all systems.
+IDI_REMOTENW            ICON    DISCARDABLE     "remotenw.ico"
+IDI_DIRECTCC            ICON    DISCARDABLE     "direct.ico"
+IDI_NEWCONN             ICON    DISCARDABLE     "newcnctn.ico"
+IDI_RNA                 ICON    DISCARDABLE     "dial.ico"
+IDI_RNA2                ICON    DISCARDABLE     "dial2.ic2"
+IDI_VPN					ICON	DISCARDABLE		"vpn_cloud.ico"
+IDB_TOOLBAR				BITMAP  DISCARDABLE		"toolbar.bmp"
+
+
+/////////////////////////////////////////////////////////////////////////////
+//
+// Dialog
+//
+
+
+
+IDD_RAS_WIZ_1 DIALOG DISCARDABLE  0, 0, 270, 107
+STYLE DS_MODALFRAME | DS_CENTER | WS_POPUP | WS_VISIBLE | WS_CAPTION | WS_SYSMENU
+CAPTION "Make New Connection"
+BEGIN
+    ICON            IDI_NEWCONN,IDC_STATIC,5,10,18,20
+    LTEXT           "&Type a name for the connection:",IDC_STATIC,5,36,108,
+                    10
+    EDITTEXT        IDC_REMNAME,5,48,140,13,ES_AUTOHSCROLL
+
+    LTEXT           "Select the connection type:",IDC_STATIC,160,10,90,10
+
+
+    CONTROL         "Dia&l-Up Connection",IDC_DIALUPCONN,"Button",
+                    BS_AUTORADIOBUTTON|WS_GROUP,165,25,100,10
+    CONTROL         "Di&rect Connection",IDC_DIRECTCONN,"Button",
+                    BS_AUTORADIOBUTTON,165,45,100,10
+    CONTROL         "&Virtual Private Network",IDC_VPNCONN,"Button",
+                    BS_AUTORADIOBUTTON,165,65,100,10
+
+    PUSHBUTTON      "< &Back",IDBACK,179,84,40,14,WS_DISABLED
+    DEFPUSHBUTTON   "&Next >",IDNEXT,219,84,40,14
+END
+
+IDD_RAS_WIZ_1P DIALOG DISCARDABLE  0, 0, 135, 154
+STYLE DS_MODALFRAME | DS_CENTER | WS_POPUP | WS_VISIBLE | WS_CAPTION | WS_SYSMENU
+CAPTION "Make New Connection"
+BEGIN
+    CONTROL         "Type a name for the connection:",IDC_STATIC,WC_TSTATIC,SS_LEFT,5,1,108,
+                    10
+    ICON            IDI_NEWCONN,IDC_STATIC,5,12,18,20
+    EDITTEXT        IDC_REMNAME,31,18,100,13,ES_AUTOHSCROLL
+
+
+    GROUPBOX        "",IDC_STATIC,5,31,125,6
+
+    CONTROL         "Select the connection type:",IDC_STATIC,WC_TSTATIC,SS_LEFT,5,39,90,10
+
+    CONTROL         "Dial-Up Connection",
+                    IDC_DIALUPCONN,WC_TBUTTON,BS_AUTORADIOBUTTON|WS_GROUP,15,50,91,10
+    CONTROL         "Direct Connection",
+                    IDC_DIRECTCONN,WC_TBUTTON,BS_AUTORADIOBUTTON,15,65,80,10
+    CONTROL         "Virtual Private Network",
+					IDC_VPNCONN,WC_TBUTTON, BS_AUTORADIOBUTTON,15,80,80,10
+
+    CONTROL         "< Back",IDBACK,WC_TBUTTON,WS_DISABLED | BS_PUSHBUTTON,50,94,40,14
+    CONTROL         "Next >",IDNEXT,WC_TBUTTON,BS_DEFPUSHBUTTON,90,94,40,14
+END
+
+IDD_RAS_WIZ_2 DIALOG DISCARDABLE  0, 0, 270, 107
+STYLE DS_MODALFRAME | DS_CENTER | WS_POPUP | WS_VISIBLE | WS_CAPTION | WS_SYSMENU
+CAPTION "Make New Dial-Up Connection"
+BEGIN
+    ICON            IDI_RNA,IDC_STATIC,15,6,18,20
+    LTEXT           "Static",IDC_CONNLABEL,41,12,109,8,SS_NOPREFIX
+
+    LTEXT           "Select a &modem:",IDC_STATIC,41,32,128,10
+    COMBOBOX        IDC_MODEM,41,44,126,70,CBS_DROPDOWNLIST | CBS_SORT | 
+                    WS_VSCROLL | WS_TABSTOP
+
+    PUSHBUTTON      "&Configure...",IDC_CONFIG,55,65,78,14
+    PUSHBUTTON      "TC&P/IP Settings...",IDC_TCPSETTINGS,138,65,78,14
+
+    PUSHBUTTON      "< &Back",IDBACK,179,84,40,14
+    DEFPUSHBUTTON   "&Next >",IDNEXT,219,84,40,14
+END
+
+IDD_RAS_WIZ_2P DIALOG DISCARDABLE  0, 0, 135, 154
+STYLE DS_MODALFRAME | DS_CENTER | WS_POPUP | WS_VISIBLE | WS_CAPTION | WS_SYSMENU
+CAPTION "Make New Dial-Up Connection"
+BEGIN
+    ICON            IDI_RNA2,IDC_STATIC,5,2,18,20
+    LTEXT           "Static",IDC_CONNLABEL,31,7,90,8,SS_NOPREFIX
+
+    GROUPBOX        "",IDC_STATIC,5,19,125,6
+
+    CONTROL         "Select a modem:",IDC_STATIC,WC_TSTATIC,SS_LEFT,5,30,120,8
+    COMBOBOX        IDC_MODEM,5,42,126,70,CBS_DROPDOWNLIST | CBS_SORT | 
+                    WS_VSCROLL | WS_TABSTOP
+
+    CONTROL         "Configure...",IDC_CONFIG,
+                     WC_TBUTTON,BS_PUSHBUTTON,5,60,52,14
+    CONTROL         "TCP/IP Settings...",IDC_TCPSETTINGS,
+                    WC_TBUTTON,BS_PUSHBUTTON,62,60,70,14
+
+    CONTROL         "< Back",IDBACK,WC_TBUTTON,BS_PUSHBUTTON,50,94,40,14
+    CONTROL         "Next >",IDNEXT,WC_TBUTTON,BS_DEFPUSHBUTTON,90,94,40,14
+END
+
+IDD_RAS_WIZ_3 DIALOG DISCARDABLE  0, 0, 270, 107
+STYLE DS_MODALFRAME | DS_CENTER | WS_POPUP | WS_VISIBLE | WS_CAPTION | WS_SYSMENU
+CAPTION "Make New Dial-Up Connection"
+BEGIN
+    ICON            IDI_RNA,IDC_STATIC,15,6,18,20
+    LTEXT           "Static",IDC_CONNLABEL,41,12,109,8,SS_NOPREFIX
+
+    LTEXT           "Co&untry code:",IDC_STATIC,41,35,37,8
+    EDITTEXT        IDC_COUNTRY,41,47,37,12,ES_AUTOHSCROLL | ES_NUMBER
+
+    LTEXT           "A&rea code:",IDC_STATIC,94,35,33,9
+    EDITTEXT        IDC_AREA_CODE,94,47,33,12,ES_NUMBER | ES_AUTOHSCROLL
+
+    LTEXT           "&Telephone number:",IDC_STATIC,143,35,93,8
+    EDITTEXT        IDC_PHONE_NUM,143,47,93,12,ES_AUTOHSCROLL
+
+    CONTROL         "Force long &distance",IDC_FORCELD,
+                    "Button",BS_AUTOCHECKBOX | WS_TABSTOP,41,64,90,10
+
+    CONTROL         "Force &local",IDC_FORCELOCAL,
+                    "Button",BS_AUTOCHECKBOX | WS_TABSTOP,143,64,70,10
+
+    PUSHBUTTON      "< &Back",IDBACK,179,84,40,14
+    DEFPUSHBUTTON   "Finish",IDFINISH,219,84,40,14
+END
+
+IDD_RAS_WIZ_3P DIALOG DISCARDABLE  0, 0, 135, 154
+STYLE DS_MODALFRAME | DS_CENTER | WS_POPUP | WS_VISIBLE | WS_CAPTION | WS_SYSMENU
+CAPTION "Make New Dial-Up Connection"
+BEGIN
+    ICON            IDI_RNA2,IDC_STATIC,5,2,18,20
+    LTEXT           "Static",IDC_CONNLABEL,31,7,90,8,SS_NOPREFIX
+
+
+    GROUPBOX        "",IDC_STATIC,5,19,125,6
+
+    CONTROL         "Country code:",IDC_STATIC,WC_TSTATIC,SS_LEFT,5,30,60,8
+    EDITTEXT        IDC_COUNTRY,70,29,30,12,ES_AUTOHSCROLL
+
+    CONTROL         "Area code:",IDC_STATIC,WC_TSTATIC,SS_LEFT,5,44,60,8
+    EDITTEXT        IDC_AREA_CODE,70,43,30,12,ES_NUMBER | ES_AUTOHSCROLL
+
+    CONTROL         "Phone number:",IDC_STATIC,WC_TSTATIC,SS_LEFT,5,58,60,8
+    EDITTEXT        IDC_PHONE_NUM,70,57,60,12,ES_AUTOHSCROLL
+
+    CONTROL         "Force long distance",
+                    IDC_FORCELD,WC_TBUTTON,BS_AUTOCHECKBOX | WS_TABSTOP,5,71,119,10
+
+    CONTROL         "Force local",
+                    IDC_FORCELOCAL,WC_TBUTTON,BS_AUTOCHECKBOX | WS_TABSTOP,5,84,119,10
+
+    CONTROL         "< Back",IDBACK,WC_TBUTTON,BS_PUSHBUTTON,50,94,40,14
+    CONTROL         "Finish",IDFINISH,WC_TBUTTON,BS_DEFPUSHBUTTON,90,94,40,14
+END
+
+IDD_RAS_WIZ_4 DIALOG DISCARDABLE  0, 0, 270, 107
+STYLE DS_MODALFRAME | DS_CENTER | WS_POPUP | WS_VISIBLE | WS_CAPTION | WS_SYSMENU
+CAPTION "Make New Direct Connection"
+BEGIN
+    ICON            IDI_DIRECTCC,IDC_STATIC,15,6,18,20
+    LTEXT           "Static",IDC_CONNLABEL,41,12,109,8,SS_NOPREFIX
+
+    LTEXT           "Select the &device that you want to use :",IDC_STATIC,
+                    41,32,128,10
+    COMBOBOX        IDC_MODEM,41,44,126,70,CBS_DROPDOWNLIST | CBS_SORT | 
+                    WS_VSCROLL | WS_TABSTOP
+
+    PUSHBUTTON      "&Configure...",IDC_CONFIG,55,65,78,14
+    PUSHBUTTON      "TC&P/IP Settings...",IDC_TCPSETTINGS,138,65,78,14
+
+    PUSHBUTTON      "< &Back",IDBACK,179,84,40,14
+    DEFPUSHBUTTON   "Finish",IDFINISH,219,84,40,14
+END
+
+IDD_RAS_WIZ_4P DIALOG DISCARDABLE  0, 0, 135, 154
+STYLE DS_MODALFRAME | DS_CENTER | WS_POPUP | WS_VISIBLE | WS_CAPTION | WS_SYSMENU
+CAPTION "Make New Direct Connection"
+BEGIN
+    ICON            IDI_DIRECTCC,IDC_STATIC,5,2,18,20
+    LTEXT           "Static",IDC_CONNLABEL,31,7,90,8,SS_NOPREFIX
+
+    GROUPBOX        "",IDC_STATIC,5,19,125,6
+
+    CONTROL         "Select the device that you want to use :",IDC_STATIC,WC_TSTATIC,SS_LEFT,
+                    5,30,120,8
+    COMBOBOX        IDC_MODEM,5,42,126,70,CBS_DROPDOWNLIST | CBS_SORT | 
+                    WS_VSCROLL | WS_TABSTOP
+
+    CONTROL         "Configure...",IDC_CONFIG,
+                    WC_TBUTTON,BS_PUSHBUTTON,5,60,52,14
+    CONTROL         "TCP/IP Settings...",IDC_TCPSETTINGS,
+                    WC_TBUTTON,BS_PUSHBUTTON,62,60,70,14
+
+    CONTROL         "< Back",IDBACK,WC_TBUTTON,BS_PUSHBUTTON,50,94,40,14
+    CONTROL         "Finish",IDFINISH,WC_TBUTTON,BS_DEFPUSHBUTTON,90,94,40,14
+END
+
+IDD_RAS_WIZ_5 DIALOG DISCARDABLE  0, 0, 270, 107
+STYLE DS_MODALFRAME | DS_CENTER | WS_POPUP | WS_VISIBLE | WS_CAPTION | WS_SYSMENU
+CAPTION "Make New Virtual Private Network Connection"
+BEGIN
+    ICON            IDI_DIRECTCC,IDC_STATIC,15,6,18,20
+    LTEXT           "Static",IDC_CONNLABEL,41,12,109,8,SS_NOPREFIX
+
+    LTEXT           "H&ost name or IP address:",IDC_STATIC,
+                    41,32,128,10
+    EDITTEXT        IDC_HOSTNAME,41,44,126,13,ES_AUTOHSCROLL
+
+    PUSHBUTTON      "TC&P/IP Settings...",IDC_TCPSETTINGS,138,65,78,14
+
+    PUSHBUTTON      "< &Back",IDBACK,179,84,40,14
+    DEFPUSHBUTTON   "Finish",IDFINISH,219,84,40,14
+END
+
+IDD_RAS_WIZ_5P DIALOG DISCARDABLE  0, 0, 135, 154
+STYLE DS_MODALFRAME | DS_CENTER | WS_POPUP | WS_VISIBLE | WS_CAPTION | WS_SYSMENU
+CAPTION "Make New VPN Connection"
+BEGIN
+    ICON            IDI_DIRECTCC,IDC_STATIC,5,2,18,20
+    LTEXT           "Static",IDC_CONNLABEL,31,7,90,8,SS_NOPREFIX
+
+    GROUPBOX        "",IDC_STATIC,5,19,125,6
+
+    CONTROL         "Host name or IP address :",IDC_STATIC,WC_TSTATIC,SS_LEFT,
+                    5,30,120,8
+	EDITTEXT        IDC_HOSTNAME,5,42,126,13, ES_AUTOHSCROLL
+
+    CONTROL         "TCP/IP Settings...",IDC_TCPSETTINGS,
+                    WC_TBUTTON,BS_PUSHBUTTON,62,60,70,14
+
+    CONTROL         "< Back",IDBACK,WC_TBUTTON,BS_PUSHBUTTON,50,94,40,14
+    CONTROL         "Finish",IDFINISH,WC_TBUTTON,BS_DEFPUSHBUTTON,90,94,40,14
+END
+
+IDD_RAS_TCPIP_GEN DIALOG DISCARDABLE  0, 0, 260, 85
+STYLE DS_MODALFRAME | DS_CENTER | WS_POPUP | WS_VISIBLE | WS_CAPTION
+CAPTION "TCP/IP Settings"
+BEGIN
+    ICON            IDI_DIRECTCC,IDC_MYICON,15,6,18,20
+    LTEXT           "Static",IDC_CONNLABEL,41,12,106,8,SS_NOPREFIX
+
+    CONTROL         "Use &Server-assigned IP address",IDC_SERVIPADDR,"Button",
+                    BS_AUTOCHECKBOX | BS_MULTILINE | WS_TABSTOP,15,35,120,10
+    LTEXT           "IP &address:",IDC_IPADDRLABEL,26,48,38,10
+    CONTROL         "",IDC_IP_ADDR,"RNA_IPAddress", WS_TABSTOP | 0x4,
+					26,59,66,11
+
+    CONTROL         "Use S&lip",IDC_USESLIP,"Button",
+                    BS_AUTOCHECKBOX | WS_TABSTOP,135,35,83,10
+    CONTROL         "&Use software compression",IDC_SOFTCOMPCHK,"Button",
+                    BS_AUTOCHECKBOX | WS_TABSTOP,135,47,104,10
+    CONTROL         "Use I&P header compression",IDC_IPCOMP,"Button",
+                    BS_AUTOCHECKBOX | WS_TABSTOP,135,59,115,10
+END
+
+IDD_RAS_TCPIP_GENP DIALOG DISCARDABLE  0, 0, 130, 136
+STYLE DS_MODALFRAME | DS_CENTER | WS_POPUP | WS_VISIBLE | WS_CAPTION
+CAPTION "TCP/IP Settings"
+BEGIN
+    ICON            IDI_DIRECTCC,IDC_STATIC,5,6,18,20
+    LTEXT           "Static",IDC_CONNLABEL,31,12,90,8,SS_NOPREFIX
+
+    GROUPBOX        "",IDC_STATIC,5,24,125,6
+
+    CONTROL         "Use server-assigned IP address",
+                    IDC_SERVIPADDR,WC_TBUTTON,
+                    BS_AUTOCHECKBOX | BS_MULTILINE | WS_TABSTOP,5,33,120,10 
+    CONTROL         "IP address:",
+                    IDC_IPADDRLABEL,WC_TSTATIC,SS_LEFT,16,46,38,10
+    CONTROL         "",IDC_IP_ADDR,"RNA_IPAddress", WS_TABSTOP | 0x4,
+					65,45,60,11
+
+    CONTROL         "Use Slip",IDC_USESLIP,WC_TBUTTON,
+                    BS_AUTOCHECKBOX | WS_TABSTOP,5,57,83,10
+    CONTROL         "Use software compression",
+                    IDC_SOFTCOMPCHK,WC_TBUTTON,BS_AUTOCHECKBOX | WS_TABSTOP,5,70,104,10
+    CONTROL         "Use IP header compression",
+                    IDC_IPCOMP,WC_TBUTTON,BS_AUTOCHECKBOX | WS_TABSTOP,5,83,115,10
+END
+
+IDD_RAS_TCPIP_NAME_SERV DIALOG DISCARDABLE  0, 0, 260, 85
+STYLE DS_MODALFRAME | DS_CENTER | WS_POPUP | WS_VISIBLE | WS_CAPTION
+CAPTION "TCP/IP Settings"
+BEGIN
+    ICON            IDI_DIRECTCC,IDC_MYICON,15,6,18,20
+    LTEXT           "Static",IDC_CONNLABEL,41,12,106,8,SS_NOPREFIX
+
+    CONTROL         "Use S&erver-assigned addresses",
+                    IDC_NAMESERVADDR,"Button",BS_AUTOCHECKBOX | BS_MULTILINE | WS_TABSTOP,
+					15,35,95,18
+    LTEXT           "Primary &DNS:",IDC_DNS_LABEL,120,27,47,8
+    CONTROL         "",IDC_DNS_ADDR,"RNA_IPAddress", WS_TABSTOP | 0x4,
+					180,26,66,11
+    LTEXT           "Secondary D&NS:",IDC_DNS_ALTLABEL,120,41,59,8
+    CONTROL         "",IDC_DNS_ALTADDR,"RNA_IPAddress", WS_TABSTOP | 0x4,
+					180,40,66,11
+    LTEXT           "Primary &WINS:",IDC_WINS_LABEL,120,55,50,8
+    CONTROL         "",IDC_WINS_ADDR,"RNA_IPAddress", WS_TABSTOP | 0x4,
+					180,54,66,11
+    LTEXT           "Secondary W&INS:",IDC_WINS_ALTLABEL,120,69,60,8
+    CONTROL         "",IDC_WINS_ALTADDR,"RNA_IPAddress", WS_TABSTOP | 0x4,
+					180,68,66,11
+END
+
+IDD_RAS_TCPIP_NAME_SERVP DIALOG DISCARDABLE  0, 0, 130, 136
+STYLE DS_MODALFRAME | DS_CENTER | WS_POPUP | WS_VISIBLE | WS_CAPTION
+CAPTION "TCP/IP Settings"
+BEGIN
+    ICON            IDI_DIRECTCC,IDC_STATIC,5,6,18,20
+    LTEXT           "Static",IDC_CONNLABEL,31,12,90,8,SS_NOPREFIX
+
+    GROUPBOX        "",IDC_STATIC,5,24,125,6
+
+    CONTROL         "Use server-assigned addresses",
+                    IDC_NAMESERVADDR,WC_TBUTTON,BS_AUTOCHECKBOX | BS_MULTILINE | WS_TABSTOP,
+					5,33,120,10
+
+    CONTROL         "DNS:",
+                    IDC_DNS_LABEL,WC_TSTATIC,SS_LEFT,16,46,40,8
+    CONTROL         "",IDC_DNS_ADDR,"RNA_IPAddress", WS_TABSTOP | 0x4,
+					65,45,60,11
+    CONTROL         "Alt DNS:",
+                    IDC_DNS_ALTLABEL,WC_TSTATIC,SS_LEFT,16,58,40,8
+    CONTROL         "",IDC_DNS_ALTADDR,"RNA_IPAddress", WS_TABSTOP | 0x4,
+					65,57,60,11
+    CONTROL         "WINS:",
+                    IDC_WINS_LABEL,WC_TSTATIC,SS_LEFT,16,70,40,8
+    CONTROL         "",IDC_WINS_ADDR,"RNA_IPAddress", WS_TABSTOP | 0x4,
+					65,69,60,11
+    CONTROL         "Alt WINS:",
+                    IDC_WINS_ALTLABEL,WC_TSTATIC,SS_LEFT,16,82,40,8
+    CONTROL         "",IDC_WINS_ALTADDR,"RNA_IPAddress", WS_TABSTOP | 0x4,
+					65,81,60,11
+END
+
+/////////////////////////////////////////////////////////////////////////////
+//
+// Accelerator
+//
+
+REMNET_ACCEL ACCELERATORS DISCARDABLE 
+BEGIN
+    "A",            ID_EDIT_SELECTALL,      VIRTKEY, CONTROL, NOINVERT
+    "D",            ID_VIEW_DETAILS,        VIRTKEY, CONTROL, NOINVERT
+    "L",            ID_VIEW_LARGEICON,      VIRTKEY, CONTROL, NOINVERT
+    "Q",            ID_CONN_EXIT,           VIRTKEY, CONTROL, NOINVERT
+    "S",            ID_VIEW_SMALLICON,      VIRTKEY, CONTROL, NOINVERT
+    "H",            ID_HELP,				VIRTKEY, ALT, NOINVERT
+    VK_BACK,        ID_FILE_DELETE,         VIRTKEY, SHIFT, NOINVERT
+    VK_DELETE,      ID_FILE_DELETE,         VIRTKEY, NOINVERT
+    VK_RETURN,      ID_FILE_PROPERTIES,     VIRTKEY, ALT, NOINVERT
+END
+
+
+/////////////////////////////////////////////////////////////////////////////
+//
+// String Table
+//
+
+STRINGTABLE DISCARDABLE 
+BEGIN
+    IDS_ENTRYCOL            "Entry name"
+    IDS_PHONECOL            "Phone #"
+    IDS_DEVICECOL           "Device name"
+    IDS_MAKE_NEW            "Make New Connection"
+    IDS_DIRECTCC            "Direct Cable Connection"
+    IDS_IPBAD_FIELD_VALUE   "%d is not a valid entry. Specify a value between %d and %d for this field."
+    IDS_ERR_TITLE           "TCP/IP Settings"
+    IDS_CONNECT             "C&onnect"
+    IDS_CREATE              "Cr&eate..."
+    IDS_BADNAME             "A connection name cannot contain any of the following characters:\n\\/: *?""<>|"
+    IDS_NULLNAME            "You must enter a name for the service."
+    IDS_REMNET              "Remote Networking"
+END
+
+STRINGTABLE DISCARDABLE 
+BEGIN
+    IDS_NOSHORTCUT          "You cannot make a shortcut for Make New Connection."
+    IDS_SHORTCUTFAILED      "Failed to create shortcut."
+    IDS_DELCON1             "Are you sure you want to permanently delete this connection?"
+    IDS_DELCON2             "Are you sure you want to permanently delete these connections?"
+    IDS_CONFDEL             "Confirm Connection Delete"
+    IDS_TOOMANYENT          "Too many entries selected."
+    IDS_ERROR               "Error"
+    IDS_RENAMENEW           "Can't rename Make New Connection"
+    IDS_PLEASE              "Please select a connection entry"
+    IDS_COPYOF              "Copy of %s"
+    IDS_COPY_NUM_OF         "Copy %d of %s"
+    IDS_COPYRIGHT           "Remote Networking\r\n(c) Microsoft 1995-2000"
+    IDS_HELPABOUT           "Help About"
+    IDS_MYCONN1             "My Connection"
+    IDS_MYCONN2             "My Connection %d"
+    IDS_PHONEREQ            "Phone number required."
+    IDS_AREAREQ             "You must enter an area code if you check the force local checkbox."
+    IDS_DIALUPTITLE         "Dial-Up Connection"
+END
+
+STRINGTABLE DISCARDABLE 
+BEGIN
+    IDS_DIRECTTITLE         "Direct Connection"
+    IDS_CREATE_PROC_ERR     "Not enough memory"
+	IDS_VPNTITLE			"Virtual Private Network"
+END
+
+STRINGTABLE DISCARDABLE 
+BEGIN
+    IDS_TLTP_NON			""
+    IDS_TLTP_DELETE			"Delete (Shift+Bksp)"
+    IDS_TLTP_DELETEP        "Delete"
+    IDS_TLTP_PRPTY			"Properties (Alt+Enter)"
+    IDS_TLTP_LARGE			"Large Icon (Ctrl+L)"
+    IDS_TLTP_SMOLL			"Small Icon (Ctrl+S)"
+    IDS_TLTP_DETAILS		"Details (Ctrl+D)"
+	IDS_TCPIP_SETTINGS		"TCP/IP Settings"
+	IDS_TCPIP_GENERAL		"General"
+	IDS_TCPIP_NAME_SERV		"Name Servers"
+    IDS_TITLE				"Remote Networking"
+	IDS_ALREADY_EXISTS		"A connection already exists with this name."
+	IDS_DESKTOP_PATH		"\\Windows\\Desktop\\Shortcut to %s.lnk"
+	IDS_DESKTOP_PATH2		"\\Windows\\Desktop\\Shortcut to %s (%d).lnk"
+	IDS_SHORTCUT_STRING		"\\Windows\\rnaapp.exe -e""%s"" -m"
+	IDS_TLTP_CONNECT		"Connect"
+	IDS_TLTP_NEW			"New"
+	IDS_TLTP_EDIT			"Properties"
+	IDS_CONNECTIONS			"Connections"
+
+END
+
+
+

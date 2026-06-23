@@ -1,0 +1,15 @@
+# Copyright (c) 1995-2000 Microsoft Corporation.  All rights reserved.
+# Machine dependent defines
+EXEENTRY=StartUp
+CDEFINES=$(CDEFINES) -Zi -I.\shx
+LDEFINES=-subsystem:native -align:1024 /DEBUG /DEBUGTYPE:BOTH,FIXUP /STACK:64000,64000
+EXEBASE=0x8C040000
+
+SHx_SOURCES=    \
+    ..\shx\mdsh3.c         \
+    ..\shx\shunwind.c      \
+    ..\shx\strings.c       \
+    ..\shx\shfloat.c       \
+    ..\shx\shexcept.src    \
+    ..\shx\intrlock.src    \
+    ..\shx\celogshx.src

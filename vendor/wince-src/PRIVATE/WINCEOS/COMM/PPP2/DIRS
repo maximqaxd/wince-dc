@@ -1,0 +1,9 @@
+!if 0
+Copyright (c) 1999-2000 Microsoft Corporation.  All rights reserved.
+!endif
+
+DIRS_NTANSI=test
+ 
+DIRS_CE=ppp AsyncMac
+
+OPTIONAL_DIRS=ndisprot nwmini

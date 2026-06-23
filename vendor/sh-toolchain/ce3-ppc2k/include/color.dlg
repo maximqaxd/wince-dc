@@ -1,0 +1,53 @@
+/*
+
+Copyright (c) 1990-1997,  Microsoft Corporation  All rights reserved.
+
+Module Name:
+
+    color.dlg
+
+Abstract:
+
+    This module contains the resource descriptions for the WinCE
+    color common dialog.
+
+Revision History:
+
+*/
+
+#include <colordlg.h>
+
+COLORDLGTEMPLATE DIALOG DISCARDABLE 0, 0, 265, 104
+STYLE DS_MODALFRAME | WS_POPUP | WS_CAPTION | WS_SYSMENU 
+EXSTYLE WS_EX_CAPTIONOKBTN | WS_EX_CONTEXTHELP
+CAPTION "Color"
+BEGIN
+    LTEXT           "&Basic colors:",-1,2,1,71,8
+    LTEXT           "",COLOR_BOX1,2,10,100,56,WS_TABSTOP
+    LTEXT           "&Custom colors:",-1,2,73,48,8
+    LTEXT           "",COLOR_CUSTOM1,2,82,100,18,WS_TABSTOP
+    PUSHBUTTON      "&Define >>",COLOR_MIX,54,68,43,13,WS_GROUP
+    LTEXT           "",COLOR_RAINBOW,171,4,76,82,NOT WS_GROUP
+    LTEXT           "",COLOR_LUMSCROLL,248,4,8,82,NOT WS_GROUP
+    LTEXT           "",COLOR_CURRENT,106,36,29,19,NOT WS_GROUP
+    PUSHBUTTON      "&o",COLOR_SOLID,299,186,6,14,WS_GROUP
+    CTEXT           "Color",COLOR_SOLID_LEFT,102,57,18,9
+    CTEXT           "|S&olid",COLOR_SOLID_RIGHT,119,57,19,9
+    RTEXT           "Hu&e:",COLOR_HUEACCEL,133,5,20,9
+    EDITTEXT        COLOR_HUE,153,4,17,12,WS_GROUP
+    RTEXT           "&Sat:",COLOR_SATACCEL,135,18,18,9
+    EDITTEXT        COLOR_SAT,153,17,17,12,WS_GROUP
+    RTEXT           "&Lum:",COLOR_LUMACCEL,135,30,18,9
+    EDITTEXT        COLOR_LUM,153,29,17,12,WS_GROUP
+    RTEXT           "&Red:",COLOR_REDACCEL,134,65,19,9
+    EDITTEXT        COLOR_RED,153,63,17,12,WS_GROUP
+    RTEXT           "&Green:",COLOR_GREENACCEL,126,77,27,9
+    EDITTEXT        COLOR_GREEN,153,76,17,12,WS_GROUP
+    RTEXT           "Bl&ue:",COLOR_BLUEACCEL,133,90,20,9
+    EDITTEXT        COLOR_BLUE,153,89,17,12,WS_GROUP
+    PUSHBUTTON      "&Add to Custom Colors",COLOR_ADD,171,88,86,13,WS_GROUP
+END
+
+
+
+

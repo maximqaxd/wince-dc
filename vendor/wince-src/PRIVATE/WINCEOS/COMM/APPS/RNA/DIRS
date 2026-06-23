@@ -1,0 +1,5 @@
+!if 0
+Copyright (c) 1999-2000 Microsoft Corporation.  All rights reserved.
+!endif
+
+DIRS= remnet rnaapp

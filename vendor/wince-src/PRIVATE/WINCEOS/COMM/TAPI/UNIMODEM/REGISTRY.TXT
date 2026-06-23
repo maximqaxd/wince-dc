@@ -1,0 +1,234 @@
+This file provides an overview of the registry settings which affect the 
+behaviour of modems under WinCE. 
+
+The following examples explain all the available modem related registry keys and
+values for PCMCIA and non-PCMCIA modems.
+To enable multiple TAPI service providers, service provider specific values for
+a particular device exist in a subkey of the device. When a new device driver is
+loaded, the device manager looks for a subkey which contains a "Tsp" value and
+notifies TAPI. TAPI loads the service provider and passes it a pointer to its
+specific values.
+
+1. PCMCIA Modem Example (also explains all of the modem registry values)
+------------------------------------------------------------------------
+
+In this example, I assume a fictitous modem with the PCMCIA ID
+"CompanyX-GenericModem-1234".  For an actual modem, you would replace this
+string with the PNP ID, which is always of the form
+CompanyName-ModelName-Checksum.
+
+------------ Sample Registry Setting -----------------------------
+
+[HKEY_LOCAL_MACHINE\Drivers\PCMCIA\CompanyX-GenericModem-1234]
+   "DeviceArrayIndex"=dword:1
+   "Prefix"="COM"
+   "Dll"="Serial.dll"
+   "ResetDelay"=dword:800
+
+[HKEY_LOCAL_MACHINE\Drivers\PCMCIA\CompanyX-GenericModem-1234\Unimodem]
+   "Tsp"="Unimodem.dll"
+   "FriendlyName"="CompanyX Generic Modem"
+   "DeviceType"=dword:3
+   "DevConfig"=hex: 10,00, 00,00, 78,00,00,00, 10,01,00,00, 00,4B,00,00, 00,00, 08, 00, 00, 00,00,00,00
+
+[HKEY_LOCAL_MACHINE\Drivers\PCMCIA\CompanyX-GenericModem-1234\Unimodem\Init]
+   "1"="AT<cr>"
+   "2"="ATE0V1&C1&D2<cr>"
+   "3"="ATS7=60M1<cr>"
+
+[HKEY_LOCAL_MACHINE\Drivers\PCMCIA\CompanyX-GenericModem-1234\Unimodem\Settings]
+   "MaxCmd"=dword:40
+   "Prefix"="AT"
+   "Terminator"="<cr>"
+   "DialPrefix"="D"
+   "DialSuffix"=";"
+   "DialBilling"=dword:1
+   "Pulse"="P"
+   "Tone"="T"
+   "Blind_Off"="X4"
+   "Blind_On"="X3"
+   "CallSetupFailTimeout"="S7=<#>"
+   "Reset"="ATZ<cr>"
+   "FlowHard"="AT\Q3<cr>"
+   "FlowSoft"="AT\Q1<cr>"
+   "FlowOff"="AT\Q<cr>"
+   "Answer"="ATA<cr>"
+   "Monitor"="ATS0=0<cr>"
+-------------------------------------------------------------------
+
+Note that the above registry settings constitute a fully qualified set
+of values.  For efficieny, Unimodem actually supports a default for
+many of these values.  If you do not specify a modem specific value,
+then Unimodem will attempt to read that value from a default set of 
+registry values.  The available defaults are detailed below.
+
+For example, if we removed value "1" from the \init key above, then 
+Unimodem would instead use the value from the Unimodem\init key shown 
+below.
+
+-------------------- Default Registry Settings --------------------
+
+[HKEY_LOCAL_MACHINE\Drivers\PCMCIA\Modem]
+   "DeviceArrayIndex"=dword:1
+   "Prefix"="COM"
+   "Dll"="Serial.Dll"
+   "ResetDelay"=dword:300
+
+[HKEY_LOCAL_MACHINE\Drivers\PCMCIA\Modem\Unimodem]
+   "Tsp"="Unimodem.dll"
+   "DeviceType"=dword:3
+
+[HKEY_LOCAL_MACHINE\Drivers\Unimodem]
+   "DevConfig"=hex: 10,00, 00,00, 78,00,00,00, 10,01,00,00, 00,4B,00,00, 00,00, 08, 00, 00, 00,00,00,00
+
+[HKEY_LOCAL_MACHINE\Drivers\Unimodem\Init]
+   "1"="AT<cr>"
+   "2"="ATE0V1&C1&D2<cr>"
+
+[HKEY_LOCAL_MACHINE\Drivers\Unimodem\Settings]
+   "Prefix"="AT"
+   "Terminator"="<cr>"
+   "DialPrefix"="D"
+   "DialSuffix"=";"
+   "Pulse"="P"
+   "Tone"="T"
+   "Blind_Off"="X4"
+   "Blind_On"="X3"
+   "CallSetupFailTimeout"="S7=<#>"
+   "Reset"="ATZ<cr>"
+
+-------------------------------------------------------------------
+
+
+Following is a description of each of these keys/values.
+
+
+[HKEY_LOCAL_MACHINE\Drivers\PCMCIA\CompanyX-GenericModem-1234\Unimodem]
+   "Tsp" - Provides the name of the TSP which services this port.
+	Always "Unimodem.dll" for V1 and V1.01 devices.
+
+   "DeviceArrayIndex" - Driver specific.  Always = 1 for V1 PCMCIA serial devices.
+
+   "Prefix" - Device prefix.  Normally = "COM" for PCMCIA serial devices
+
+   "Dll"="Serial.dll"
+
+   "FriendlyName" - Name displayed to user by TAPI applications 
+
+   "DeviceType" - Values from unimodem.h in the OAK
+        0 = null modem
+        1 = external modem
+        2 = internal modem
+        3 = PCMCIA modem
+        4 = parallel port
+        5 = parallel modem
+        6 = IRCOMM modem
+
+   "ResetDelay" - Optional value.  Specifies a number of milliseconds of Delay
+	used during the PCMCIA reset sequence. Most modems do not require this
+	value, but some modem seem to need more than the PCMCIA specified reset
+	delay.  For such modems, specify an appropriate value here.
+
+   "DevConfig" - Unimodem specific information.  This is a binary structure
+	indicating the serial device capabilities (baud, parity, etc).  Not
+	published.  Use default case.
+
+[HKEY_LOCAL_MACHINE\Drivers\PCMCIA\CompanyX-GenericModem-1234\Unimodem\Init]
+	The init sequence is an enumerated sequence of strings used to 
+	initialize the modem.  You can have any number of init strings.
+	Unimodem will step through them in sequence, sending the init 
+	string to the modem and waiting for a "OK" response before
+	continuing to the next command in the sequence. It is recommended
+        that extended response codes be enabled if your modem supports
+        them. Unimodem uses these to determine the connected baud rate.
+
+
+[HKEY_LOCAL_MACHINE\Drivers\PCMCIA\CompanyX-GenericModem-1234\Unimodem\Settings]
+   
+   "MaxCmd" - maximum command length allowed for this modem. If a command
+    exceeds this length, it will be sent as multiple commands separated by
+    the dial suffix (see DialSuffix below).
+
+   "Prefix" - Modem command prefix.  Always "AT" for Hayes compat modems.
+
+   "Terminator" - Command terminator, added to the end of any command 
+	sequences sent to the modem by Unimodem.  Normally "<cr>"
+
+   "DialPrefix" - Prefix for any dial commands.  Normally "D".
+
+   "DialSuffix" - Command suffix used to extend a dialing string across
+	multiple commands.  Unimodem always breaks long dial commands
+	into approximately 40 char strings since many modems cannot handle
+	longer commands.  This suffix char is used to indicate to the modem
+	that the dial sequence is continued in the next command.  Usually ";"
+
+   "DialBilling" - Specifies whether the modem supports the '$' wait for
+    credit card prompt tone (bong). A value of 0 indicates that this capability
+    is not supported. If it is not supported, unimodem will insert multiple
+    commas to cause the modem to wait. If this registry value is not present
+    then support for '$' is assumed.
+
+   "Pulse" - Dial prefix used for pulse dialing (i.e. ATDP).  Usually "P"
+
+   "Tone" - Dial prefix used for tone dialing (i.e. ATDT).  Usually "T"
+
+   "Blind_Off" - Command used to disable blind dialing.  In V1 this was sent
+	as part of the dial sequence.  Some modems cannot parse this.  In V2
+	Unimodem sends this as a separate command, after init but before 
+	dialing.  Typically "X4".  Note : In V1 a problem in the dialing dialog
+	caused blind_on & blind_off to be reversed.  This was not a problem in 
+	Unimodem or the registry, but rather a problem in the UI.
+
+   "Blind_On" - Command used to enable blind dialing. Typcially "X3". See above.
+
+   "CallSetupFailTimeout" - Command to program Call timeout register. Usually "S7=<#>"
+
+   "Reset" - Full AT command used to reset modem.  Usually "ATZ<cr>"
+
+   "FlowHard" - Command to enable hardware flow control.  Varies across modems, but
+	a typical value might be "AT\Q3<cr>"
+
+   "FlowSoft" - Command to enable software flow control.  Varies across modems, but
+	a typical value might be "AT\Q1<cr>"
+
+   "FlowOff" - Command to disable all flow control.  Varies across modems, but
+	a typical value might be "AT\Q<cr>"
+
+   "Answer" - Command to answer an incoming call. Usually "ATA<cr>"
+
+   "Monitor" - Command to listen for an incominig call. Usually "ATS0=0<cr>"
+
+
+
+2. External Modem Example
+-------------------------
+
+A default registry entry always exists for a Hayes compatible modem connected
+to COM1:. Additional external modems can also be specified under the
+HKEY_LOCAL_MACHINE\ExtModems key. Most of the same values apply for external
+modems as for PCMCIA modems, except that the following values are ignored:
+   "Tsp"="Unimodem.dll" - Redundant because unimodem is the component
+                          processing the ExtModem keys
+
+   The following 4 values are used by serial.dll when it loads for the port on
+   which the external modem is connected
+   "DeviceArrayIndex"=dword:1
+   "Prefix"="COM"
+   "Dll"="Serial.dll"
+   "ResetDelay"=dword:800
+
+
+The following example registry entries will cause TAPI to create a line device
+for the external modem from CompanyX and present it as one of the available
+TAPI devices. In this minimal example, all the default settings from the
+HKEY_LOCAL_MACHINE\Drivers\Unimodem Init and Settings keys will be used.
+
+[HKEY_LOCAL_MACHINE\ExtModems\CompanyX-Modem]
+   "Port"="COM1:"
+   "DeviceType"=dword:1
+   "FriendlyName"="CompanyX External Modem"
+
+[HKEY_LOCAL_MACHINE\ExtModems\CompanyX-Modem\Init]
+
+[HKEY_LOCAL_MACHINE\ExtModems\CompanyX-Modem\Settings]
+

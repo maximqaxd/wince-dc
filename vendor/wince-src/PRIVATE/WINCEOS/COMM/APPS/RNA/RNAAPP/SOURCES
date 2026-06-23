@@ -1,0 +1,34 @@
+!if 0
+Copyright (c) 1999-2000 Microsoft Corporation.  All rights reserved.
+!endif
+
+TARGETNAME=rnaapp
+TARGETTYPE=LIBRARY
+RELEASETYPE=OAK
+WINCEOEM=1
+COPYRES=1
+
+WINCETARGETFILES=$(_RELEASELIBDIR)\$(TARGETNAME).res
+
+INCLUDES=..\..\inc
+CONDITIONAL_INCLUDES=notify.h prshtp.h
+
+CDEFINES = $(CDEFINES) -DFAREAST -DINTERNATIONAL
+
+## -DUSE_SIP
+
+
+SOURCES= rnaapp.c rnaapp.rc
+
+
+
+
+
+
+
+
+
+
+
+
+

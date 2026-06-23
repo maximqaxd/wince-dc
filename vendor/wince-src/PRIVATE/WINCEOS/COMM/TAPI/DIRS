@@ -1,0 +1,12 @@
+!IF 0
+Copyright (c) 1989-2000 Microsoft Corporation.  All rights reserved.
+!ENDIF
+
+DIRS=\
+	tapi \
+	tapilib \
+	unimodem
+
+OPTIONAL_DIRS= \
+	tapihelp \
+

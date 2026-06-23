@@ -1,0 +1,37 @@
+!if 0
+Copyright (c) 1999-2000 Microsoft Corporation.  All rights reserved.
+!endif
+
+!IF ("$(_TGTOS)" == "CE")
+TARGETNAME=dhcp
+TARGETTYPE=LIBRARY
+PREPROCESSDEFFILE=
+DEFFILE=dhcp.def
+TARGETDEFNAME=dhcp
+TARGETNAME=dhcp
+TARGETLIBS=
+!ENDIF
+
+!IFDEF MEMTRACKING
+!IF $(MEMTRACKING)
+CDEFINES=$(CDEFINES) -DMEMTRACKING
+!ENDIF
+!ENDIF
+
+INCLUDES= \
+        ..\..\inc; \
+        ..\inc; \
+        ..\tcpip2\h; \
+        $(_PUBLICROOT)\sdk\inc;
+
+SOURCES= \
+			init.c \
+			packet.c \
+			dhcp.c \
+			autonet.c \
+                        
+
+WINCETARGETFILE0=$(_COMMONOAKROOT)\lib\$(_CPUINDPATH)\dhcp.def
+
+
+

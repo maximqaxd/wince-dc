@@ -1,0 +1,10 @@
+; Copyright (c) 1995-2000 Microsoft Corporation.  All rights reserved.
+LIBRARY         KEYBDDR
+
+EXPORTS
+	STDAPI(KeybdDriverInitialize, 4);
+    STDAPI(KeybdDriverPowerHandler, 4);
+	STDAPI(KeybdDriverGetInfo, 12);
+    STDAPI(KeybdDriverSetMode, 12);
+    STDAPI(KeybdDriverInitStates, 12);
+    STDAPI(KeybdDriverVKeyToUnicode, 32);

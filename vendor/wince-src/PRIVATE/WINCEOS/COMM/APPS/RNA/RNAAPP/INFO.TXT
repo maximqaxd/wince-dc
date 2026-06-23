@@ -1,0 +1,133 @@
+	@topic     RNAApp |
+		This program is used to create and maintain a RAS connection.
+
+	The RNAApp.exe program will attempt to create a RAS connection.
+
+	Usage:
+	RNAAPP [-n -p -m -cNUM] -eENTRYNAME
+
+	Option		Description
+	-n			Disables most error message boxes, used when calling
+				application will display the error values
+	-p			By default it will prompt for username/password for
+				dial-up entries, if this is specified it will skip the initial
+				prompt
+	-m			Minimize on connection.
+	-cNUM		Set the context value to NUM (this should be a HEX value,
+				eg. -c54AF)
+	-eENTRYNAME	The name of the RASEntry to use.  If the name contains any
+				embedded spaces then this should be enclosed in double quotes.
+
+	Examples:
+	rnaapp -m -eDirect
+	rnaapp -e"Name with spaces"
+
+
+	RNAApp will send a broadcast message to all applications when a
+	connection succeeds (or fails).  This broadcast message is sent as follows:
+
+	
+	SendNotifyMessage( HWND_BROADCAST, WM_NETCONNECT, (WPARAM)TRUE,
+		(LPARAM)&v_RNAAppInfo );
+
+	The wParam of the message is a boolean that indicates either connection
+	success (TRUE) or termination of the connection (FALSE).	
+
+	The lParam of the message is a pointer to the following structure
+	(defined in ras.h):
+	
+	typedef struct tagRNAAppInfo {
+		DWORD	dwSize;					// The size of this structure
+		DWORD	hWndRNAApp;				// The handle of the RNAApp window
+		DWORD	Context;				// Context value specified on CmdLine
+		DWORD	ErrorCode;				// Last error code
+		TCHAR	RasEntryName[RAS_MaxEntryName+1];
+	} RNAAPP_INFO, *PRNAAPP_INFO;
+
+	The structure elements are defined as follows:
+
+	dwSize		Size of the structure, to be certain of tracking version
+				changes you should compare this against the
+				sizeof(RNAAPP_INFO).
+	hWndRNAApp	The window handle of the RNAApp program (see below).
+	Context		The context specified on the command line.
+	ErrorCode	The error code (only valid if wParam == FALSE). See below for
+				the list of error codes.
+	RasEntryName The RAS entry name specified on the command line.
+
+	Error Codes (defined in raserror.h)
+	ERROR_PORT_DISCONNECTED
+		After sucessfully connecting the port was disconnected.
+	ERROR_NO_CARRIER
+		No carrier was detected by the modem.
+	ERROR_NO_DIALTONE
+		No dialtone was detected by the modem (not all modems support this).
+	ERROR_DEVICE_NOT_READY
+		The device is not ready (for PCMCIA modems the device might not be
+		inserted).
+	ERROR_LINE_BUSY
+		The modem detected a busy signal.
+	ERROR_NO_ANSWER
+		No one answered the phone
+	ERROR_POWER_OFF
+		The serial device returned indication that power had been turned off.
+	ERROR_POWER_OFF_CD
+		The serial device returned indication that power had been turned off,
+		and that Carrier Detect was currently asserted.  This is an indication
+		that we are still in the docking station.
+	ERROR_USER_DISCONNECTION
+		The user has disconnected the connection (by pressing the
+		disconnect/cancel button)
+	ERROR_DISCONNECTION
+		Disconnected for an unknow reason.
+	ERROR_INVALID_PARAMETER
+		Invalid or missing parameter.  The -e parameter is required.
+	ERROR_STATE_MACHINES_ALREADY_STARTED
+		The system cannot establish another RAS connection
+	ERROR_CANNOT_FIND_PHONEBOOK_ENTRY
+		Unable to find specified RAS entry.
+	ERROR_EVENT_INVALID
+		Internal error.
+				
+
+	Sending messages to the RNAApp.
+		The calling application can send messages to RNAApp.  These should
+		be sent in the form:
+		
+		SendMessage (hWnd, RNA_RASCMD, <CMD>, <INFO>);
+
+		Where <CMD> is one of the following:
+		RNA_ADDREF	Add a reference to the current connection. <INFO> should
+					be 0.
+		RNA_DELREF	Delete a reference to the current connection.  If the
+					reference count is decremented to zero then the
+					connection is dropped as if the user had selected
+					Disconnect. <INFO> should be 0.
+		RNA_GETINFO	Will send a WM_NETCONNET message to the window specified
+					in the <INFO> parameter.  This allows an application to
+					inquire what the entryname of this instance of RNAApp is.
+
+		Finding instances of RNAApp.exe.  By creating a function as follows:
+
+		BOOL FindRNAAppWindow(HWND hWnd, LPARAM lParam)
+		{
+			TCHAR  	szClassName[32];
+
+			GetClassName (hWnd, szClassName,
+				sizeof(szClassName)/sizeof(TCHAR));
+
+			if (!_tcscmp (szClassName, TEXT("Dialog")) &&
+				(RNAAPP_MAGIC_NUM == GetWindowLong (hWnd, DWL_USER))) {
+				*((HWND *)lParam) = hWnd;
+				return FALSE;
+				}
+			return TRUE;
+		}
+
+		And then performing the following command:
+		
+		EnumWindows(FindRNAAppWindow, (LPARAM)&hOldRNAWnd);
+
+		You can determine the window handle of the currently running instance
+		of RNAApp.exe (if any).
+		

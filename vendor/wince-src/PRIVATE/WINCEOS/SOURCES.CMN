@@ -1,0 +1,18 @@
+# Copyright (c) 1999-2000 Microsoft Corporation.  All rights reserved.
+
+#
+# NOTE : This is the internal version of sources.cmn.  If you change this
+# please update the version in winceos\external as well.
+#
+#
+
+
+WINCEOEM=1
+WINCEPROJ=COMMON
+WINCETREE=winceos
+WARNISERROR=1
+
+# Set FULL_GWE_DEBUG to turn on some (painfully slow) runtime checks
+!IFDEF FULL_GWE_DEBUG
+CDEFINES=$(CDEFINES) -DFULL_GWE_DEBUG
+!ENDIF

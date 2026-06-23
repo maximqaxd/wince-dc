@@ -1,0 +1,10 @@
+# Copyright (c) 1995-2000 Microsoft Corporation.  All rights reserved.
+CDEFINES=$(CDEFINES) -Zi -I.\ppc
+LDEFINES=-subsystem:native -align:4096 /DEBUG /DEBUGTYPE:BOTH,FIXUP /STACK:64000,64000
+
+PPC_SOURCES=    \
+    ..\ppc\strings.c   \
+    ..\ppc\mdppc.c     \
+    ..\ppc\ppctrap.s   \
+    ..\ppc\vunwind.c   \
+

@@ -6,11 +6,14 @@ rem  Sets: DC SDK makeimg env (replica of wce.bat + set_imginit) + SH compiler.
 rem ============================================================================
 if "%~1"=="" (set BLDTYPE=retail) else (set BLDTYPE=%~1)
 
-rem ---- edit these four paths to match your machine ----------------------------
-set DCSDK=C:\wcedreamcast
-set WINCESRC=C:\dev\Dreamcast\wince-src
-set GWESLAB=C:\dev\Dreamcast\vendor\WindowsCE-Build-Tools
-set WCE212=C:\Windows CE Tools\wce212\bin
+rem ---- repo-relative paths (portable: clone the repo anywhere) -----------------
+for %%I in ("%~dp0..") do set REPO=%%~fI
+set WINCESRC=%REPO%\vendor\wince-src
+set GWESLAB=%REPO%\vendor\sh-toolchain
+rem ---- DC SDK is NOT in the repo (download separately; see RESUME.md). ---------
+rem      Override the location by setting WCEDREAMCASTROOT before calling this.
+if "%WCEDREAMCASTROOT%"=="" set WCEDREAMCASTROOT=C:\wcedreamcast
+set DCSDK=%WCEDREAMCASTROOT%
 
 rem ---- DC SDK image-build env (faithful replica of wce.bat retail|debug) ------
 set WCEDREAMCASTROOT=%DCSDK%
@@ -46,11 +49,10 @@ set _TGTPROJ=DRAGON
 set _FLATRELEASEDIR=%WCEDREAMCASTROOT%\release\%BLDTYPE%
 if /I "%BLDTYPE%"=="debug" (set DCLIB=%DCSDK%\lib\debug) else (set DCLIB=%DCSDK%\lib\retail)
 
-rem ---- SH compiler: gweslab cl.exe (13.10 Renesas SH, defaults to SH4/0x1A6) --
-rem      authentic wce212\SHCL.EXE (12.01 Hitachi SH) kept on PATH as fallback.
+rem ---- SH compiler: vendored gweslab cl.exe (13.10 Renesas SH, defaults SH4/0x1A6) --
 set SH_BIN=%GWESLAB%\bin\I386\SH
 set HOST_BIN=%GWESLAB%\bin\I386
-set PATH=%WCEDREAMCASTROOT%\tools;%WCEDREAMCASTROOT%\tools\GDWorkshop;%SH_BIN%;%HOST_BIN%;%WCE212%;%PATH%
+set PATH=%WCEDREAMCASTROOT%\tools;%WCEDREAMCASTROOT%\tools\GDWorkshop;%SH_BIN%;%HOST_BIN%;%PATH%
 
 rem ---- headers/libs for compiling kernel + drivers ---------------------------
 set INCLUDE=%GWESLAB%\ce3-oak\INC;%DCSDK%\inc

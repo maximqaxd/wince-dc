@@ -25,8 +25,11 @@ CE 2.12 game runtime (toward a shell / multitasking desktop).
 | `reference/` | build artifacts + `MANIFEST.md` (binaries gitignored) |
 | `loader/` | placeholder (DC bootstrap / dc-load / KOS IPL) |
 
-External clones (outside the repo, referenced by `toolchain/setenv.bat`):
-`C:\wcedreamcast` (SDK), `..\wince-src` (leak), `..\vendor\WindowsCE-Build-Tools` (gweslab).
+Vendored **in the repo** (`vendor/`): `wince-src/` (leaked CE 3.0 source) and `sh-toolchain/`
+(SH-4 compiler + CE3 headers). The only external dependency is the **DC SDK** at
+`C:\wcedreamcast` (set `WCEDREAMCASTROOT` to relocate) — see `RESUME.md`.
+
+Resuming on another machine? Start with `RESUME.md`, then `CLAUDE.md` and `handoff/SESSION-LOG.md`.
 
 ## Quickstart
 ```bat

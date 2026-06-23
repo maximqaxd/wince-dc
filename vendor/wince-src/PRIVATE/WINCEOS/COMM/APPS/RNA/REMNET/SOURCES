@@ -1,0 +1,27 @@
+!if 0
+Copyright (c) 2000 Microsoft Corporation.  All rights reserved.
+!endif
+
+TARGETNAME=remnet
+TARGETTYPE=LIBRARY
+RELEASETYPE=OAK
+WINCEOEM=1
+COPYRES=1
+
+WINCETARGETFILES=$(_RELEASELIBDIR)\$(TARGETNAME).res
+
+CONDITIONAL_INCLUDES=prshtp.h
+INCLUDES=..\..\inc
+
+CDEFINES = $(CDEFINES) -DINTERNATIONAL
+
+## -DUSE_SIP
+
+
+SOURCES= \
+	ipaddr.c \
+	remnet.c \
+	remwiz.c \
+	tcpprop.c \
+	remnet.rc
+

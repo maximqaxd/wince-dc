@@ -1,0 +1,22 @@
+!if 0
+Copyright (c) 1999-2000 Microsoft Corporation.  All rights reserved.
+!endif
+
+TARGETNAME=lmemprof
+TARGETTYPE=LIBRARY
+INCLUDES=..\inc;..\..\inc;..\..\..\inc
+CDEFINES=-DCOREDLL -DWINCEMACRO -DCELOG
+NOMIPS16CODE=1
+!IFDEF MEMTRACKING
+!IF $(MEMTRACKING)
+CDEFINES=$(CDEFINES) -DMEMTRACKING
+!ENDIF
+!ENDIF
+!IFDEF MEM_ACCOUNT
+CDEFINES=$(CDEFINES) -DMEM_ACCOUNT=1
+!ENDIF
+
+SOURCES=           \
+    ..\lmem.c      \
+    ..\fixheap.c   \
+    ..\rmem.c

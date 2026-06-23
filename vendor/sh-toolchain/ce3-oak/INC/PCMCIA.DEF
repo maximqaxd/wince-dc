@@ -1,0 +1,28 @@
+; Copyright (c) 1995-2000 Microsoft Corporation.  All rights reserved.
+LIBRARY 	PCMCIA
+
+EXPORTS CardRegisterClient
+	CardDeregisterClient
+	CardGetFirstTuple
+	CardGetNextTuple
+	CardGetTupleData
+	CardGetParsedTuple
+	CardRequestConfiguration
+	CardReleaseConfiguration
+	CardGetStatus
+	CardResetFunction
+	CardRequestExclusive
+	CardReleaseExclusive
+	CardRequestSocketMask
+	CardReleaseSocketMask
+	CardGetEventMask
+	CardSetEventMask
+	CardRequestWindow
+	CardReleaseWindow
+	CardModifyWindow
+	CardMapWindow
+	CardRequestIRQ
+	CardReleaseIRQ
+	CardSystemPower
+	CardSystemInit
+	CardAccessConfigurationRegister

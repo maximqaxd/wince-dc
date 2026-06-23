@@ -1,0 +1,14 @@
+; Copyright (c) 1995-2000 Microsoft Corporation.  All rights reserved.
+LIBRARY         WAVEDEV
+
+EXPORTS
+    WAV_Init
+    WAV_Deinit
+    WAV_Open
+    WAV_Close
+    WAV_Read
+    WAV_Write
+    WAV_Seek
+    WAV_IOControl
+    WAV_PowerUp
+    WAV_PowerDown

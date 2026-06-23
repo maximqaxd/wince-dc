@@ -1,0 +1,7 @@
+; Copyright (c) 1995-2000 Microsoft Corporation.  All rights reserved.
+LIBRARY         Unimodem
+
+EXPORTS TSPI_lineGetProcTable
+	TSPI_providerInit
+        TSPI_providerShutdown
+ 
