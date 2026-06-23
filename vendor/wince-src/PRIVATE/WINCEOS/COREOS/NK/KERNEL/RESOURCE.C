@@ -19,6 +19,10 @@
    is visable to all processes. */
 
 #include "kernel.h"
+#include <winver.h>    /* VS_FIXEDFILEINFO etc. A full windows.h aggregates winver,
+                          but our base CE3 windows.h does not (and aggregating it
+                          globally breaks other OS components); resource.c is the
+                          sole NK consumer, so include it locally, after windows.h. */
 
 #define DWORDUP(x) (((x)+3)&~03)
 
