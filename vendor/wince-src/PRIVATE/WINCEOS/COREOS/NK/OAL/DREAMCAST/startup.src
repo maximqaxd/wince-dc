@@ -52,6 +52,20 @@ sd2:	dt	r2
 	mov	#0x4B, r4		; 'K'
 	bsr	ScifPutc
 	nop
+
+	; --- plant Flycast's WinCE detector: write "SH-4 Kernel" (UTF-16) to
+	;     0x8C0110A8 via the UNCACHED P2 alias (0xAC0110A8) so it reaches RAM
+	;     regardless of cache state, here - just before KernelStart enables the
+	;     MMU and Flycast (mmu_set_state) checks for it. Also 0x8C011118. ---
+	mov.l	pMagicA, r2		; r2 = 0xAC0110A8
+	bsr	PlantMagic
+	nop
+	mov.l	pMagicB, r2		; r2 = 0xAC011118
+	bsr	PlantMagic
+	nop
+	mov	#0x3E, r4		; '>'  (StartUp finished, magic planted)
+	bsr	ScifPutc
+	nop
 	; --- end early debug ---
 
 	stc	SR, r0			; r0 = current SR
@@ -67,7 +81,28 @@ SRSetBL:	.data.l	H'10000000	; SR.BL = 1
 pKernelStart:	.data.l	KernelStart
 pSCIF:		.data.l	H'FFE80000
 pSDly:		.data.l	H'00040000
+pMagicA:	.data.l	H'AC0110A8	; uncached alias of 0x8C0110A8
+pMagicB:	.data.l	H'AC011118	; uncached alias of 0x8C011118
 	ENTRY_END StartUp
+
+;
+; PlantMagic - write the 11-wchar UTF-16 "SH-4 Kernel" to [r2]. Clobbers r0,r3,r6.
+;
+	LEAF_ENTRY PlantMagic
+	mova	MagicStr, r0		; r0 = &MagicStr (must be 4-aligned)
+	mov	r0, r3
+	mov	#11, r6
+pmloop:	mov.w	@r3+, r0
+	mov.w	r0, @r2
+	add	#2, r2
+	dt	r6
+	bf	pmloop
+	rts
+	nop
+	.align	4
+MagicStr:	.data.w	H'0053, H'0048, H'002D, H'0034, H'0020, H'004B
+		.data.w	H'0065, H'0072, H'006E, H'0065, H'006C
+	ENTRY_END PlantMagic
 
 ;
 ; ScifPutc - emit the byte in r4 to the SCIF (base in r1), polled. Clobbers r0.
