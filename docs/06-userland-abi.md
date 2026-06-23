@@ -70,3 +70,20 @@ Since the cross-boundary ABI is byte-identical (above), the productive path is t
 the stock 2.12 modules** and debug the kernel-side `SC_GetOwnerProcess`/`GetKHeap` fault
 (first-process load, slot-1 `0x03d50000` TLB miss) against the Ghidra SDK-kernel spec.
 `coremain.lib` stands as proof the userland toolchain + header chain work.
+
+## Addendum 2 — leak branch survey (all branches checked, 2026-06-23)
+Checked every branch of `Arquivotheca/WinCE-src_20201004` for the missing userland + SH-4:
+- **SH-4 kernel (`NK/KERNEL/SHX`): WINCE300 ONLY.** 420 = ARM/MIPS only; 500/600 have stray
+  SH references (e.g. `CORE/DLL/SH/chandler.c`) but no SHx kernel; 700/800 = no SH at all.
+- **GWES window manager + GDI engine: ABSENT in every branch (300-800).** Only `GWE/INC`
+  headers, the `MGDI` graphics-primitive layer, `MGDI/MULTIMON`, and `PRIVATE/TEST/GWES`
+  test harnesses are present. The window/GDI implementation was never released.
+- **Full `coredll`: ABSENT everywhere** — only the PSL core (`apis/cscode/coredll/chandler`),
+  i.e. what we already compile into `coremain.lib`.
+- 420+ DO add (CPU-independent, mineable later): a fuller `STORAGE`/FSDMGR stack, the `DEVICE`
+  manager, `SERVERS` (ASP/HTTP/MSMQ/SOAP/UPnP, 261 srcs), PocketPC `SHELL/SHCORE`+aygshell PSL,
+  and `MGDI` blit source (reference for a future PowerVR display driver).
+
+**Verdict unchanged:** GWES + full coredll cannot be rebuilt from the leak in any branch, and
+SH-4 is 300-only. Keep the stock 2.12 closed modules; the path forward is the kernel-side
+first-process fault, not rebuilding userland.
