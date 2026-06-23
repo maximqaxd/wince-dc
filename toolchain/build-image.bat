@@ -12,7 +12,7 @@ makeimg
 set RC=%errorlevel%
 echo [build-image] makeimg errorlevel=%RC%
 if %RC%==0 (
-  echo [build-image] OK -> %_FLATRELEASEDIR%\NK.bin
-  echo [build-image] next: powershell -File "%~dp0wrap-image.ps1" -NkBin "%_FLATRELEASEDIR%\NK.bin" -Out "%_FLATRELEASEDIR%\0winceos.bin"
+  echo [build-image] OK : NK.bin written to %_FLATRELEASEDIR%
+  echo [build-image] next: run wrap-image.ps1 (NkBin NK.bin, Out 0winceos.bin)
 )
 endlocal & exit /b %RC%

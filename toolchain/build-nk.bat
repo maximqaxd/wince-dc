@@ -21,9 +21,13 @@ if not exist "%OBJDIR%\crt.lib"    (echo [build-nk] missing crt.lib -- run build
 rem NOTE: link at a low base with relocations kept (/fixed:no). The real EXEBASE
 rem is 0x8C040000, but this linker sign-extends high bases and trips LNK1249; the
 rem image carries fixups so makeimg/romimage rebases it to the RAMIMAGE address.
+rem /DEBUG /DEBUGTYPE:BOTH,FIXUP + /STACK mirror NK\KERNEL\SHX\SOURCES LDEFINES.
+rem The FIXUP debug section is what romimage reads to relocate NK to the RAMIMAGE
+rem base; without it romimage fails "No debug section for NK - unable to fixup".
 echo [build-nk] linking %OUT%
 link.exe /nologo /machine:SH4 /subsystem:windowsce,3.00 /entry:StartUp /base:0x00010000 ^
-    /fixed:no /align:1024 /nodefaultlib /out:"%OUT%" ^
+    /fixed:no /align:1024 /DEBUG /DEBUGTYPE:BOTH,FIXUP /STACK:64000,64000 ^
+    /nodefaultlib /out:"%OUT%" ^
     "%OBJDIR%\nkmain.lib" "%OBJDIR%\oal_dc.lib" "%OBJDIR%\crt.lib" > "%LOG%" 2>&1
 
 echo [build-nk] errorlevel=%errorlevel%   (log: %LOG%)
