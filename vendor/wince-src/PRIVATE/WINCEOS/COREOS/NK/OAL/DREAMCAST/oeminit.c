@@ -15,6 +15,8 @@ extern DWORD pTOC;                      /* ROMHDR* (kernel ROM table of contents
 extern void  InitClock(void);
 extern void  OEMParallelPortInit(void);
 extern void  SerialInit(void);
+extern void  OEMInitDebugSerial(void);
+extern void  OEMWriteDebugString(LPCWSTR psz);
 extern int   OEMGetPlatformVersion(void *pv);
 extern DWORD OEMPlatformVersion;        /* set by OEMGetPlatformVersion: 4 or 5 */
 
@@ -29,6 +31,11 @@ static const WCHAR szSet4[] = L"Set 4 is detected.\r\n";
 void OEMInit(void)
 {
     DWORD *pRamFixup;
+
+    /* 0. Bring up the SCIF debug console FIRST (the kernel never calls it for us)
+     *    and emit a marker so we know we reached C-level OEMInit. */
+    OEMInitDebugSerial();
+    OEMWriteDebugString(L"\r\n[DC-OAL] OEMInit\r\n");
 
     /* 1. Mask every interrupt source: SH-4 INTC priorities + all 9 Holly masks. */
     VUINT16(SH4_INTC_IPRA) = 0;

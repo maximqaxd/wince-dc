@@ -18,21 +18,27 @@
 
 /* Initialise the SCIF for polled 8N1 output. No interrupts enabled (TIE/RIE off)
  * so this never collides with an interrupt-driven serial driver or KITL. */
+/* volatile so the compiler can't optimize the settle loop away */
+static void scif_delay(void)
+{
+    volatile int i;
+    for (i = 0; i < 800000; i++)
+        ;
+}
+
 void OEMInitDebugSerial(void)
 {
-    int i;
-
     VUINT16(SH4_SCSCR2) = 0x0000;                       /* TX/RX off, internal clock */
-    VUINT16(SH4_SCFCR2) = SCFCR2_TFRST | SCFCR2_RFRST;  /* reset both FIFOs */
+    VUINT16(SH4_SCFCR2) = SCFCR2_TFRST | SCFCR2_RFRST;  /* reset both FIFOs (0x06) */
     VUINT16(SH4_SCSMR2) = 0x0000;                        /* async, 8N1, Pck/1 */
-    VUINT8 (SH4_SCBRR2) = (BYTE)SCIF_BRR(DBG_SCIF_BAUD); /* bit rate */
-
-    for (i = 0; i < 10000; i++)                          /* >= 1-bit settle delay */
-        ;
-
-    VUINT16(SH4_SCFCR2) = 0x0000;                        /* release FIFO reset, trigger=1 */
+    VUINT8 (SH4_SCBRR2) = (BYTE)SCIF_BRR(DBG_SCIF_BAUD); /* bit rate (57600 -> 26) */
+    scif_delay();
+    VUINT16(SH4_SCFCR2) = 0x0040;                        /* unreset, trigger on 8 (KOS) */
+    VUINT16(SH4_SCSPTR2)= 0x0000;                        /* no manual pin control */
+    VUINT16(SH4_SCFSR2) = 0x0060;                        /* clear TEND|TDFE */
+    VUINT16(SH4_SCLSR2) = 0x0000;                        /* clear ORER */
     VUINT16(SH4_SCSCR2) = SCSCR2_TE | SCSCR2_RE;         /* enable TX + RX (polled) */
-    VUINT16(SH4_SCFSR2) = 0x0000;                        /* clear status */
+    scif_delay();
 }
 
 /* Write one byte, blocking until the TX FIFO has room. */

@@ -22,6 +22,38 @@
 
 	LEAF_ENTRY StartUp
 	ALTERNATE_ENTRY _StartUp	; linker /entry:StartUp resolves the C-decorated _StartUp
+
+	; --- EARLY DEBUG: raw-SCIF bring-up + emit "NK" so we know the from-source
+	;     kernel entry actually executed (before KernelStart's SH-4 init). SCIF is
+	;     in P4 (0xFFE80000), unmapped, so this works with the MMU off. 57600 8N1.
+	;     (KOS scif_init sequence.) Clobbers r0-r4; StartUp reloads them below.
+	mov.l	pSCIF, r1		; r1 = 0xFFE80000
+	mov	#0, r0
+	mov.w	r0, @(8, r1)		; SCSCR2 = 0      (TX/RX off)
+	mov	#6, r0
+	mov.w	r0, @(0x18, r1)		; SCFCR2 = 0x06   (reset both FIFOs)
+	mov	#0, r0
+	mov.w	r0, @r1			; SCSMR2 = 0      (8N1, Pck/1)
+	mov	#26, r0
+	mov.b	r0, @(4, r1)		; SCBRR2 = 26     (57600 @ Pck 50MHz)
+	mov.l	pSDly, r2
+sd1:	dt	r2
+	bf	sd1			; settle
+	mov	#0x40, r0
+	mov.w	r0, @(0x18, r1)		; SCFCR2 = 0x40   (unreset, trig 8)
+	mov	#0x30, r0
+	mov.w	r0, @(8, r1)		; SCSCR2 = 0x30   (TE|RE)
+	mov.l	pSDly, r2
+sd2:	dt	r2
+	bf	sd2
+	mov	#0x4E, r4		; 'N'
+	bsr	ScifPutc
+	nop
+	mov	#0x4B, r4		; 'K'
+	bsr	ScifPutc
+	nop
+	; --- end early debug ---
+
 	stc	SR, r0			; r0 = current SR
 	mov.l	SRSetBL, r2		; r2 = 0x10000000 (BL)
 	mov.l	pKernelStart, r1	; r1 = &KernelStart
@@ -33,7 +65,22 @@
 	.align	4
 SRSetBL:	.data.l	H'10000000	; SR.BL = 1
 pKernelStart:	.data.l	KernelStart
+pSCIF:		.data.l	H'FFE80000
+pSDly:		.data.l	H'00040000
 	ENTRY_END StartUp
+
+;
+; ScifPutc - emit the byte in r4 to the SCIF (base in r1), polled. Clobbers r0.
+;
+	LEAF_ENTRY ScifPutc
+sppoll:	mov.w	@(0x10, r1), r0		; r0 = SCFSR2
+	tst	#0x20, r0		; TDFE (room in TX FIFO)?
+	bt	sppoll			; wait until set
+	mov	r4, r0			; mov.b store needs the byte in r0
+	mov.b	r0, @(0x0C, r1)		; SCFTDR2 = char
+	rts
+	nop
+	ENTRY_END ScifPutc
 
 ;
 ; OEMNMI - non-maskable interrupt hook. shexcept.src imports it as a bare asm
