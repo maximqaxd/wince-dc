@@ -14,10 +14,15 @@ tools + a real SH-4 PE compiler. This repo is **self-contained except the DC SDK
 - ✅ **Image pipeline** — `makeimg` reproduces the shipped CE ROM (29 modules); `wrap-image.ps1`
   rebuilds the bootable `0winceos.bin` with a **byte-identical** header. No Platform Builder,
   no CD key, no extraction. (`docs/03-build-pipeline.md`)
-- 🔄 **Kernel compile** — IN PROGRESS. Compiling the leaked CE 3.0 `NK` (SHX) source.
-  Cleared header-set mismatch + reconstructed 4 missing SH-4 constants
-  (`bsp/inc/mem_shx_patch.h`); errors 50→35. **Frontier:** `KWIN32.H` type-skew
-  (`CALLBACKINFO` + fn-ptr typedefs undefined). Full method + state in `docs/04-kernel-build.md`.
+- ✅ **Kernel core — BUILDS FROM SOURCE.** All of CE 3.0 `NK` kernel core (19 machine-indep
+  C + 4 SHX C + 3 SHX `shasm`) compiles/assembles clean and archives into a verified SH-4
+  `nkmain.lib` (26 objs, machine `0x1A6`). Unlock was the missing **build switch** `-DWINCEOEM=1
+  -DWINCEMACRO` (gates `kfuncs.h`→PRIVATE `pkfuncs.h`/`mkfuncs.h`), not more headers — cleared
+  all 35 errors at once and validated the 4 reconstructed constants (pkfuncs.h defines them
+  identically). Driver: `build-nklib.bat`. Full detail in `docs/04-kernel-build.md`.
+- 🔄 **From-source `nk.exe`** — remaining gap is the **Dreamcast OAL / boot layer** (`StartUp`
+  entry, INTC/TMU/MMU init, KITL) — NOT in the WINCEOS-only leak; it's in the closed 2.12 image.
+  This is ours to write (SH-4 manual + DC memory map). See `docs/04` §"Next — the OAL gap".
 
 ## Setup on a fresh PC
 1. `git clone <this repo>` — includes the leak source + SH toolchain under `vendor/`.
@@ -31,25 +36,38 @@ tools + a real SH-4 PE compiler. This repo is **self-contained except the DC SDK
 build-image.bat retail                 :: makeimg  -> C:\wcedreamcast\release\retail\NK.bin
 powershell -File wrap-image.ps1 -NkBin C:\wcedreamcast\release\retail\NK.bin ^
                                 -Out   C:\wcedreamcast\release\retail\0winceos.bin
-build-kernel.bat retail                :: compile leaked NK/SHX (the in-progress grind)
+build-nklib.bat retail                 :: build whole kernel core -> reference\kernel-obj\nkmain.lib
+build-oal.bat   retail                 :: build reconstructed DC OAL -> reference\kernel-obj\oal_dc.lib
+build-kernel.bat retail [file.c]       :: compile one NK/SHX C source (smoke / per-file)
+build-asm.bat    retail [file.src]     :: assemble one SHX shasm source (-cpu=SH4 -DCELOG=0)
 ```
 `setenv.bat [retail|debug]` sets the whole environment; the others call it.
 
 ## Layout
-- `toolchain/` — `setenv.bat`, `build-image.bat`, `build-kernel.bat`, `wrap-image.ps1`,
-  `unwrap-image.ps1`, `bootstrap.ps1`, `README.md`.
+- `toolchain/` — `setenv.bat`, `build-image.bat`, `build-kernel.bat`, `build-asm.bat`,
+  `build-nklib.bat`, `wrap-image.ps1`, `unwrap-image.ps1`, `bootstrap.ps1`, `README.md`.
 - `docs/` — `01-findings` · `02-toolchain-setup` · `03-build-pipeline` · `04-kernel-build`. **Read these.**
-- `bsp/` — Dreamcast BSP scaffold + `inc/mem_shx_patch.h` (reconstructed SH-4 constants).
+- `bsp/` — Dreamcast BSP scaffold (`drivers/`, `inc/`, `files/`, …). The
+  `inc/mem_shx_patch.h` reconstruction was removed once `-DWINCEOEM` made pkfuncs.h
+  authoritative for the 4 SH-4 constants.
+- **OAL reconstruction** lives in the kernel tree (CE-native), `vendor/wince-src/PRIVATE/
+  WINCEOS/COREOS/NK/OAL/DREAMCAST/` — `startup.src`, `oeminit.c`, `timer.c`, `intr.c`,
+  `dc_hw.h`, `SOURCES`, `OAL-NOTES.md`. Built by `build-oal.bat` → `oal_dc.lib`. Reverse-
+  engineered from the shipped SDK kernel; NOT from the leak.
 - `vendor/wince-src/` — leaked CE 3.0 source (WINCE300). `vendor/sh-toolchain/` — SH compiler + CE3 headers.
 - `reference/MANIFEST.md` — build artifacts + SHA-256 (binaries gitignored).
 - `handoff/` — `SESSION-LOG.md` (full history of how we got here) + `memory/` (the assistant's
   project memory). **Read `SESSION-LOG.md` first when resuming.**
 
 ## Next action
-Continue `docs/04-kernel-build.md` §"Method": run `build-kernel.bat retail`, take the first
-error (`CALLBACKINFO` in `KWIN32.H`), locate or reconstruct the type, repeat until `SHFLOAT.C`
-compiles — then expand to the full `NK\KERNEL` SOURCES, link `nknodbg.exe`, drop it into the
-makeimg pipeline, wrap, and test on Flycast/lxdream then real HW (dc-load/BBA).
+Kernel core (`nkmain.lib`) and a first reconstructed DC OAL (`oal_dc.lib`: `startup.src`,
+`oeminit.c`, `timer.c`, `intr.c`) both build SH-4 clean. Next: finish the OAL to a LINKABLE
+`nk.exe` — (1) decode the `KatanaISR2/4` exact `SB_IST`→SYSINTR bit map + bind `Timer0ISR`'s
+tick to KData (see `OAL-NOTES.md` TODO), (2) add SCIF `OEMWriteDebugByte` for first-boot output,
+(3) link `nkmain.lib`+`oal_dc.lib` (EXEENTRY=StartUp, EXEBASE per `SHX\SOURCES`), resolving
+remaining externs, (4) wrap via makeimg + `wrap-image.ps1`, test Flycast/lxdream → HW. DC memory
+map: RAM phys `0x0C000000`/cached `0x8C000000`, RAMIMAGE `@8C010000`. Ghidra project `wce` has the
+SDK kernel annotated as the spec.
 
 ## Conventions
 - Batch `rem` lines must be plain ASCII — no `>` or em-dash (cmd treats `>` as redirection).

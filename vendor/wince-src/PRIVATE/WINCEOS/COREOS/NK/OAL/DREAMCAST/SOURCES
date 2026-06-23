@@ -1,0 +1,22 @@
+# Reconstructed Dreamcast (Katana) OAL for CE 3.0 SH-4.
+# NOT from the leak - rebuilt from the shipped SDK kernel (see OAL-NOTES.md).
+# CE-style SOURCES; our actual build driver is toolchain\build-oal.bat.
+TARGETNAME=oal_dc
+TARGETTYPE=LIBRARY
+WINCECPU=1
+
+CDEFINES=$(CDEFINES) -DIN_KERNEL -DWINCEMACRO
+INCLUDES=.;..\..\INC;..\..\KERNEL\SHX
+
+!IF "$(_TGTCPU)" == "SH4"
+ADEFINES=$(ADEFINES) -DSH_CPU=64
+!ENDIF
+!IF "$(_TGTCPUTYPE)"=="SHx"
+ADEFINES=$(ADEFINES) -DCELOG=0
+!ENDIF
+
+SOURCES= \
+    startup.src \
+    oeminit.c   \
+    timer.c     \
+    intr.c

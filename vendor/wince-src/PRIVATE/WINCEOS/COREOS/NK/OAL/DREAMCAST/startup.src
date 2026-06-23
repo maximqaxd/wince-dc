@@ -1,0 +1,37 @@
+	.HEADING "Dreamcast SH-4 kernel startup"
+;++
+;
+; startup.src - Dreamcast (Sega Katana) OAL boot entry.
+;
+; RECONSTRUCTED (not from the leak) from the shipped SDK kernel
+; release\debug\nknodbg.exe (_StartUp @ 0x8C00B2B0). The leak is WINCEOS-only;
+; the hal:fwinit.obj that supplied StartUp lived in Sega's closed BSP. See
+; OAL-NOTES.md.
+;
+; The DC IPL / 1ST_READ loader has already copied the RAMIMAGE into RAM and
+; jumped here. All real SH-4 bring-up (VBR, cache CCR, MMU/TLB, stacks) is done
+; by KernelStart (nk:shexcept.obj, built from the leak into nkmain.lib), so this
+; stub only blocks exceptions (SR.BL=1) and transfers to KernelStart.
+;
+; Environment: privileged, MMU off, called once at boot. Never returns.
+;
+;--
+	.include "ksshx.h"
+
+	.import	KernelStart
+
+	LEAF_ENTRY StartUp
+	stc	SR, r0			; r0 = current SR
+	mov.l	SRSetBL, r2		; r2 = 0x10000000 (BL)
+	mov.l	pKernelStart, r1	; r1 = &KernelStart
+	or	r2, r0			; SR |= BL  (block all exceptions)
+	ldc	r0, SR
+	jmp	@r1			; -> KernelStart (does VBR/cache/MMU/stacks)
+	nop
+
+	.align	4
+SRSetBL:	.data.l	H'10000000	; SR.BL = 1
+pKernelStart:	.data.l	KernelStart
+	ENTRY_END StartUp
+
+	.end

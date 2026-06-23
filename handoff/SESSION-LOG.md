@@ -34,8 +34,62 @@ cached 0x8C000000) than the stripped CE 2.12 game runtime — toward a shell / m
 
 ## Where it stands
 - Toolchain + image pipeline: DONE and reproducible.
-- Kernel compile frontier: `KWIN32.H(81,135,…)` — `CALLBACKINFO` and function-pointer typedefs
-  undefined (next OAK-vs-leak header-skew layer). Same reconciliation method repeats.
+- **Kernel core: BUILDS FROM SOURCE.** All of `NK` kernel core archives into a verified SH-4
+  `nkmain.lib` (26 objs, `0x1A6`). See the 2026-06-23 entry below.
+- Open gap: the **Dreamcast OAL / boot layer** (StartUp, INTC/TMU/MMU init, KITL) for a
+  linkable from-source `nk.exe` — not in the WINCEOS-only leak; it's ours to write.
+
+## 2026-06-23 — kernel core compiles + archives (the WINCEOEM unlock)
+6. **The "header-skew frontier" was a missing build switch, not missing headers.** `kfuncs.h`
+   gates its `#include <pkfuncs.h>` (PRIVATE: `CALLBACKINFO`, `TRACKER_CALLBACK`, the `xxx_`
+   macros via `mkfuncs.h`) behind `#ifdef WINCEOEM` / `#ifdef WINCEMACRO`. The CE3 kernel
+   `SOURCES` set `WINCEOEM=1` + `-DWINCEMACRO` (+ `-DIN_KERNEL -DDBGSUPPORT` from NKNORMAL).
+   Adding those to `KDEFS` cleared all 35 errors at once. **Bonus:** pkfuncs.h defines
+   `VA_SECTION=25 / SECTION_SHIFT=25 / CURTLSPTR_OFFSET=0x000 / KINFO_OFFSET=0x300` — identical
+   to the 4 values we blind-reconstructed in `mem_shx_patch.h` — so the patch was redundant and
+   was **removed** (build is clean without it; `/FI` dropped from both build scripts).
+7. **One header-aggregation gap:** `resource.c` needs `VS_FIXEDFILEINFO` (winver.h); the CE3
+   base `windows.h` didn't aggregate winver.h. Added `#include <winver.h>` to
+   `ce3-ppc2k\include\windows.h` (a complete windows.h does this; can't force-include — needs
+   windows.h types first).
+8. **SHX asm via `shasm.exe`** (Renesas SH asm, in the toolchain): `.include` resolves via
+   `INCLUDE` env (KSSHX.H in NK\INC, KXSHX.H in ce3-ppc2k\include). Flags `-cpu=SH4 -DSH_CPU=64
+   -DCELOG=0` (CELOG=0 mirrors NKNORMAL SHx ADEFINES; without it shexcept.src fails "CELOG not
+   defined"). intrlock/shexcept/celogshx all assemble (shexcept emits a benign A546).
+9. **Result:** `build-nklib.bat retail` → `reference\kernel-obj\nkmain.lib`, 26 members,
+   `dumpbin` confirms machine `0x1A6` (SH4) + symbols GeneralException, _InterlockedIncrement,
+   _SC_PerformCallBack4, scheduler. New drivers: `build-asm.bat`, `build-nklib.bat`.
+   `build-kernel.bat` now takes an optional single-file arg for smoke compiles.
+10. **OAL gap is now precisely mapped.** The SDK SHIPS the kernel symbol set:
+    `release\{retail,debug}\nknodbg.exe`/`nk.exe`/`nkscifkd.exe` (SH-4 `0x1A6`, entry `8C0020C0`
+    =`_StartUp`, base `8C000000`) + `.map` (named addresses) + `.pdb` (full symbols). The
+    `nknodbg.map` link recipe = 4 groups: **`nk:*`** (21 objs = our `nkmain.lib` ✅),
+    **`fulllibc:*`** (28 = SH toolchain runtime ✅), **`hal:*`** (10 = the OAL gap ❌:
+    `fwinit`/`cfwkatan`/`fwkatana`/`ktimer`/`timer`/`rtc`/`oemioctl`/`isr`/`mdppfs`/`oemwdm`),
+    `asedbg:*` (3 = SCIF KD, optional ❌). Next: Ghidra the SDK `nknodbg.exe` (SH-4, base
+    `0x8C000000`) with its `.map`/`.pdb` as the spec; reconstruct `hal:*` into
+    `bsp/oal/dreamcast/`; link vs `nkmain.lib`. Detail in `docs/04` §"Next — the OAL gap".
+11. **OAL reversing — first pass done.** Fixed the Ghidra MCP transport (Python 3.14 has no
+    `socket.AF_UNIX`; pinned `GHIDRA_MCP_URL=http://127.0.0.1:8089` in `C:\Dev\.mcp.json` →
+    bridge uses TCP). Imported debug `nknodbg.exe` into Ghidra project `wce` (SH-4, base
+    `8C000000`); the debug PE's embedded COFF symbols auto-named all 629 funcs incl. the whole
+    OAL — no `.map` apply needed. Decoded the DC hardware map from `OEMInit`/`InitClock`:
+    INTC IPRA/B/C `0xFFD00004/8/C`, TMU `0xFFD80000`, DMAC `0xFFA00000` (DMAOR `+0x40`=0x8201),
+    SCIF ints `0x28..2B`, Holly `SB_IML{2,4,6}{NRM,EXT,ERR}` `0xA05F6910..6938`; INTC vector→ISR
+    map (KatanaISR2/4/6=Holly IRL6/4/2, DMAC0-3, TMU0/1, JTAG, SCIF). Named+typed 18 MMIO globals
+    and plate-commented OEMInit/InitClock/OEMInterruptEnable/OEMIoControl/SerialInit in Ghidra
+    (saved). Wrote the reconstruction spec to the OAL notes (see below).
+12. **OAL reconstruction started — builds SH-4 clean.** Placed in the kernel tree (CE-native,
+    not a separate bsp island): `PRIVATE\WINCEOS\COREOS\NK\OAL\DREAMCAST\`. Decoded `StartUp`
+    (`_StartUp` @ debug `0x8C00B2B0`): just `SR |= 0x10000000 (BL)` then `jmp KernelStart`
+    (`0x8C00B340` = nk:shexcept.obj, already ours) — so the boot stub is ~6 instrs; the real
+    SH-4 bring-up is already in nkmain.lib. Decoded the 3 `KatanaISR2/4/6` Holly IRL demuxers
+    (read SB_IST* & SB_IMLn, ack W1C, return SYSINTR 0x10-0x1B) + `Timer0ISR` (TMU0 underflow,
+    +25ms tick, SYSINTR_RESCHED). Wrote `startup.src` (boot stub), `dc_hw.h` (DC register map),
+    `oeminit.c` (OEMInit), `timer.c` (InitClock+tick ISR), `intr.c` (OEMInterrupt* dispatch +
+    demuxers), `SOURCES`, `OAL-NOTES.md`. New driver `build-oal.bat` → `oal_dc.lib` (4 objs,
+    SH-4, archives clean). TODO: exact SB_IST bit->SYSINTR map for KatanaISR2/4, bind tick to
+    KData, SCIF debug-out, then link nkmain.lib+oal_dc.lib into nk.exe.
 
 ## How to resume (do this)
 1. Read `CLAUDE.md`, then `docs/04-kernel-build.md` (the method + exact frontier).

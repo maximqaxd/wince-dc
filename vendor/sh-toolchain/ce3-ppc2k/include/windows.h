@@ -21,6 +21,9 @@ Purpose: Master include file for Windows applications.
 #include <wingdi.h>
 #include <winuser.h>
 #include <winreg.h>
+#include <winver.h>    /* version resource structs (VS_FIXEDFILEINFO); a complete
+                          windows.h aggregates this. The CE3 NK resource loader
+                          (NK\KERNEL\resource.c) assumes it via windows.h. */
 #include <shellapi.h>
 #ifndef WINCEMACRO
 #include <ole2.h>

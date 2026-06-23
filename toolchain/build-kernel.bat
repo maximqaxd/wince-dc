@@ -19,10 +19,15 @@ set BSPINC=%~dp0..\bsp\inc
 set INCLUDE=%BSPINC%;%NK%\INC;%NK%\KERNEL\SHX;%WINCESRC%\PRIVATE\WINCEOS\COREOS\CORE\INC;%GWESLAB%\ce3-oak\INC;%CE3SDK%
 
 rem CE SH-4 kernel defines (retail). Adjust as the compile dictates.
-set KDEFS=-DSH4=1 -DSHx=1 -DUNDER_CE=300 -D_WIN32_WCE=300 -DUNICODE -D_UNICODE -DKERNEL
+rem WINCEOEM/WINCEMACRO are required: the CE3 SOURCES set WINCEOEM=1 + -DWINCEMACRO,
+rem which gate kfuncs.h's pull-in of the PRIVATE pkfuncs.h/mkfuncs.h (CALLBACKINFO,
+rem TRACKER_CALLBACK, the xxx_ macros, etc.). Without them only the public kfuncs
+rem surface is visible and the kernel-private prototypes fail to parse.
+set KDEFS=-DSH4=1 -DSHx=1 -DUNDER_CE=300 -D_WIN32_WCE=300 -DUNICODE -D_UNICODE -DKERNEL -DWINCEOEM=1 -DWINCEMACRO -DIN_KERNEL -DDBGSUPPORT
 
-rem Reconstructed SH-4 constants missing from the leaked headers (see bsp\inc\mem_shx_patch.h)
-set FORCEINC=/FImem_shx_patch.h
+rem No force-include needed: -DWINCEOEM pulls in pkfuncs.h which defines the SH-4
+rem kernel constants (VA_SECTION/SECTION_SHIFT/CURTLSPTR_OFFSET/KINFO_OFFSET).
+set FORCEINC=
 
 set SRC=%~2
 if "%SRC%"=="" set SRC=%NK%\KERNEL\SHX\SHFLOAT.C
