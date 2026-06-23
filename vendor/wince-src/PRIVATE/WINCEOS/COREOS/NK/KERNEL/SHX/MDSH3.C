@@ -68,6 +68,17 @@ void SH3Init(int cpuType) {
         SectionTable[ix] = NULL_SECTION;
     DBGMARK('d');                       /* SectionTable done */
 
+    /* WORKAROUND (DC): romimage mis-patches the C pTOC global - we link at
+     * /base:0x10000 (the linker LNK1249's on the real EXEBASE 0x8C040000), and
+     * romimage's GetMapSymbols then resolves pTOC to the wrong address, leaving
+     * the real global = 0xFFFFFFFF. The retail build also compiles out the
+     * pTOC==-1 guard, so KernelRelocate walks garbage copy entries. Recover the
+     * real ROMHDR from the ROM signature romimage DOES write reliably at
+     * RAMIMAGE+0x44 (0x8C010040 = "ECEC", +0x44 = TOC ptr) and fix the global
+     * here (pre-MMU: .rdata is still writable and the cache is off). */
+    *(ROMHDR **)&pTOC = *(ROMHDR **)0x8C010044;
+    DBGMARK(*(ROMHDR **)&pTOC == (ROMHDR *)-1 ? 'X' : 'P');  /* P = pTOC fixed */
+
     /* Copy kernel data to RAM & zero out BSS */
     KernelRelocate(pTOC);
     DBGMARK('e');                       /* KernelRelocate done */
