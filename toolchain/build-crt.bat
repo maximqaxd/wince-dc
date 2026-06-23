@@ -19,7 +19,7 @@ set INCLUDE=%NK%\INC;%NK%\KERNEL\SHX;%GWESLAB%\ce3-oak\INC;%CE3SDK%
 set KDEFS=-DSH4=1 -DSHx=1 -DUNDER_CE=300 -D_WIN32_WCE=300 -DUNICODE -D_UNICODE -DKERNEL -DWINCEOEM=1 -DWINCEMACRO -DIN_KERNEL
 if /I "%BLDTYPE%"=="debug" set KDEFS=%KDEFS% -DDEBUG
 
-set CSRC=crtmem crtdiv crtshift crtfp
+set CSRC=memmove memset memcmp strcmp strlen __divlu __modlu __modls i64div i64mod lshi64 rshui64 crtfp
 set OBJS=
 set FAILED=0
 

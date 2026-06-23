@@ -74,7 +74,9 @@ build-asm.bat    retail [file.src]     :: assemble one SHX shasm source (-cpu=SH
   `ktimer.c`, `timer.c`, `rtc.c`, `oemwdm.c`, `oemioctl.c`, `isr.c`, `mdppfs.c`, `debug.c`,
   `compress.c`, `kdstub.c`, `dc_hw.h`, `SOURCES`, `OAL-NOTES.md`. Built by `build-oal.bat` →
   `oal_dc.lib`. Reverse-engineered from the shipped SDK kernel; NOT from the leak.
-  (CRT at `NK\CRT\SHX\` not yet renamed to fulllibc names — remaining refactor.)
+- **SH-4 CRT** (`NK\CRT\SHX\`, fulllibc-PDB-matched names): `memmove.c`/`memset.c`/`memcmp.c`/
+  `strcmp.c`/`strlen.c`, `__divlu.c`/`__modlu.c`/`__modls.c`/`i64div.c`/`i64mod.c`,
+  `lshi64.c`/`rshui64.c`, `crtfp.c` (soft-float stubs — no fulllibc original). `build-crt.bat` → `crt.lib`.
 - `vendor/wince-src/` — leaked CE 3.0 source (WINCE300). `vendor/sh-toolchain/` — SH compiler + CE3 headers.
 - `reference/MANIFEST.md` — build artifacts + SHA-256 (binaries gitignored).
 - `handoff/` — `SESSION-LOG.md` (full history of how we got here) + `memory/` (the assistant's

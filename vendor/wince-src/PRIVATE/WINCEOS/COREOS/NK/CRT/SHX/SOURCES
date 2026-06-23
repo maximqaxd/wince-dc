@@ -1,11 +1,9 @@
-# Minimal SH-4 C runtime for the kernel (OURS - replaces the absent fulllibc.lib).
-# CE-style SOURCES; actual build driver is toolchain\build-crt.bat.
+# Minimal SH-4 C runtime (replaces the absent fulllibc.lib). File names match the
+# fulllibc PDB objects. crtfp.c = soft-float stubs (no fulllibc original).
 TARGETNAME=crt
 TARGETTYPE=LIBRARY
 WINCECPU=1
-
 SOURCES= \
-    crtmem.c \
-    crtdiv.c \
-    crtshift.c \
-    crtfp.c
+    memmove.c memset.c memcmp.c strcmp.c strlen.c \
+    __divlu.c __modlu.c __modls.c i64div.c i64mod.c \
+    lshi64.c rshui64.c crtfp.c
