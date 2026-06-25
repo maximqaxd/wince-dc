@@ -21,3 +21,5 @@ utils/ip.bin
 # Microsoft cvdump (fetched, not vendored)
 vendor/sh-toolchain/bin/I386/cvdump.exe
 reference/coredll-obj/
+vendor/nt4-ref/
+reference/shell-obj/
