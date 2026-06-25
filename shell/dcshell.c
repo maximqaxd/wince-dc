@@ -12,6 +12,7 @@
 // never storms the input queue.
 //
 #include "dcgfx.h"
+#include "dcwin.h"
 
 #define MAX_ENT  256
 
@@ -65,6 +66,7 @@ static const SHORTCUT s_desk[] =
 {
     { L"My Dreamcast", L"\\" },
     { L"CD-ROM",       L"\\CD-ROM" },
+    { L"Calculator",   NULL },        // NULL path -> launch the windowed calc process
 };
 #define DESK_N (sizeof(s_desk) / sizeof(s_desk[0]))
 
@@ -93,6 +95,51 @@ static int   s_dirty    = 1;
 static HWND  s_hwnd = NULL;
 
 static void DbgStr(const WCHAR *s) { OutputDebugStringW(s); }
+
+//
+// DCWin compositor: a shared section holds a window registry; client apps (their
+// own processes) publish draw-command lists, the shell composites them as windows
+// and routes input. Poll-based (CE maps the named section at the same VA in every
+// process, proven 2026-06-26).
+//
+static DcShared *s_shared    = NULL;
+static HANDLE    s_sharedMap = NULL;
+
+static void InitShared(void)
+{
+    s_sharedMap = CreateFileMappingW((HANDLE)-1, NULL, PAGE_READWRITE, 0, sizeof(DcShared), DCWIN_SECTION);
+    if (!s_sharedMap) { DbgStr(L"DCSHELL: shared section create FAILED\r\n"); return; }
+    s_shared = (DcShared *)MapViewOfFile(s_sharedMap, FILE_MAP_WRITE, 0, 0, sizeof(DcShared));
+    if (!s_shared) { DbgStr(L"DCSHELL: shared section map FAILED\r\n"); return; }
+    memset(s_shared, 0, sizeof(DcShared));
+    s_shared->magic = DCWIN_MAGIC;
+    DbgStr(L"DCSHELL: compositor ready\r\n");
+}
+
+static void LaunchCalc(void)
+{
+    PROCESS_INFORMATION pi;
+    if (!s_shared)
+        return;
+    if (CreateProcessW(L"dcwcalc.exe", NULL, NULL, NULL, FALSE, 0, NULL, NULL, NULL, &pi))
+    {
+        CloseHandle(pi.hThread);
+        CloseHandle(pi.hProcess);    // detached; we poll the shared section each frame
+        DbgStr(L"DCSHELL: launched dcwcalc.exe\r\n");
+    }
+    else DbgStr(L"DCSHELL: CreateProcess(dcwcalc.exe) FAILED\r\n");
+}
+
+static int FocusedWindow(void)       // topmost in-use window, or -1
+{
+    int i;
+    if (!s_shared)
+        return -1;
+    for (i = 0; i < DCWIN_MAXWIN; i++)
+        if (s_shared->win[i].inUse)
+            return i;
+    return -1;
+}
 
 //
 // Helpers
@@ -349,6 +396,58 @@ static void RenderText(HDC hdc)
     }
 }
 
+static void RenderWindowsFills(void)
+{
+    int wi, i;
+
+    if (!s_shared)
+        return;
+    for (wi = 0; wi < DCWIN_MAXWIN; wi++)
+    {
+        DcWindow *w = &s_shared->win[wi];
+        RECT      fr;
+
+        if (!w->inUse)
+            continue;
+        SetRect(&fr, w->x - 2, w->y - 18, w->x + w->w + 2, w->y + w->h + 2);   // frame
+        GfxFill(fr.left, fr.top, fr.right, fr.bottom, CL_FACE);
+        GfxBevel(&fr, TRUE);
+        GfxFill(w->x - 2, w->y - 18, w->x + w->w + 2, w->y - 2, CL_TITLE);     // title bar
+        GfxFill(w->x + w->w - 14, w->y - 16, w->x + w->w + 1, w->y - 3, CL_FACE); // close box
+        { RECT cb; SetRect(&cb, w->x + w->w - 14, w->y - 16, w->x + w->w + 1, w->y - 3); GfxBevel(&cb, TRUE); }
+
+        for (i = 0; i < (int)w->cmdCount && i < DCWIN_MAXCMD; i++)
+        {
+            DcCmd *c = &w->cmd[i];
+            if (c->op == DCOP_FILL)
+                GfxFill(w->x + c->x, w->y + c->y, w->x + c->x + c->w, w->y + c->y + c->h, c->color);
+        }
+    }
+}
+
+static void RenderWindowsText(HDC hdc)
+{
+    int wi, i;
+
+    if (!s_shared)
+        return;
+    for (wi = 0; wi < DCWIN_MAXWIN; wi++)
+    {
+        DcWindow *w = &s_shared->win[wi];
+
+        if (!w->inUse)
+            continue;
+        GfxText(hdc, w->x, w->y - 16, CL_WHITE, CL_TITLE, g_FontBold, w->title);
+        GfxText(hdc, w->x + w->w - 11, w->y - 16, CL_TEXT, CL_FACE, g_FontUI, L"X");
+        for (i = 0; i < (int)w->cmdCount && i < DCWIN_MAXCMD; i++)
+        {
+            DcCmd *c = &w->cmd[i];
+            if (c->op == DCOP_TEXT)
+                GfxText(hdc, w->x + c->x, w->y + c->y, c->color, c->color2, g_FontUI, c->text);
+        }
+    }
+}
+
 static void Render(void)
 {
     HDC hdc;
@@ -361,6 +460,7 @@ static void Render(void)
         RenderDesktopFills();
     else
         RenderExplorerFills();
+    RenderWindowsFills();           // composited app windows over the view
     RenderTaskbarFills();
 
     // PASS 2: text
@@ -368,6 +468,7 @@ static void Render(void)
     if (hdc)
     {
         RenderText(hdc);
+        RenderWindowsText(hdc);
         GfxUnlockDC(hdc);
     }
 }
@@ -414,7 +515,21 @@ static void ActivateExplorerItem(void)
 
 static void OnKey(WPARAM wp)
 {
+    int fw;
+
     s_dirty = 1;
+
+    // a focused app window captures input (Esc closes it)
+    fw = FocusedWindow();
+    if (fw >= 0)
+    {
+        DcWindow *w = &s_shared->win[fw];
+        if (wp == VK_ESCAPE) { w->wantClose = 1; return; }
+        w->in[w->inHead % DCWIN_MAXIN].type = 1;
+        w->in[w->inHead % DCWIN_MAXIN].key  = (DWORD)wp;
+        w->inHead++;
+        return;
+    }
 
     if (wp == VK_TAB)
     {
@@ -436,7 +551,13 @@ static void OnKey(WPARAM wp)
     {
         if (wp == VK_UP   && s_deskSel > 0)             s_deskSel--;
         if (wp == VK_DOWN && s_deskSel < (int)DESK_N-1) s_deskSel++;
-        if (wp == VK_RETURN)                            OpenExplorer(s_desk[s_deskSel].path);
+        if (wp == VK_RETURN)
+        {
+            if (s_desk[s_deskSel].path)
+                OpenExplorer(s_desk[s_deskSel].path);
+            else
+                LaunchCalc();
+        }
         return;
     }
 
@@ -478,6 +599,8 @@ int WINAPI WinMain(HINSTANCE hInst, HINSTANCE hPrev, LPWSTR lpCmd, int nShow)
 
     DbgStr(L"DCSHELL: WinMain enter (hybrid desktop)\r\n");
 
+    InitShared();                   // DCWin compositor shared section
+
     memset(&wc, 0, sizeof(wc));
     wc.lpfnWndProc   = WndProc;
     wc.hInstance     = hInst;
@@ -514,6 +637,8 @@ int WINAPI WinMain(HINSTANCE hInst, HINSTANCE hPrev, LPWSTR lpCmd, int nShow)
             s_dirty = 1;
             next += 1000;
         }
+        if (FocusedWindow() >= 0)       // an app window is live -> keep compositing
+            s_dirty = 1;
         if (s_dirty)
         {
             Render();
