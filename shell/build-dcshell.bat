@@ -30,9 +30,15 @@ echo [dcshell] linking dcshell.exe ...
 "%HOSTBIN%\link.exe" /nologo /machine:SH4 /subsystem:windowsce,2.12 /entry:WinMainCRTStartup /out:"%OUT%\dcshell.exe" "%OUT%\dcshell.obj" "%OUT%\dcgfx.obj" "%DCSDK%\lib\%DCBT%\coredll.lib" "%DCSDK%\lib\%DCBT%\corelibc.lib" "%DCSDK%\lib\%DCBT%\ddraw.lib" > "%OUT%\dcshell.link.log" 2>&1
 type "%OUT%\dcshell.link.log"
 
-echo [dcshell] building dcwcalc.exe (windowed compositor client) ...
+echo [dcshell] building DCWin clients (dcwlib + dcwcalc + dcwclock) ...
+set CLIBS="%DCSDK%\lib\%DCBT%\coredll.lib" "%DCSDK%\lib\%DCBT%\corelibc.lib"
+"%SHBIN%\cl.exe" %CF% /Fo"%OUT%\dcwlib.obj" "%~dp0dcwlib.c"
+if errorlevel 1 (echo [dcwlib] COMPILE FAILED & exit /b 1)
 "%SHBIN%\cl.exe" %CF% /Fo"%OUT%\dcwcalc.obj" "%~dp0dcwcalc.c"
 if errorlevel 1 (echo [dcwcalc] COMPILE FAILED & exit /b 1)
-"%HOSTBIN%\link.exe" /nologo /machine:SH4 /subsystem:windowsce,2.12 /entry:WinMainCRTStartup /out:"%OUT%\dcwcalc.exe" "%OUT%\dcwcalc.obj" "%DCSDK%\lib\%DCBT%\coredll.lib" "%DCSDK%\lib\%DCBT%\corelibc.lib" >> "%OUT%\dcshell.link.log" 2>&1
+"%HOSTBIN%\link.exe" /nologo /machine:SH4 /subsystem:windowsce,2.12 /entry:WinMainCRTStartup /out:"%OUT%\dcwcalc.exe" "%OUT%\dcwcalc.obj" "%OUT%\dcwlib.obj" %CLIBS% >> "%OUT%\dcshell.link.log" 2>&1
+"%SHBIN%\cl.exe" %CF% /Fo"%OUT%\dcwclock.obj" "%~dp0dcwclock.c"
+if errorlevel 1 (echo [dcwclock] COMPILE FAILED & exit /b 1)
+"%HOSTBIN%\link.exe" /nologo /machine:SH4 /subsystem:windowsce,2.12 /entry:WinMainCRTStartup /out:"%OUT%\dcwclock.exe" "%OUT%\dcwclock.obj" "%OUT%\dcwlib.obj" %CLIBS% >> "%OUT%\dcshell.link.log" 2>&1
 echo [dcshell] errorlevel=%errorlevel%  (out: %OUT%\dcshell.exe)
 endlocal

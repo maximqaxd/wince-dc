@@ -59,23 +59,25 @@ typedef struct
 typedef struct
 {
     const WCHAR *label;
-    const WCHAR *path;     // NULL = no path (e.g. Shut Down)
+    const WCHAR *path;     // explorer path, or NULL
+    const WCHAR *exe;      // app to launch, or NULL
 } SHORTCUT;
 
 static const SHORTCUT s_desk[] =
 {
-    { L"My Dreamcast", L"\\" },
-    { L"CD-ROM",       L"\\CD-ROM" },
-    { L"Calculator",   NULL },        // NULL path -> launch the windowed calc process
+    { L"My Dreamcast", L"\\",        NULL },
+    { L"CD-ROM",       L"\\CD-ROM",  NULL },
+    { L"Calculator",   NULL,         L"dcwcalc.exe" },
+    { L"Clock",        NULL,         L"dcwclock.exe" },
 };
 #define DESK_N (sizeof(s_desk) / sizeof(s_desk[0]))
 
 static const SHORTCUT s_start[] =
 {
-    { L"My Dreamcast", L"\\" },
-    { L"Windows",      L"\\Windows" },
-    { L"CD-ROM",       L"\\CD-ROM" },
-    { L"Shut Down...", NULL },
+    { L"My Dreamcast", L"\\",        NULL },
+    { L"Windows",      L"\\Windows", NULL },
+    { L"CD-ROM",       L"\\CD-ROM",  NULL },
+    { L"Shut Down...", NULL,         NULL },
 };
 #define START_N (sizeof(s_start) / sizeof(s_start[0]))
 #define MENU_W  168
@@ -91,6 +93,8 @@ static int   s_deskSel  = 0;
 static int   s_menuOpen = 0;
 static int   s_menuSel  = 0;
 static int   s_dirty    = 1;
+static int   s_focus    = -1;   // focused window index, or -1 = desktop
+static int   s_wasInUse[DCWIN_MAXWIN];
 
 static HWND  s_hwnd = NULL;
 
@@ -116,29 +120,61 @@ static void InitShared(void)
     DbgStr(L"DCSHELL: compositor ready\r\n");
 }
 
-static void LaunchCalc(void)
+static void LaunchApp(const WCHAR *exe)
 {
     PROCESS_INFORMATION pi;
-    if (!s_shared)
+    if (!s_shared || !exe)
         return;
-    if (CreateProcessW(L"dcwcalc.exe", NULL, NULL, NULL, FALSE, 0, NULL, NULL, NULL, &pi))
+    if (CreateProcessW(exe, NULL, NULL, NULL, FALSE, 0, NULL, NULL, NULL, &pi))
     {
         CloseHandle(pi.hThread);
         CloseHandle(pi.hProcess);    // detached; we poll the shared section each frame
-        DbgStr(L"DCSHELL: launched dcwcalc.exe\r\n");
+        DbgStr(L"DCSHELL: launched app\r\n");
     }
-    else DbgStr(L"DCSHELL: CreateProcess(dcwcalc.exe) FAILED\r\n");
+    else DbgStr(L"DCSHELL: CreateProcess(app) FAILED\r\n");
 }
 
-static int FocusedWindow(void)       // topmost in-use window, or -1
+static int CountWindows(void)
+{
+    int i, n = 0;
+    if (!s_shared)
+        return 0;
+    for (i = 0; i < DCWIN_MAXWIN; i++)
+        if (s_shared->win[i].inUse)
+            n++;
+    return n;
+}
+
+// auto-focus newly-appeared windows; drop focus when the focused one closes
+static void FixupFocus(void)
 {
     int i;
     if (!s_shared)
-        return -1;
+        return;
+    if (s_focus >= 0 && !s_shared->win[s_focus].inUse)
+        s_focus = -1;
     for (i = 0; i < DCWIN_MAXWIN; i++)
-        if (s_shared->win[i].inUse)
-            return i;
-    return -1;
+    {
+        int now = s_shared->win[i].inUse ? 1 : 0;
+        if (now && !s_wasInUse[i])
+            s_focus = i;
+        s_wasInUse[i] = now;
+    }
+}
+
+// cycle focus: current -> next in-use window -> ... -> desktop (-1) -> wrap
+static void CycleFocus(void)
+{
+    int i, cur = s_focus;
+    if (!s_shared)
+        return;
+    for (i = 0; i < DCWIN_MAXWIN; i++)
+    {
+        cur++;
+        if (cur >= DCWIN_MAXWIN) { s_focus = -1; return; }
+        if (s_shared->win[cur].inUse) { s_focus = cur; return; }
+    }
+    s_focus = -1;
 }
 
 //
@@ -259,6 +295,20 @@ static void RenderTaskbarFills(void)
     SetRect(&rc, 0, TASK_Y, SCREEN_W, SCREEN_H); GfxBevel(&rc, TRUE);
     SetRect(&rc, 4, TASK_Y + 3, 72, SCREEN_H - 3);
     GfxFill(rc.left, rc.top, rc.right, rc.bottom, CL_FACE); GfxBevel(&rc, TRUE);
+
+    if (s_shared)                       // one button per open window (focused = pressed)
+    {
+        int bx = 80, k;
+        for (k = 0; k < DCWIN_MAXWIN; k++)
+        {
+            if (!s_shared->win[k].inUse)
+                continue;
+            SetRect(&rc, bx, TASK_Y + 3, bx + 110, SCREEN_H - 3);
+            GfxFill(rc.left, rc.top, rc.right, rc.bottom, CL_FACE);
+            GfxBevel(&rc, (k == s_focus) ? FALSE : TRUE);
+            bx += 116;
+        }
+    }
 
     if (s_menuOpen)
     {
@@ -383,6 +433,18 @@ static void RenderText(HDC hdc)
     wsprintfW(clk, L"%02d:%02d", t.wHour, t.wMinute);
     GfxText(hdc, SCREEN_W - 44, TASK_Y + 5, CL_TEXT, CL_FACE, g_FontUI, clk);
 
+    if (s_shared)                       // window button labels
+    {
+        int bx = 80, k;
+        for (k = 0; k < DCWIN_MAXWIN; k++)
+        {
+            if (!s_shared->win[k].inUse)
+                continue;
+            GfxText(hdc, bx + 6, TASK_Y + 5, CL_TEXT, CL_FACE, g_FontUI, s_shared->win[k].title);
+            bx += 116;
+        }
+    }
+
     if (s_menuOpen)
     {
         int h  = (int)START_N * ROW_H + 8;
@@ -396,56 +458,63 @@ static void RenderText(HDC hdc)
     }
 }
 
+static void DrawWinFills(DcWindow *w, BOOL active)
+{
+    RECT fr;
+    int  i;
+
+    SetRect(&fr, w->x - 2, w->y - 18, w->x + w->w + 2, w->y + w->h + 2);       // frame
+    GfxFill(fr.left, fr.top, fr.right, fr.bottom, CL_FACE);
+    GfxBevel(&fr, TRUE);
+    GfxFill(w->x - 2, w->y - 18, w->x + w->w + 2, w->y - 2, active ? CL_TITLE : RGB(112,112,112));
+    GfxFill(w->x + w->w - 14, w->y - 16, w->x + w->w + 1, w->y - 3, CL_FACE);  // close box
+    { RECT cb; SetRect(&cb, w->x + w->w - 14, w->y - 16, w->x + w->w + 1, w->y - 3); GfxBevel(&cb, TRUE); }
+
+    for (i = 0; i < (int)w->cmdCount && i < DCWIN_MAXCMD; i++)
+    {
+        DcCmd *c = &w->cmd[i];
+        if (c->op == DCOP_FILL)
+            GfxFill(w->x + c->x, w->y + c->y, w->x + c->x + c->w, w->y + c->y + c->h, c->color);
+    }
+}
+
+static void DrawWinText(HDC hdc, DcWindow *w, BOOL active)
+{
+    int i;
+
+    GfxText(hdc, w->x, w->y - 16, CL_WHITE, active ? CL_TITLE : RGB(112,112,112), g_FontBold, w->title);
+    GfxText(hdc, w->x + w->w - 11, w->y - 16, CL_TEXT, CL_FACE, g_FontUI, L"X");
+    for (i = 0; i < (int)w->cmdCount && i < DCWIN_MAXCMD; i++)
+    {
+        DcCmd *c = &w->cmd[i];
+        if (c->op == DCOP_TEXT)
+            GfxText(hdc, w->x + c->x, w->y + c->y, c->color, c->color2, g_FontUI, c->text);
+    }
+}
+
+// non-focused windows first, focused window last (drawn on top)
 static void RenderWindowsFills(void)
 {
-    int wi, i;
-
+    int i;
     if (!s_shared)
         return;
-    for (wi = 0; wi < DCWIN_MAXWIN; wi++)
-    {
-        DcWindow *w = &s_shared->win[wi];
-        RECT      fr;
-
-        if (!w->inUse)
-            continue;
-        SetRect(&fr, w->x - 2, w->y - 18, w->x + w->w + 2, w->y + w->h + 2);   // frame
-        GfxFill(fr.left, fr.top, fr.right, fr.bottom, CL_FACE);
-        GfxBevel(&fr, TRUE);
-        GfxFill(w->x - 2, w->y - 18, w->x + w->w + 2, w->y - 2, CL_TITLE);     // title bar
-        GfxFill(w->x + w->w - 14, w->y - 16, w->x + w->w + 1, w->y - 3, CL_FACE); // close box
-        { RECT cb; SetRect(&cb, w->x + w->w - 14, w->y - 16, w->x + w->w + 1, w->y - 3); GfxBevel(&cb, TRUE); }
-
-        for (i = 0; i < (int)w->cmdCount && i < DCWIN_MAXCMD; i++)
-        {
-            DcCmd *c = &w->cmd[i];
-            if (c->op == DCOP_FILL)
-                GfxFill(w->x + c->x, w->y + c->y, w->x + c->x + c->w, w->y + c->y + c->h, c->color);
-        }
-    }
+    for (i = 0; i < DCWIN_MAXWIN; i++)
+        if (s_shared->win[i].inUse && i != s_focus)
+            DrawWinFills(&s_shared->win[i], FALSE);
+    if (s_focus >= 0 && s_shared->win[s_focus].inUse)
+        DrawWinFills(&s_shared->win[s_focus], TRUE);
 }
 
 static void RenderWindowsText(HDC hdc)
 {
-    int wi, i;
-
+    int i;
     if (!s_shared)
         return;
-    for (wi = 0; wi < DCWIN_MAXWIN; wi++)
-    {
-        DcWindow *w = &s_shared->win[wi];
-
-        if (!w->inUse)
-            continue;
-        GfxText(hdc, w->x, w->y - 16, CL_WHITE, CL_TITLE, g_FontBold, w->title);
-        GfxText(hdc, w->x + w->w - 11, w->y - 16, CL_TEXT, CL_FACE, g_FontUI, L"X");
-        for (i = 0; i < (int)w->cmdCount && i < DCWIN_MAXCMD; i++)
-        {
-            DcCmd *c = &w->cmd[i];
-            if (c->op == DCOP_TEXT)
-                GfxText(hdc, w->x + c->x, w->y + c->y, c->color, c->color2, g_FontUI, c->text);
-        }
-    }
+    for (i = 0; i < DCWIN_MAXWIN; i++)
+        if (s_shared->win[i].inUse && i != s_focus)
+            DrawWinText(hdc, &s_shared->win[i], FALSE);
+    if (s_focus >= 0 && s_shared->win[s_focus].inUse)
+        DrawWinText(hdc, &s_shared->win[s_focus], TRUE);
 }
 
 static void Render(void)
@@ -482,6 +551,8 @@ static void ActivateStartItem(void)
     s_menuOpen = 0;
     if (s->path)
         OpenExplorer(s->path);
+    else if (s->exe)
+        LaunchApp(s->exe);
 }
 
 static void ActivateExplorerItem(void)
@@ -515,26 +586,22 @@ static void ActivateExplorerItem(void)
 
 static void OnKey(WPARAM wp)
 {
-    int fw;
-
     s_dirty = 1;
 
-    // a focused app window captures input (Esc closes it)
-    fw = FocusedWindow();
-    if (fw >= 0)
+    if (wp == VK_TAB)               // task-switch; or Start menu when no windows open
     {
-        DcWindow *w = &s_shared->win[fw];
+        if (CountWindows() == 0) { s_menuOpen = !s_menuOpen; s_menuSel = 0; }
+        else CycleFocus();
+        return;
+    }
+
+    if (s_focus >= 0 && s_shared && s_shared->win[s_focus].inUse)
+    {
+        DcWindow *w = &s_shared->win[s_focus];     // focused window captures input
         if (wp == VK_ESCAPE) { w->wantClose = 1; return; }
         w->in[w->inHead % DCWIN_MAXIN].type = 1;
         w->in[w->inHead % DCWIN_MAXIN].key  = (DWORD)wp;
         w->inHead++;
-        return;
-    }
-
-    if (wp == VK_TAB)
-    {
-        s_menuOpen = !s_menuOpen;
-        s_menuSel  = 0;
         return;
     }
 
@@ -556,7 +623,7 @@ static void OnKey(WPARAM wp)
             if (s_desk[s_deskSel].path)
                 OpenExplorer(s_desk[s_deskSel].path);
             else
-                LaunchCalc();
+                LaunchApp(s_desk[s_deskSel].exe);
         }
         return;
     }
@@ -632,12 +699,13 @@ int WINAPI WinMain(HINSTANCE hInst, HINSTANCE hPrev, LPWSTR lpCmd, int nShow)
             TranslateMessage(&msg);
             DispatchMessageW(&msg);
         }
+        FixupFocus();                   // auto-focus new windows, drop closed ones
         if (GetTickCount() >= next)     // clock tick -> repaint
         {
             s_dirty = 1;
             next += 1000;
         }
-        if (FocusedWindow() >= 0)       // an app window is live -> keep compositing
+        if (CountWindows() > 0)         // an app window is live -> keep compositing
             s_dirty = 1;
         if (s_dirty)
         {
