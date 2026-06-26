@@ -33,10 +33,13 @@ if ($ExtraData -ne "" -and (Test-Path $ExtraData)) {
 $gdi = Join-Path $OutDir "disc.gdi"
 Copy-Item "$Utils\Half-Life.GDI" $gdi -Force
 
-# track03.bin = IP.BIN bootsector + ISO9660 (with 0WINCEOS.BIN), high density @45000.
-# No -truncate: that makes buildgdi emit an extra end-of-disc track; the standard
-# GDI shape is a single full-size high-density track 3 (~1.18 GB, mostly pad).
-& "$Utils\buildgdi.exe" -data $data -ip "$Utils\ip.bin" -output $OutDir -gdi $gdi -V WINCE | Out-Null
+# track03+ = IP.BIN bootsector + ISO9660 (with 0WINCEOS.BIN), high density @45000.
+# -truncate: do NOT pad the data track to the full GD-ROM (~1.18 GB). buildgdi
+# instead emits the ISO metadata (track03 @45000) + the file data at its real high
+# LBA (a separate track04), skipping the empty gap between -> a ~5 MB disc (no
+# extra data) instead of 1.1 GB of mostly-zero padding. Flycast loads the
+# resulting multi-track GDI fine; the file data still ends at the disc's end LBA.
+& "$Utils\buildgdi.exe" -data $data -ip "$Utils\ip.bin" -output $OutDir -gdi $gdi -V WINCE -truncate | Out-Null
 if (-not (Test-Path (Join-Path $OutDir "track03.bin"))) { throw "buildgdi did not produce track03.bin" }
 
 # Parse the GDI for the track1/2 LBAs, synthesize standard low-density filler.
