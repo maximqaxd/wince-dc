@@ -42,15 +42,17 @@ static const SHORTCUT s_desk[] =
     { L"CD-ROM",       L"\\CD-ROM",  NULL,            ICON_DRIVE },
     { L"Calculator",   NULL,         L"dcwcalc.exe",  ICON_APP },
     { L"Clock",        NULL,         L"dcwclock.exe", ICON_CLOCK },
+    { L"Task Manager", NULL,         L"dcwtask.exe",  ICON_APP },
 };
 #define DESK_N (sizeof(s_desk) / sizeof(s_desk[0]))
 
 static const SHORTCUT s_start[] =
 {
-    { L"My Dreamcast", L"\\",        NULL, ICON_SWIRL },
-    { L"Windows",      L"\\Windows", NULL, ICON_FOLDER },
-    { L"CD-ROM",       L"\\CD-ROM",  NULL, ICON_DRIVE },
-    { L"Shut Down...", NULL,         NULL, ICON_FILE },
+    { L"My Dreamcast", L"\\",        NULL,            ICON_SWIRL },
+    { L"Windows",      L"\\Windows", NULL,            ICON_FOLDER },
+    { L"CD-ROM",       L"\\CD-ROM",  NULL,            ICON_DRIVE },
+    { L"Task Manager", NULL,         L"dcwtask.exe",  ICON_APP },
+    { L"Shut Down...", NULL,         NULL,            ICON_FILE },
 };
 #define START_N (sizeof(s_start) / sizeof(s_start[0]))
 
@@ -139,6 +141,47 @@ static int CountWindows(void)
         if (s_shared->win[i].inUse)
             n++;
     return n;
+}
+
+// Reap windows whose owner process died without DCWinClose (e.g. a Task Manager
+// "end task", or a crash) - otherwise the slot stays inUse and ghosts forever.
+// Liveness is an OpenProcess(ownerPid) probe; s_reapAccess is the access flag that
+// worked on our own (live) pid at startup, or 0 if OpenProcess is unusable here.
+static DWORD s_reapAccess = 0;
+
+static void ProbeReap(void)
+{
+    static const DWORD tryAccess[] = { 0x0400 /*PROCESS_QUERY_INFORMATION*/, PROCESS_ALL_ACCESS, 0 };
+    int i;
+    s_reapAccess = 0;
+    __try
+    {
+        for (i = 0; i < (int)(sizeof(tryAccess) / sizeof(tryAccess[0])); i++)
+        {
+            HANDLE h = OpenProcess(tryAccess[i], FALSE, GetCurrentProcessId());
+            if (h) { CloseHandle(h); s_reapAccess = tryAccess[i]; break; }
+        }
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER) { s_reapAccess = 0; }
+    DbgStr(s_reapAccess ? L"DCSHELL: dead-window reaper active\r\n"
+                        : L"DCSHELL: OpenProcess unusable, reaper off\r\n");
+}
+
+static void ReapDeadWindows(void)
+{
+    int i;
+    if (!s_shared || !s_reapAccess)
+        return;
+    for (i = 0; i < DCWIN_MAXWIN; i++)
+    {
+        HANDLE h;
+        if (!s_shared->win[i].inUse || !s_shared->win[i].ownerPid)
+            continue;
+        h = OpenProcess(s_reapAccess, FALSE, s_shared->win[i].ownerPid);
+        if (h) { CloseHandle(h); continue; }     // owner alive
+        s_shared->win[i].inUse = 0;              // owner gone -> free the ghost slot
+        s_dirty = 1;
+    }
 }
 
 // auto-focus newly-appeared windows; drop focus when the focused one closes
@@ -436,9 +479,12 @@ static void OnKey(WPARAM wp)
     }
 }
 
-// Pointer click hit-test (top-down): Start menu -> Start button -> taskbar buttons
-// -> windows (close box / focus) -> desktop icons.
-static void HandleClick(int x, int y)
+// Cursor hit-test (top-down): Start menu -> Start button -> taskbar buttons ->
+// windows (close box / body) -> desktop icons. Returns 1 if the click was
+// consumed by a target (close box, taskbar/start, desktop icon), 0 if it landed
+// on a window body (focus it, but let an Enter through to the window) or empty
+// space. The controller's "A" uses the return: consumed -> done; else -> Enter.
+static int HandleClick(int x, int y)
 {
     int k;
     s_dirty = 1;
@@ -447,16 +493,17 @@ static void HandleClick(int x, int y)
     {
         int h = (int)START_N * ROW_H + 8, my = TASK_Y - h + 4;
         if (x >= 4 && x < 4 + MENU_W && y >= my && y < my + (int)START_N * ROW_H)
-        { s_menuSel = (y - my) / ROW_H; ActivateStartItem(); return; }
+        { s_menuSel = (y - my) / ROW_H; ActivateStartItem(); return 1; }
         s_menuOpen = 0;                 // click elsewhere closes the menu
+        return 1;
     }
     if (y >= TASK_Y && x >= 4 && x < 72)            // Start button
-    { s_menuOpen = !s_menuOpen; s_menuSel = 0; return; }
+    { s_menuOpen = !s_menuOpen; s_menuSel = 0; return 1; }
     if (y >= TASK_Y && s_shared)                    // taskbar window buttons
     {
         int bx = 80;
         for (k = 0; k < DCWIN_MAXWIN; k++)
-        { if (!s_shared->win[k].inUse) continue; if (x >= bx && x < bx + 110) { s_focus = k; return; } bx += 116; }
+        { if (!s_shared->win[k].inUse) continue; if (x >= bx && x < bx + 110) { s_focus = k; return 1; } bx += 116; }
     }
     if (s_shared)                                   // windows: topmost (focused) first
     {
@@ -469,9 +516,9 @@ static void HandleClick(int x, int y)
             if (x >= w->x - 2 && x < w->x + w->w + 2 && y >= w->y - 18 && y < w->y + w->h + 2)
             {
                 if (x >= w->x + w->w - 14 && x <= w->x + w->w + 1 && y >= w->y - 16 && y <= w->y - 3)
-                { w->wantClose = 1; return; }       // close box
-                s_focus = order[j];
-                return;
+                { w->wantClose = 1; return 1; }     // close box -> consumed
+                s_focus = order[j];                 // body -> focus it, fall through to Enter
+                return 0;
             }
         }
     }
@@ -483,9 +530,10 @@ static void HandleClick(int x, int y)
             s_deskSel = k;
             if (s_desk[k].path) LaunchApp(L"dcwexp.exe", s_desk[k].path);
             else                LaunchApp(s_desk[k].exe, NULL);
-            return;
+            return 1;
         }
     }
+    return 0;                                        // empty space
 }
 
 static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
@@ -545,6 +593,7 @@ int WINAPI WinMain(HINSTANCE hInst, HINSTANCE hPrev, LPWSTR lpCmd, int nShow)
 
     s_diKbd = DInInit(s_hwnd);          // polled keyboard (low-latency) + controller pointer
     DbgStr(s_diKbd ? L"DCSHELL: DI keyboard active\r\n" : L"DCSHELL: DI keyboard absent, WM fallback\r\n");
+    ProbeReap();                        // is OpenProcess usable for dead-window reaping?
 
     next = GetTickCount() + 1000;
     for (;;)
@@ -567,10 +616,11 @@ int WINAPI WinMain(HINSTANCE hInst, HINSTANCE hPrev, LPWSTR lpCmd, int nShow)
             while (DInNextKey(&vk)) OnKey(vk);
         }
         if (DInHasPointer())
-        {
             DInCursor(&s_cx, &s_cy);    // pointer rides the present overlay; no recomposite
-            if (DInTookClick()) HandleClick(s_cx, s_cy);
-        }
+        if (DInTookClick())             // mouse: pure cursor click at the pointer
+            HandleClick(s_cx, s_cy);
+        if (DInTookActivate())          // controller A: click the cursor target, else
+            if (!HandleClick(s_cx, s_cy)) OnKey(VK_RETURN);   // activate the selection
 
         FixupFocus();                   // auto-focus new windows, drop closed ones
         if (s_shared && s_shared->execSeq != s_lastExec)   // a window asked to launch an app
@@ -578,10 +628,11 @@ int WINAPI WinMain(HINSTANCE hInst, HINSTANCE hPrev, LPWSTR lpCmd, int nShow)
             s_lastExec = s_shared->execSeq;
             ShellLaunch(s_shared->execPath);
         }
-        if (GetTickCount() >= next)     // clock tick -> repaint
+        if (GetTickCount() >= next)     // clock tick -> repaint + reap dead windows
         {
             s_dirty = 1;
             next += 1000;
+            ReapDeadWindows();          // free slots whose owner process is gone
         }
         // re-render only when a window published a new frame (digit typed, clock tick)
         if (s_shared)

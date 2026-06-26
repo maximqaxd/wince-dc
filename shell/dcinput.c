@@ -27,9 +27,24 @@ static int                  g_wmPointer = 0;   // a GWES WM_MOUSE* arrived -> po
 static BYTE  g_now[256], g_last[256];
 static DWORD g_repeatAt[256];
 static int   g_cx = SCRW / 2, g_cy = SCRH / 2;
-static int   g_btnLast = 0, g_mbtnLast = 0, g_click = 0;
+static int   g_btnLast = 0, g_mbtnLast = 0, g_click = 0, g_activate = 0;
 static DWORD g_lastTick = 0;
 static long  g_accX = 0, g_accY = 0;   // sub-pixel motion accumulators (axis*ms)
+
+// DC controller buttons live in the LOW 16 bits of the DInput button mask
+// (observed on Flycast): D-pad U/D/L/R = bits 3/4/5/6, face A = bit 1. The HIGH
+// bits (>=16) carry unstable analog trigger/stick data the driver leaks in (idle
+// has e.g. 0x03110000) - they are NOT buttons, so mask them off.
+#define DPAD_BITS  0x00000078u         // bits 3..6 (U,D,L,R)
+#define FACE_BITS  0x0000FF87u         // low-16 digital buttons minus the D-pad bits
+static const struct { DWORD bit; DWORD vk; } s_dpad[4] =
+{
+    { 0x00000008u, VK_UP }, { 0x00000010u, VK_DOWN },
+    { 0x00000020u, VK_LEFT }, { 0x00000040u, VK_RIGHT },
+};
+static int   g_dpadHeld[4];
+static DWORD g_dpadRepeatAt[4];
+static int   g_joyPrimed = 0, g_mousePrimed = 0;   // skip edge events on first read
 
 #define STICK_DZ   150     // analog deadzone (range is +-1000)
 #define STICK_DIV  1250    // px = axis * dt_ms / DIV; full deflection ~= 800 px/sec
@@ -43,6 +58,7 @@ static const struct { int dik; DWORD vk; int nav; } g_map[] =
 {
     { DIK_UP, VK_UP, 1 }, { DIK_DOWN, VK_DOWN, 1 }, { DIK_LEFT, VK_LEFT, 1 }, { DIK_RIGHT, VK_RIGHT, 1 },
     { DIK_RETURN, VK_RETURN, 0 }, { DIK_ESCAPE, VK_ESCAPE, 0 }, { DIK_TAB, VK_TAB, 0 }, { DIK_BACK, VK_BACK, 1 },
+    { DIK_DELETE, VK_DELETE, 0 },
     { DIK_0, '0', 0 }, { DIK_1, '1', 0 }, { DIK_2, '2', 0 }, { DIK_3, '3', 0 }, { DIK_4, '4', 0 },
     { DIK_5, '5', 0 }, { DIK_6, '6', 0 }, { DIK_7, '7', 0 }, { DIK_8, '8', 0 }, { DIK_9, '9', 0 },
     { DIK_C, 'C', 0 },
@@ -65,12 +81,6 @@ static BOOL CALLBACK EnumCb(LPCDIDEVICEINSTANCE di, LPVOID ctx)
     IDirectInputDevice_Release(d1);
 
     t = GET_DIDEVICE_TYPE(di->dwDevType);
-    {
-        WCHAR b[128];
-        wsprintfW(b, L"DCIN: enum dev type=%u devtype=%08x name=%s\r\n",
-                  (unsigned)t, (unsigned)di->dwDevType, di->tszProductName);
-        OutputDebugStringW(b);
-    }
     if (t == DIDEVTYPE_KEYBOARD && !g_kbd)
     {
         IDirectInputDevice2_SetDataFormat(d2, &c_dfDIKeyboard);
@@ -171,8 +181,8 @@ void DInUpdate(void)
             if (g_cx < 0) g_cx = 0;  if (g_cx >= SCRW) g_cx = SCRW - 1;
             if (g_cy < 0) g_cy = 0;  if (g_cy >= SCRH) g_cy = SCRH - 1;
             btn = (ms.rgbButtons[0] | ms.rgbButtons[1] | ms.rgbButtons[2]) & 0x80;
-            if (btn && !g_mbtnLast) g_click = 1;
-            g_mbtnLast = btn;
+            if (!g_mousePrimed) { g_mousePrimed = 1; g_mbtnLast = btn; }   // baseline, no edge
+            else { if (btn && !g_mbtnLast) g_click = 1; g_mbtnLast = btn; }
         }
     }
 
@@ -187,19 +197,44 @@ void DInUpdate(void)
             DWORD dt = g_lastTick ? (nowt - g_lastTick) : 16;
             int   ax = js.lX < 0 ? -js.lX : js.lX;
             int   ay = js.lY < 0 ? -js.lY : js.lY;
-            int   btn, dx, dy;
+            DWORD mask = 0, face;
+            int   i, dx, dy;
             if (dt > 100) dt = 100;     // clamp after a stall so the cursor doesn't leap
-            // time-based + sub-pixel accumulator: speed is frame-rate independent
-            // AND small deflections still move (no truncation-to-zero at short dt)
+            // analog stick -> cursor: time-based + sub-pixel accumulator (speed is
+            // frame-rate independent AND small deflections still move)
             if (ax > STICK_DZ) { g_accX += (long)js.lX * (long)dt; dx = (int)(g_accX / STICK_DIV); g_accX -= (long)dx * STICK_DIV; g_cx += dx; }
             else g_accX = 0;
             if (ay > STICK_DZ) { g_accY += (long)js.lY * (long)dt; dy = (int)(g_accY / STICK_DIV); g_accY -= (long)dy * STICK_DIV; g_cy += dy; }
             else g_accY = 0;
             if (g_cx < 0) g_cx = 0;  if (g_cx >= SCRW) g_cx = SCRW - 1;
             if (g_cy < 0) g_cy = 0;  if (g_cy >= SCRH) g_cy = SCRH - 1;
-            btn = (js.rgbButtons[0] | js.rgbButtons[1] | js.rgbButtons[2] | js.rgbButtons[3]) & 0x80;
-            if (btn && !g_btnLast) g_click = 1;
-            g_btnLast = btn;
+
+            for (i = 0; i < 32; i++) if (js.rgbButtons[i] & 0x80) mask |= (1u << i);
+            face = mask & FACE_BITS;    // low-16 digital face buttons only (no analog noise)
+            if (!g_joyPrimed)
+            {
+                // first sample: record baseline only, generate NO edges - otherwise a
+                // button/axis transient at boot fires a phantom "activate" (which was
+                // auto-launching the selected desktop icon).
+                g_joyPrimed = 1;
+                for (i = 0; i < 4; i++) g_dpadHeld[i] = (mask & s_dpad[i].bit) ? 1 : 0;
+                g_btnLast = face ? 1 : 0;
+            }
+            else
+            {
+                // D-pad (button bits) -> arrow keys, per-direction edge + auto-repeat
+                for (i = 0; i < 4; i++)
+                {
+                    int dn = (mask & s_dpad[i].bit) ? 1 : 0;
+                    if (dn && !g_dpadHeld[i])                  { Push(s_dpad[i].vk); g_dpadRepeatAt[i] = nowt + 350; }
+                    else if (dn && nowt >= g_dpadRepeatAt[i])  { Push(s_dpad[i].vk); g_dpadRepeatAt[i] = nowt + 120; }
+                    g_dpadHeld[i] = dn;
+                }
+                // face buttons (not D-pad / idle bit) -> "activate" (Enter): the
+                // controller selection paradigm (D-pad selects, A opens selection).
+                if (face && !g_btnLast) g_activate = 1;
+                g_btnLast = face ? 1 : 0;
+            }
         }
     }
     g_lastTick = nowt;
@@ -224,6 +259,7 @@ void DInSetCursor(int x, int y)
 }
 void DInPostClick(void) { g_click = 1; }
 
+int  DInTookActivate(void)      { int a = g_activate; g_activate = 0; return a; }  // controller A -> Enter
 int  DInHasPointer(void)        { return (g_mouse != NULL) || (g_joy != NULL) || g_wmPointer; }
 void DInCursor(int *x, int *y)  { *x = g_cx; *y = g_cy; }
 int  DInTookClick(void)         { int c = g_click; g_click = 0; return c; }

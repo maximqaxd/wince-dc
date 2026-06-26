@@ -20,7 +20,16 @@ Add the 4 shell exes to the `MODULES` section, right after the `sysstart.exe` li
    dcwcalc.exe     $(_FLATRELEASEDIR)$(RELEASEDIR_OS)dcwcalc.exe     NK  SH
    dcwclock.exe    $(_FLATRELEASEDIR)$(RELEASEDIR_OS)dcwclock.exe    NK  SH
    dcwexp.exe      $(_FLATRELEASEDIR)$(RELEASEDIR_OS)dcwexp.exe      NK  SH
+   dcwtask.exe     $(_FLATRELEASEDIR)$(RELEASEDIR_OS)dcwtask.exe     NK  SH
+IF IMGNOSHELL
+   toolhelp.dll    $(_FLATRELEASEDIR)$(RELEASEDIR_OS)toolhelp.dll    NK  SH
+ENDIF
 ```
+
+`toolhelp.dll` (process enumeration for the Task Manager) is normally bundled with
+`shell.exe` inside `IF IMGNOSHELL !`. We drop `shell.exe` (IMGNOSHELL=1) but still
+need toolhelp, so we re-add it under `IF IMGNOSHELL` — present in both configs,
+never duplicated. The Task Manager LoadLibrary()s it (graceful if absent).
 
 ## 2. `gemini.reg` — `[HKEY_LOCAL_MACHINE\init]`
 

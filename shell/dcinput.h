@@ -16,7 +16,8 @@ void DInUpdate(void);        // poll all devices; call once per loop
 int  DInNextKey(DWORD *vk);  // 1 + VK for each queued key-down (edge / auto-repeat)
 int  DInHasPointer(void);    // TRUE if a mouse or controller pointer is active
 void DInCursor(int *x, int *y);
-int  DInTookClick(void);     // TRUE once on each click (button press edge)
+int  DInTookClick(void);     // TRUE once per mouse click (cursor paradigm)
+int  DInTookActivate(void);  // TRUE once per controller face-button press (-> Enter)
 
 // GWES WM_MOUSE* fallback feed (the shell forwards window mouse messages here in
 // case the DC mouse reaches WinCE through the window queue, not DirectInput).

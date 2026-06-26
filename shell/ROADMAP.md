@@ -22,7 +22,13 @@ draw-command protocol. See `HANDOFF.md` for architecture, `BUILD.md` to build/te
   file-type icons.
 - **Launch from CD-ROM**: `HALFLIFE_DC.EXE` launches + renders fullscreen from `\CD-ROM`
   via display hand-off (crashes at level load — see Open).
-- **DirectInput input** (`dcinput`, NEW — just built, untested on HW): polled keyboard
+- **Task Manager** (`dcwtask`, NEW): a DCWin client listing real CE processes via
+  toolhelp (re-added `toolhelp.dll` to the image without the broken devkit
+  `shell.exe`), free RAM via `GlobalMemoryStatus`, end-task via
+  `OpenProcess`+`TerminateProcess` (criticals protected, SEH-guarded). The shell
+  now reaps windows whose owner process died (OpenProcess liveness), so end-task
+  on a windowed app doesn't leave a ghost.
+- **DirectInput input** (`dcinput`): polled keyboard
   (replaces laggy WM_KEYDOWN; edge-detect + auto-repeat for nav keys) and the DC
   controller as a software pointer (analog stick → cursor, A/B/X/Y → click).
   `HandleClick` hit-tests Start menu / Start button / taskbar buttons / window
@@ -30,19 +36,22 @@ draw-command protocol. See `HANDOFF.md` for architecture, `BUILD.md` to build/te
 
 ## Next ⏭ (priority order)
 
-1. **Verify DirectInput on HW** (immediate). Load the disc, read `DCIN:` logs. Tune if
-   needed: analog range (`-1000..1000`), deadzone (`>150`), cursor speed (`/80`), button
-   indices (`rgbButtons[0..3]`). Confirm `DCSHELL: DI keyboard active`. The keyboard
-   path is the latency fix; the pointer is the new capability.
+1. **Verify Task Manager + reaper on HW** (immediate). Load the disc, open Task Manager
+   (desktop icon / Start). Confirm it lists processes (`DCWTASK:` logs if toolhelp fails),
+   shows free RAM, and Del/Enter ends a non-critical task. Confirm
+   `DCSHELL: dead-window reaper active` and that ending a windowed app (e.g. dcwclock)
+   removes its window with no ghost.
 2. **HL level-load crash**. Hypothesis: low heap. Before fullscreen hand-off, close all
-   client windows (free their processes) so HL gets max RAM. Verify `\CD-ROM` file paths
-   the game expects. (`Exception 040`, wild TEA — looks like OOM, not a code bug.)
+   client windows (free their processes) so HL gets max RAM. The Task Manager / reaper
+   work now gives the pieces to do this. Verify `\CD-ROM` paths. (`Exception 040`, wild
+   TEA — looks like OOM, not a code bug.)
 3. **Window move (drag)**. Title-bar drag → update `DcWindow.x/y`. We now have a pointer,
    so this is mostly hit-test + delta in the shell; clients already publish absolute coords.
 4. **Window resize**. Border/corner grab; clients re-layout on size change (they already
    read `w/h` from the shared window).
-5. **Free-RAM monitor app + text viewer** (more `dcw*` clients; cheap, exercise the API).
-6. **Nicer native 32×32 icon art** (current art is ASCII in `s_iconArt`).
+5. **Text viewer app** (more `dcw*` clients; cheap, exercise the API).
+6. **Nicer native 32×32 icon art** (current art is ASCII in `s_iconArt`); a distinct
+   Task Manager icon (reuses `ICON_APP` today).
 7. **Docs**: fold `CLAUDE-PATCH.md` into the top-level `CLAUDE.md`; the old `README.md`
    describes v1 (launcher) + a wrong GDI-subset model — rewrite or supersede it.
 
