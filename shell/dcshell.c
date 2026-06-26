@@ -400,11 +400,9 @@ static void RenderExplorerFills(void)
     SetRect(&rc, SCREEN_W - 18, 3, SCREEN_W - 2,  TITLE_H - 3); GfxFill(rc.left, rc.top, rc.right, rc.bottom, CL_FACE); GfxBevel(&rc, TRUE);
 }
 
-static void RenderText(HDC hdc)
+static void RenderViewText(HDC hdc)
 {
-    SYSTEMTIME t;
-    WCHAR      clk[16];
-    int        i, y;
+    int i, y;
 
     if (s_view == VIEW_DESKTOP)
     {
@@ -455,8 +453,14 @@ static void RenderText(HDC hdc)
             GfxText(hdc, 8, STATUS_Y + 2, CL_TEXT, CL_FACE, g_FontUI, st);
         }
     }
+}
 
-    // taskbar (both views)
+static void RenderBarsText(HDC hdc)
+{
+    SYSTEMTIME t;
+    WCHAR      clk[16];
+    int        i;
+
     GfxText(hdc, 12, TASK_Y + 5, CL_TEXT, CL_FACE, g_FontBold, L"Start");
     GetLocalTime(&t);
     wsprintfW(clk, L"%02d:%02d", t.wHour, t.wMinute);
@@ -554,56 +558,51 @@ static void DrawWinText(HDC hdc, DcWindow *w, int wi, BOOL active)
     }
 }
 
-// non-focused windows first, focused window last (drawn on top)
-static void RenderWindowsFills(void)
+// Composite ONE window completely (fills, then text) so that an overlapping
+// window's text never lands on a window above it. Each layer does its DDraw fills
+// (DC unlocked) then a GetDC/text/ReleaseDC pass before the next layer.
+static void RenderWindow(int wi, BOOL active)
 {
-    int i;
-    if (!s_shared)
-        return;
-    for (i = 0; i < DCWIN_MAXWIN; i++)
-        if (s_shared->win[i].inUse && i != s_focus)
-            DrawWinFills(&s_shared->win[i], i, FALSE);
-    if (s_focus >= 0 && s_shared->win[s_focus].inUse)
-        DrawWinFills(&s_shared->win[s_focus], s_focus, TRUE);
-}
+    HDC       hdc;
+    DcWindow *w = &s_shared->win[wi];
 
-static void RenderWindowsText(HDC hdc)
-{
-    int i;
-    if (!s_shared)
-        return;
-    for (i = 0; i < DCWIN_MAXWIN; i++)
-        if (s_shared->win[i].inUse && i != s_focus)
-            DrawWinText(hdc, &s_shared->win[i], i, FALSE);
-    if (s_focus >= 0 && s_shared->win[s_focus].inUse)
-        DrawWinText(hdc, &s_shared->win[s_focus], s_focus, TRUE);
+    DrawWinFills(w, wi, active);
+    hdc = GfxLockDC();
+    if (hdc) { DrawWinText(hdc, w, wi, active); GfxUnlockDC(hdc); }
 }
 
 static void Render(void)
 {
     HDC hdc;
+    int i;
 
     if (s_sel < s_top)            s_top = s_sel;
     if (s_sel >= s_top + VIS)     s_top = s_sel - VIS + 1;
 
-    SnapWindows();                  // atomic snapshot of all window command lists
+    SnapWindows();
 
-    // PASS 1: fills
+    // layer 0: desktop / view
     if (s_view == VIEW_DESKTOP)
         RenderDesktopFills();
     else
         RenderExplorerFills();
-    RenderWindowsFills();           // composited app windows over the view
-    RenderTaskbarFills();
-
-    // PASS 2: text
     hdc = GfxLockDC();
-    if (hdc)
+    if (hdc) { RenderViewText(hdc); GfxUnlockDC(hdc); }
+
+    // layers 1..N: app windows, back-to-front, each composited fully
+    if (s_shared)
     {
-        RenderText(hdc);
-        RenderWindowsText(hdc);
-        GfxUnlockDC(hdc);
+        for (i = 0; i < DCWIN_MAXWIN; i++)
+            if (s_shared->win[i].inUse && i != s_focus)
+                RenderWindow(i, FALSE);
+        if (s_focus >= 0 && s_shared->win[s_focus].inUse)
+            RenderWindow(s_focus, TRUE);
     }
+
+    // top layer: taskbar + start menu
+    RenderTaskbarFills();
+    hdc = GfxLockDC();
+    if (hdc) { RenderBarsText(hdc); GfxUnlockDC(hdc); }
 }
 
 //
