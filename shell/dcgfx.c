@@ -9,26 +9,29 @@
 #include "dcgfx.h"
 #include <ddraw.h>
 
+// Flip-chain model (the SDK-idiomatic DC present, see samples/ddraw): the screen
+// is a page-flip chain (front+back); we composite the desktop into an offscreen
+// "scene" surface (only when content changes), and present by Blt scene->back +
+// cursor on top + Flip(DDFLIP_WAIT). Flip is vsync-paced and yields the CPU, and
+// flip-chain surfaces retain content - so we present only on change, not in a
+// 120 Hz busy Blt loop (which was starving the client processes).
 static HWND                s_hwnd    = NULL;
 static LPDIRECTDRAW        s_dd      = NULL;
-static LPDIRECTDRAWSURFACE s_primary = NULL;
-static LPDIRECTDRAWSURFACE s_back    = NULL;   // persistent 565 back buffer
+static LPDIRECTDRAWSURFACE s_primary = NULL;   // flip-chain front
+static LPDIRECTDRAWSURFACE s_back    = NULL;   // flip-chain back (attached to primary)
+static LPDIRECTDRAWSURFACE s_scene   = NULL;   // offscreen composited desktop (no cursor)
+static BOOL                s_useFlip = FALSE;  // TRUE if a flip chain was created
 static LPDIRECTDRAWSURFACE s_icon[ICON_COUNT];      // 16x16
 static LPDIRECTDRAWSURFACE s_iconBig[ICON_COUNT];   // 32x32 (pixel-doubled)
-
-// Software-cursor save-under: the 16x16 of back-buffer pixels under the pointer,
-// so we can erase it before redrawing without recompositing the desktop.
-static LPDIRECTDRAWSURFACE s_save = NULL;            // 16x16 sysmem (survives loss)
-static int  s_saveX, s_saveY, s_saveW, s_saveH;
-static BOOL s_saveValid = FALSE;
 
 HFONT g_FontUI    = NULL;
 HFONT g_FontBold  = NULL;
 HFONT g_FontTitle = NULL;
 
+// all drawing (fills/text/icons) composites into the offscreen scene
 static LPDIRECTDRAWSURFACE Target(void)
 {
-    return s_back ? s_back : s_primary;
+    return s_scene ? s_scene : s_primary;
 }
 
 static WORD ToRgb565(COLORREF c)
@@ -207,19 +210,38 @@ static BOOL CreateSurfaces(void)
     IDirectDraw_SetCooperativeLevel(s_dd, s_hwnd, DDSCL_EXCLUSIVE | DDSCL_FULLSCREEN);
     IDirectDraw_SetDisplayMode(s_dd, SCREEN_W, SCREEN_H, 16);
 
+    // Primary as a page-flip chain (front + 1 back), the way the DC samples do it.
     memset(&ddsd, 0, sizeof(ddsd));
-    ddsd.dwSize         = sizeof(ddsd);
-    ddsd.dwFlags        = DDSD_CAPS;
-    ddsd.ddsCaps.dwCaps = DDSCAPS_PRIMARYSURFACE;
+    ddsd.dwSize            = sizeof(ddsd);
+    ddsd.dwFlags           = DDSD_CAPS | DDSD_BACKBUFFERCOUNT;
+    ddsd.ddsCaps.dwCaps    = DDSCAPS_PRIMARYSURFACE | DDSCAPS_FLIP | DDSCAPS_COMPLEX;
+    ddsd.dwBackBufferCount = 1;
     hr = IDirectDraw_CreateSurface(s_dd, &ddsd, &s_primary, NULL);
-    if (hr != DD_OK)
-        return FALSE;
+    if (hr == DD_OK)
+    {
+        DDSCAPS caps;
+        memset(&caps, 0, sizeof(caps));
+        caps.dwCaps = DDSCAPS_BACKBUFFER;
+        if (IDirectDrawSurface_GetAttachedSurface(s_primary, &caps, &s_back) == DD_OK)
+            s_useFlip = TRUE;
+    }
+    if (!s_useFlip)
+    {
+        // Fallback: plain single primary (present = Blt scene->primary).
+        if (s_primary) { IDirectDrawSurface_Release(s_primary); s_primary = NULL; }
+        memset(&ddsd, 0, sizeof(ddsd));
+        ddsd.dwSize         = sizeof(ddsd);
+        ddsd.dwFlags        = DDSD_CAPS;
+        ddsd.ddsCaps.dwCaps = DDSCAPS_PRIMARYSURFACE;
+        if (IDirectDraw_CreateSurface(s_dd, &ddsd, &s_primary, NULL) != DD_OK)
+            return FALSE;
+    }
 
-    // persistent back buffer, explicit RGB565 to match the primary
+    // Offscreen composited "scene" (explicit 565 to match the primary).
     memset(&ddsd, 0, sizeof(ddsd));
     ddsd.dwSize         = sizeof(ddsd);
     ddsd.dwFlags        = DDSD_CAPS | DDSD_WIDTH | DDSD_HEIGHT | DDSD_PIXELFORMAT;
-    ddsd.ddsCaps.dwCaps = DDSCAPS_OFFSCREENPLAIN | DDSCAPS_VIDEOMEMORY;   // VRAM: fast VRAM->VRAM present
+    ddsd.ddsCaps.dwCaps = DDSCAPS_OFFSCREENPLAIN | DDSCAPS_VIDEOMEMORY;
     ddsd.dwWidth        = SCREEN_W;
     ddsd.dwHeight       = SCREEN_H;
     ddsd.ddpfPixelFormat.dwSize        = sizeof(DDPIXELFORMAT);
@@ -228,28 +250,12 @@ static BOOL CreateSurfaces(void)
     ddsd.ddpfPixelFormat.dwRBitMask    = 0xF800;
     ddsd.ddpfPixelFormat.dwGBitMask    = 0x07E0;
     ddsd.ddpfPixelFormat.dwBBitMask    = 0x001F;
-    if (IDirectDraw_CreateSurface(s_dd, &ddsd, &s_back, NULL) != DD_OK)
-        s_back = NULL;   // fall back to drawing directly on the primary
-
-    // 16x16 cursor save-under buffer (system memory: never lost, tiny over-the-bus blit)
-    memset(&ddsd, 0, sizeof(ddsd));
-    ddsd.dwSize         = sizeof(ddsd);
-    ddsd.dwFlags        = DDSD_CAPS | DDSD_WIDTH | DDSD_HEIGHT | DDSD_PIXELFORMAT;
-    ddsd.ddsCaps.dwCaps = DDSCAPS_OFFSCREENPLAIN | DDSCAPS_SYSTEMMEMORY;
-    ddsd.dwWidth        = 16;
-    ddsd.dwHeight       = 16;
-    ddsd.ddpfPixelFormat.dwSize        = sizeof(DDPIXELFORMAT);
-    ddsd.ddpfPixelFormat.dwFlags       = DDPF_RGB;
-    ddsd.ddpfPixelFormat.dwRGBBitCount = 16;
-    ddsd.ddpfPixelFormat.dwRBitMask    = 0xF800;
-    ddsd.ddpfPixelFormat.dwGBitMask    = 0x07E0;
-    ddsd.ddpfPixelFormat.dwBBitMask    = 0x001F;
-    if (IDirectDraw_CreateSurface(s_dd, &ddsd, &s_save, NULL) != DD_OK)
-        s_save = NULL;
-    s_saveValid = FALSE;
+    if (IDirectDraw_CreateSurface(s_dd, &ddsd, &s_scene, NULL) != DD_OK)
+        s_scene = NULL;
     {
-        WCHAR b[64];
-        wsprintfW(b, L"GfxInit: primary=%x back=%x\r\n", (unsigned)s_primary, (unsigned)s_back);
+        WCHAR b[80];
+        wsprintfW(b, L"GfxInit: primary=%x back=%x scene=%x flip=%d\r\n",
+                  (unsigned)s_primary, (unsigned)s_back, (unsigned)s_scene, s_useFlip);
         OutputDebugStringW(b);
     }
     __try { BuildIcons(); }
@@ -260,8 +266,10 @@ static BOOL CreateSurfaces(void)
 static void DestroySurfaces(void)
 {
     ReleaseIcons();
-    if (s_save)    { IDirectDrawSurface_Release(s_save);    s_save = NULL; s_saveValid = FALSE; }
-    if (s_back)    { IDirectDrawSurface_Release(s_back);    s_back = NULL; }
+    if (s_scene)   { IDirectDrawSurface_Release(s_scene);   s_scene = NULL; }
+    // s_back is part of the complex flip chain - freed when the primary is released.
+    s_back = NULL;
+    s_useFlip = FALSE;
     if (s_primary) { IDirectDrawSurface_Release(s_primary); s_primary = NULL; }
     if (s_dd)      { IDirectDraw_RestoreDisplayMode(s_dd);  IDirectDraw_Release(s_dd); s_dd = NULL; }
 }
@@ -357,74 +365,59 @@ void GfxText(HDC hdc, int x, int y, COLORREF fg, COLORREF bg, HFONT font, const 
     ExtTextOutW(hdc, x, y, 0, NULL, text, lstrlenW(text), NULL);
 }
 
-// Restore the back-buffer pixels under the last-drawn cursor (undo the sprite).
-static void CursorRestore(void)
-{
-    RECT d, s;
-    if (!s_saveValid || !s_save || !s_back)
-        return;
-    SetRect(&d, s_saveX, s_saveY, s_saveX + s_saveW, s_saveY + s_saveH);
-    SetRect(&s, 0, 0, s_saveW, s_saveH);
-    IDirectDrawSurface_Blt(s_back, &d, s_save, &s, DDBLT_WAIT, NULL);
-    s_saveValid = FALSE;
-}
-
-// Save the back-buffer pixels under (x,y) then draw the cursor sprite into the
-// back buffer (clamped to the surface so edge positions don't fail the Blt).
-static void CursorDraw(int x, int y)
+// Color-key blit the pointer sprite onto a target surface (clamped to bounds).
+static void BlitCursor(LPDIRECTDRAWSURFACE dst, int x, int y)
 {
     RECT d, s;
     int  w = 16, h = 16;
-
-    if (!s_icon[ICON_CURSOR] || !s_save || !s_back)
+    if (!dst || !s_icon[ICON_CURSOR])
         return;
     if (x < 0) x = 0;  if (y < 0) y = 0;
     if (x + w > SCREEN_W) w = SCREEN_W - x;
     if (y + h > SCREEN_H) h = SCREEN_H - y;
     if (w <= 0 || h <= 0)
         return;
-
-    SetRect(&d, x, y, x + w, y + h);          // save what's under the cursor
+    SetRect(&d, x, y, x + w, y + h);
     SetRect(&s, 0, 0, w, h);
-    IDirectDrawSurface_Blt(s_save, &s, s_back, &d, DDBLT_WAIT, NULL);
-    s_saveX = x; s_saveY = y; s_saveW = w; s_saveH = h; s_saveValid = TRUE;
-
-    SetRect(&s, 0, 0, w, h);                   // draw the sprite (color-keyed)
-    IDirectDrawSurface_Blt(s_back, &d, s_icon[ICON_CURSOR], &s, DDBLT_KEYSRC | DDBLT_WAIT, NULL);
+    IDirectDrawSurface_Blt(dst, &d, s_icon[ICON_CURSOR], &s, DDBLT_KEYSRC | DDBLT_WAIT, NULL);
 }
 
-// Present the composited desktop with the pointer composited INTO the back buffer
-// (save-under), then one Blt to the primary - a single blit carries the cursor so
-// the scanned-out primary never shows a cursor-less gap (no flicker). Cursor
-// movement touches only the 16x16 save-under, never the desktop recomposite.
-//   backRecomposited: TRUE if the caller just fully repainted the back buffer this
-//   frame (then any saved region is stale - discard it instead of restoring).
-// Returns TRUE if a surface was lost+restored (caller must re-render).
-BOOL GfxPresent(int cursorX, int cursorY, BOOL showCursor, BOOL backRecomposited)
+// Present the composited scene + pointer. Flip-chain path: Blt scene->back, draw
+// the cursor on the back, then Flip (vsync-paced, CPU-yielding). Fallback path
+// (no flip chain): Blt scene->primary + cursor. Call ONLY when something changed
+// (content dirty or cursor moved) - flip-chain surfaces retain content, so there
+// is no need to present every frame. Returns TRUE if a surface was lost (the
+// caller must re-render the scene before the next present).
+BOOL GfxPresent(int cursorX, int cursorY, BOOL showCursor)
 {
-    if (!s_back || !s_primary)
+    LPDIRECTDRAWSURFACE comp;
+
+    if (!s_scene || !s_primary)
         return FALSE;
 
-    if (IDirectDrawSurface_IsLost(s_back) == DDERR_SURFACELOST)
+    if (IDirectDrawSurface_IsLost(s_scene) == DDERR_SURFACELOST)
     {
-        IDirectDrawSurface_Restore(s_back);
-        if (IDirectDrawSurface_IsLost(s_primary) == DDERR_SURFACELOST)
-            IDirectDrawSurface_Restore(s_primary);
-        s_saveValid = FALSE;
-        return TRUE;                              // back content lost -> need redraw
+        IDirectDrawSurface_Restore(s_scene);
+        IDirectDrawSurface_Restore(s_primary);
+        return TRUE;                              // scene content lost -> re-render
     }
 
-    if (backRecomposited)
-        s_saveValid = FALSE;                      // recomposite already cleaned the back
-    else
-        CursorRestore();                          // erase the previous cursor
-    if (showCursor)
-        CursorDraw(cursorX, cursorY);             // save-under + draw at new spot
-
-    if (IDirectDrawSurface_Blt(s_primary, NULL, s_back, NULL, DDBLT_WAIT, NULL) == DDERR_SURFACELOST)
+    comp = s_useFlip ? s_back : s_primary;        // where we assemble the frame
+    if (IDirectDrawSurface_Blt(comp, NULL, s_scene, NULL, DDBLT_WAIT, NULL) == DDERR_SURFACELOST)
     {
         IDirectDrawSurface_Restore(s_primary);
-        IDirectDrawSurface_Blt(s_primary, NULL, s_back, NULL, DDBLT_WAIT, NULL);
+        return TRUE;
+    }
+    if (showCursor)
+        BlitCursor(comp, cursorX, cursorY);
+
+    if (s_useFlip)
+    {
+        if (IDirectDrawSurface_Flip(s_primary, NULL, DDFLIP_WAIT) == DDERR_SURFACELOST)
+        {
+            IDirectDrawSurface_Restore(s_primary);
+            return TRUE;
+        }
     }
     return FALSE;
 }

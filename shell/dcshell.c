@@ -439,19 +439,24 @@ static void ActivateStartItem(void)
 
 static void OnKey(WPARAM wp)
 {
-    s_dirty = 1;
-
     if (wp == VK_TAB)               // task-switch; or Start menu when no windows open
     {
         if (CountWindows() == 0) { s_menuOpen = !s_menuOpen; s_menuSel = 0; }
         else CycleFocus();
+        s_dirty = 1;
         return;
     }
 
+    // A focused window captures input: forward the key to its ring and return
+    // WITHOUT marking the scene dirty. The shell must NOT recomposite here - the
+    // window content hasn't changed yet; when the client processes the key and
+    // republishes (gen bump) the loop's gen-change check triggers exactly one
+    // render. (Marking dirty here recomposited stale frames every keypress and
+    // kept the shell busy, starving the client -> the in-window nav lag.)
     if (s_focus >= 0 && s_shared && s_shared->win[s_focus].inUse)
     {
-        DcWindow *w = &s_shared->win[s_focus];     // focused window captures input
-        if (wp == VK_ESCAPE) { w->wantClose = 1; return; }
+        DcWindow *w = &s_shared->win[s_focus];
+        if (wp == VK_ESCAPE) { w->wantClose = 1; return; }   // FixupFocus redraws on close
         w->in[w->inHead % DCWIN_MAXIN].type = 1;
         w->in[w->inHead % DCWIN_MAXIN].key  = (DWORD)wp;
         w->inHead++;
@@ -464,10 +469,12 @@ static void OnKey(WPARAM wp)
         if (wp == VK_DOWN && s_menuSel < (int)START_N-1) s_menuSel++;
         if (wp == VK_RETURN)                             ActivateStartItem();
         if (wp == VK_ESCAPE)                             s_menuOpen = 0;
+        s_dirty = 1;
         return;
     }
 
     // desktop
+    s_dirty = 1;
     if (wp == VK_UP   && s_deskSel > 0)             s_deskSel--;
     if (wp == VK_DOWN && s_deskSel < (int)DESK_N-1) s_deskSel++;
     if (wp == VK_RETURN)
@@ -567,9 +574,9 @@ int WINAPI WinMain(HINSTANCE hInst, HINSTANCE hPrev, LPWSTR lpCmd, int nShow)
 {
     WNDCLASSW wc;
     MSG       msg;
-    DWORD     next;
-    int       i;
-    BOOL      recomposited;
+    DWORD     next, nextPresent = 0;
+    int       i, moved;
+    BOOL      rendered;
 
     DbgStr(L"DCSHELL: WinMain enter (hybrid desktop)\r\n");
 
@@ -615,8 +622,13 @@ int WINAPI WinMain(HINSTANCE hInst, HINSTANCE hPrev, LPWSTR lpCmd, int nShow)
             DWORD vk;
             while (DInNextKey(&vk)) OnKey(vk);
         }
+        moved = 0;
         if (DInHasPointer())
-            DInCursor(&s_cx, &s_cy);    // pointer rides the present overlay; no recomposite
+        {
+            int ox = s_cx, oy = s_cy;
+            DInCursor(&s_cx, &s_cy);
+            if (s_cx != ox || s_cy != oy) moved = 1;   // cursor moved -> needs a present
+        }
         if (DInTookClick())             // mouse: pure cursor click at the pointer
             HandleClick(s_cx, s_cy);
         if (DInTookActivate())          // controller A: click the cursor target, else
@@ -641,18 +653,25 @@ int WINAPI WinMain(HINSTANCE hInst, HINSTANCE hPrev, LPWSTR lpCmd, int nShow)
                 DWORD g = s_shared->win[i].inUse ? s_shared->win[i].gen : 0;
                 if (g != s_lastGen[i]) { s_dirty = 1; s_lastGen[i] = g; }
             }
-        recomposited = FALSE;
-        if (s_dirty)
+        rendered = FALSE;
+        if (s_dirty)                    // recomposite the scene only on real change
         {
             Render();
             s_dirty = 0;
-            recomposited = TRUE;        // tells GfxPresent the saved cursor region is stale
+            rendered = TRUE;
         }
-        // present every frame (primary is volatile); the pointer is composited into
-        // the back buffer (save-under) and sent in one blit -> no flicker, and
-        // cursor motion costs only a 16x16 save-under, not a recomposite
-        if (GfxPresent(s_cx, s_cy, DInHasPointer(), recomposited))
-            s_dirty = 1;                // VRAM surface lost+restored -> redraw next frame
-        Sleep(8);                       // ~120 Hz poll: low input latency; present stays cheap
+        // Present (flip) only when something changed: a recomposite, a cursor move,
+        // or a low-rate keepalive. The flip chain retains content, so when idle we
+        // present nothing.
+        if (rendered || moved || GetTickCount() >= nextPresent)
+        {
+            if (GfxPresent(s_cx, s_cy, DInHasPointer()))
+                s_dirty = 1;            // surface lost -> re-render next loop
+            nextPresent = GetTickCount() + 100;   // 10 Hz keepalive (insurance)
+        }
+        // ALWAYS yield ~1 frame. On the single SH-4 the client apps (Explorer,
+        // Task Manager) must get the CPU to read input + republish; never busy-spin
+        // (the earlier Sleep(1) "active" path starved them -> 1-2 s input lag).
+        Sleep(16);
     }
 }

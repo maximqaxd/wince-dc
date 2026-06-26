@@ -56,7 +56,7 @@ int WINAPI WinMain(HINSTANCE hInst, HINSTANCE hPrev, LPWSTR lpCmd, int nShow)
         while (DCWinPollKey(w, &key)) { HandleKey(key); changed = 1; }
         if (changed) Draw(w);
         if (DCWinShouldClose(w)) break;
-        Sleep(33);
+        Sleep(20);
     }
 
     DCWinClose(w);

@@ -35,14 +35,13 @@ void GfxUnlockDC(HDC hdc);
 void GfxText(HDC hdc, int x, int y, COLORREF fg, COLORREF bg, HFONT font, const WCHAR *text);
 
 //
-// Present every loop iteration (the primary is volatile). The pointer is
-// composited into the back buffer via a 16x16 save-under and the whole frame is
-// sent to the primary in ONE blit, so the cursor never flickers and moving it
-// never forces a desktop recomposite. Pass backRecomposited=TRUE on frames where
-// you just fully repainted the back buffer (Render). Returns TRUE if a surface
-// was lost+restored (back-buffer content gone; caller must re-render).
+// Present the composited scene + pointer via the page-flip chain (Blt scene->back
+// + cursor + Flip(DDFLIP_WAIT), which is vsync-paced and yields the CPU). Call it
+// ONLY when something changed (content dirty or the cursor moved) - flip-chain
+// surfaces retain content, so there's no need to present every frame. Returns TRUE
+// if a surface was lost (caller must re-render the scene first).
 //
-BOOL GfxPresent(int cursorX, int cursorY, BOOL showCursor, BOOL backRecomposited);
+BOOL GfxPresent(int cursorX, int cursorY, BOOL showCursor);
 
 //
 // 16x16 color-keyed icons (built from embedded art into DDraw surfaces). Blit in
