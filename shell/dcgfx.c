@@ -76,6 +76,11 @@ static const char *s_iconArt[ICON_COUNT][16] =
         "  KWGGGGWK", "  KWGGGGWK", "  KWGGGGWK", "  KWGGGGWK", "  KWWWWWWK", "  KKKKKKKK",
         "", "", "", ""
     },
+    {   // ICON_SWIRL (Dreamcast)
+        "", "     OOOOO", "   OOOOOOOOO", "  OOO     OOO", " OOO   OO   OO",
+        " OO  OOOOOO  O", " OO OO    OO O", " OO OO    O  O", " OO  OO     OO",
+        " OOO  OOOOOOO", "  OOO      OO", "   OOOOOOOOO", "     OOOOO", "", "", ""
+    },
 };
 
 static COLORREF PalColor(char c)
@@ -94,6 +99,7 @@ static COLORREF PalColor(char c)
     case 's': return RGB(100, 160, 220);
     case 'g': return RGB(40, 200, 80);
     case 'r': return RGB(210, 60, 60);
+    case 'O': return RGB(235, 125, 30);    // Dreamcast swirl orange
     default:  return RGB(255, 0, 255);    // transparent color key (565 0xF81F)
     }
 }

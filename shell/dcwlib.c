@@ -43,7 +43,7 @@ DCWin *DCWinOpen(int x, int y, int w, int h, const WCHAR *title, int iconId)
     lstrcpyW(g_win.w->title, title);
     g_win.w->icon     = (DWORD)iconId;
     g_win.w->cmdCount = 0;
-    g_win.w->gen      = 1;
+    g_win.w->gen      = 0;            // even = stable (seqlock)
     g_win.buildN      = 0;
     g_win.w->inUse    = 1;               // publish only once fully initialised
     return &g_win;
@@ -88,10 +88,11 @@ void DCWinIcon(DCWin *win, int x, int y, int iconId)
 void DCWinEndFrame(DCWin *win)
 {
     int i;
+    win->w->gen++;                       // odd = writing (seqlock)
     for (i = 0; i < win->buildN; i++)
         win->w->cmd[i] = win->build[i];
-    win->w->cmdCount = win->buildN;      // set count AFTER the commands are in place
-    win->w->gen++;
+    win->w->cmdCount = win->buildN;
+    win->w->gen++;                       // even = stable
 }
 
 int DCWinPollKey(DCWin *win, DWORD *key)
@@ -106,6 +107,12 @@ int DCWinPollKey(DCWin *win, DWORD *key)
 int DCWinShouldClose(DCWin *win)
 {
     return win->w->wantClose != 0;
+}
+
+void DCWinExec(DCWin *win, const WCHAR *path)
+{
+    lstrcpyW(win->sh->execPath, path);
+    win->sh->execSeq++;          // shell polls execSeq and launches execPath
 }
 
 void DCWinClose(DCWin *win)

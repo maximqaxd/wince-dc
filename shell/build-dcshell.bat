@@ -40,5 +40,8 @@ if errorlevel 1 (echo [dcwcalc] COMPILE FAILED & exit /b 1)
 "%SHBIN%\cl.exe" %CF% /Fo"%OUT%\dcwclock.obj" "%~dp0dcwclock.c"
 if errorlevel 1 (echo [dcwclock] COMPILE FAILED & exit /b 1)
 "%HOSTBIN%\link.exe" /nologo /machine:SH4 /subsystem:windowsce,2.12 /entry:WinMainCRTStartup /out:"%OUT%\dcwclock.exe" "%OUT%\dcwclock.obj" "%OUT%\dcwlib.obj" %CLIBS% >> "%OUT%\dcshell.link.log" 2>&1
+"%SHBIN%\cl.exe" %CF% /Fo"%OUT%\dcwexp.obj" "%~dp0dcwexp.c"
+if errorlevel 1 (echo [dcwexp] COMPILE FAILED & exit /b 1)
+"%HOSTBIN%\link.exe" /nologo /machine:SH4 /subsystem:windowsce,2.12 /entry:WinMainCRTStartup /out:"%OUT%\dcwexp.exe" "%OUT%\dcwexp.obj" "%OUT%\dcwlib.obj" %CLIBS% >> "%OUT%\dcshell.link.log" 2>&1
 echo [dcshell] errorlevel=%errorlevel%  (out: %OUT%\dcshell.exe)
 endlocal

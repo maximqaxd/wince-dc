@@ -28,7 +28,8 @@
 #define ICON_APP       3
 #define ICON_CLOCK     4
 #define ICON_FILE      5
-#define ICON_COUNT     6
+#define ICON_SWIRL     6   // Dreamcast swirl (My Dreamcast)
+#define ICON_COUNT     7
 
 typedef struct
 {
@@ -64,6 +65,8 @@ typedef struct
 typedef struct
 {
     DWORD    magic;
+    DWORD    execSeq;          // client bumps to ask the shell to launch execPath
+    WCHAR    execPath[260];
     DcWindow win[DCWIN_MAXWIN];
 } DcShared;
 

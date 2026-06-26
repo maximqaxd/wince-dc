@@ -10,9 +10,10 @@
   Usage: powershell -File make-gdi.ps1 [-Image <0winceos.bin>] [-OutDir <dir>]
 #>
 param(
-  [string]$Image  = "C:\Dev\wince-dc\reference\0winceos.ours.bin",
-  [string]$OutDir = "C:\Dev\wince-dc\reference\disc-gdi",
-  [string]$Utils  = "C:\Dev\wince-dc\utils"
+  [string]$Image     = "C:\Dev\wince-dc\reference\0winceos.ours.bin",
+  [string]$OutDir    = "C:\Dev\wince-dc\reference\disc-gdi",
+  [string]$Utils     = "C:\Dev\wince-dc\utils",
+  [string]$ExtraData = ""    # optional folder whose contents go into \CD-ROM
 )
 $ErrorActionPreference = "Stop"
 $sec = 2352
@@ -25,6 +26,10 @@ $data = Join-Path $OutDir "data"
 Remove-Item $OutDir -Recurse -Force -ErrorAction SilentlyContinue
 New-Item -ItemType Directory -Force -Path $data | Out-Null
 Copy-Item $Image (Join-Path $data "0WINCEOS.BIN") -Force
+if ($ExtraData -ne "" -and (Test-Path $ExtraData)) {
+  Write-Host "Staging extra CD-ROM files from $ExtraData ..."
+  robocopy $ExtraData $data /E /NFL /NDL /NJH /NJS /NP | Out-Null
+}
 $gdi = Join-Path $OutDir "disc.gdi"
 Copy-Item "$Utils\Half-Life.GDI" $gdi -Force
 

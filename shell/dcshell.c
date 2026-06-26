@@ -66,7 +66,7 @@ typedef struct
 
 static const SHORTCUT s_desk[] =
 {
-    { L"My Dreamcast", L"\\",        NULL,           ICON_COMPUTER },
+    { L"My Dreamcast", L"\\",        NULL,           ICON_SWIRL },
     { L"CD-ROM",       L"\\CD-ROM",  NULL,           ICON_DRIVE },
     { L"Calculator",   NULL,         L"dcwcalc.exe", ICON_APP },
     { L"Clock",        NULL,         L"dcwclock.exe",ICON_CLOCK },
@@ -75,7 +75,7 @@ static const SHORTCUT s_desk[] =
 
 static const SHORTCUT s_start[] =
 {
-    { L"My Dreamcast", L"\\",        NULL, ICON_COMPUTER },
+    { L"My Dreamcast", L"\\",        NULL, ICON_SWIRL },
     { L"Windows",      L"\\Windows", NULL, ICON_FOLDER },
     { L"CD-ROM",       L"\\CD-ROM",  NULL, ICON_DRIVE },
     { L"Shut Down...", NULL,         NULL, ICON_FILE },
@@ -96,6 +96,7 @@ static int   s_menuSel  = 0;
 static int   s_dirty    = 1;
 static int   s_focus    = -1;   // focused window index, or -1 = desktop
 static int   s_wasInUse[DCWIN_MAXWIN];
+static DWORD s_lastExec = 0;    // last processed exec request
 
 static HWND  s_hwnd = NULL;
 
@@ -121,18 +122,42 @@ static void InitShared(void)
     DbgStr(L"DCSHELL: compositor ready\r\n");
 }
 
-static void LaunchApp(const WCHAR *exe)
+static void LaunchApp(const WCHAR *exe, const WCHAR *args)
 {
     PROCESS_INFORMATION pi;
+    WCHAR               cl[MAX_PATH];
     if (!s_shared || !exe)
         return;
-    if (CreateProcessW(exe, NULL, NULL, NULL, FALSE, 0, NULL, NULL, NULL, &pi))
+    if (args)
+        lstrcpyW(cl, args);
+    if (CreateProcessW(exe, args ? cl : NULL, NULL, NULL, FALSE, 0, NULL, NULL, NULL, &pi))
     {
         CloseHandle(pi.hThread);
         CloseHandle(pi.hProcess);    // detached; we poll the shared section each frame
         DbgStr(L"DCSHELL: launched app\r\n");
     }
     else DbgStr(L"DCSHELL: CreateProcess(app) FAILED\r\n");
+}
+
+// dcw*.exe are windowed DCWin apps (composited); anything else is treated as a
+// fullscreen app that needs the display handed to it.
+static BOOL IsDcwApp(const WCHAR *path)
+{
+    const WCHAR *b = path, *p;
+    for (p = path; *p; p++) if (*p == L'\\') b = p + 1;
+    return (b[0]|32) == 'd' && (b[1]|32) == 'c' && (b[2]|32) == 'w';
+}
+
+static void ShellLaunch(const WCHAR *exe)
+{
+    if (IsDcwApp(exe))
+        LaunchApp(exe, NULL);                 // windowed, composited
+    else
+    {
+        DbgStr(L"DCSHELL: fullscreen launch (display hand-off)\r\n");
+        GfxLaunch(exe);                       // release display -> run -> reclaim
+        s_dirty = 1;
+    }
 }
 
 static int CountWindows(void)
@@ -462,7 +487,37 @@ static void RenderText(HDC hdc)
     }
 }
 
-static void DrawWinFills(DcWindow *w, BOOL active)
+// seqlock snapshot of each window's command list (avoids reading a half-written frame)
+static DcCmd s_snap[DCWIN_MAXWIN][DCWIN_MAXCMD];
+static int   s_snapN[DCWIN_MAXWIN];
+
+static void SnapWindows(void)
+{
+    int wi, i, tries;
+
+    if (!s_shared)
+        return;
+    for (wi = 0; wi < DCWIN_MAXWIN; wi++)
+    {
+        DcWindow *w = &s_shared->win[wi];
+        s_snapN[wi] = 0;
+        if (!w->inUse)
+            continue;
+        for (tries = 0; tries < 8; tries++)
+        {
+            DWORD g1 = w->gen, g2;
+            int   cnt;
+            if (g1 & 1) { Sleep(0); continue; }              // client mid-write
+            cnt = (int)w->cmdCount;
+            if (cnt > DCWIN_MAXCMD) cnt = DCWIN_MAXCMD;
+            for (i = 0; i < cnt; i++) s_snap[wi][i] = w->cmd[i];
+            g2 = w->gen;
+            if (g1 == g2) { s_snapN[wi] = cnt; break; }      // consistent
+        }
+    }
+}
+
+static void DrawWinFills(DcWindow *w, int wi, BOOL active)
 {
     RECT fr;
     int  i;
@@ -475,9 +530,9 @@ static void DrawWinFills(DcWindow *w, BOOL active)
     GfxFill(w->x + w->w - 14, w->y - 16, w->x + w->w + 1, w->y - 3, CL_FACE);  // close box
     { RECT cb; SetRect(&cb, w->x + w->w - 14, w->y - 16, w->x + w->w + 1, w->y - 3); GfxBevel(&cb, TRUE); }
 
-    for (i = 0; i < (int)w->cmdCount && i < DCWIN_MAXCMD; i++)
+    for (i = 0; i < s_snapN[wi]; i++)
     {
-        DcCmd *c = &w->cmd[i];
+        DcCmd *c = &s_snap[wi][i];
         if (c->op == DCOP_FILL)
             GfxFill(w->x + c->x, w->y + c->y, w->x + c->x + c->w, w->y + c->y + c->h, c->color);
         else if (c->op == DCOP_ICON)
@@ -485,15 +540,15 @@ static void DrawWinFills(DcWindow *w, BOOL active)
     }
 }
 
-static void DrawWinText(HDC hdc, DcWindow *w, BOOL active)
+static void DrawWinText(HDC hdc, DcWindow *w, int wi, BOOL active)
 {
     int i;
 
     GfxText(hdc, w->x + 18, w->y - 16, CL_WHITE, active ? CL_TITLE : RGB(112,112,112), g_FontBold, w->title);
     GfxText(hdc, w->x + w->w - 11, w->y - 16, CL_TEXT, CL_FACE, g_FontUI, L"X");
-    for (i = 0; i < (int)w->cmdCount && i < DCWIN_MAXCMD; i++)
+    for (i = 0; i < s_snapN[wi]; i++)
     {
-        DcCmd *c = &w->cmd[i];
+        DcCmd *c = &s_snap[wi][i];
         if (c->op == DCOP_TEXT)
             GfxText(hdc, w->x + c->x, w->y + c->y, c->color, c->color2, g_FontUI, c->text);
     }
@@ -507,9 +562,9 @@ static void RenderWindowsFills(void)
         return;
     for (i = 0; i < DCWIN_MAXWIN; i++)
         if (s_shared->win[i].inUse && i != s_focus)
-            DrawWinFills(&s_shared->win[i], FALSE);
+            DrawWinFills(&s_shared->win[i], i, FALSE);
     if (s_focus >= 0 && s_shared->win[s_focus].inUse)
-        DrawWinFills(&s_shared->win[s_focus], TRUE);
+        DrawWinFills(&s_shared->win[s_focus], s_focus, TRUE);
 }
 
 static void RenderWindowsText(HDC hdc)
@@ -519,9 +574,9 @@ static void RenderWindowsText(HDC hdc)
         return;
     for (i = 0; i < DCWIN_MAXWIN; i++)
         if (s_shared->win[i].inUse && i != s_focus)
-            DrawWinText(hdc, &s_shared->win[i], FALSE);
+            DrawWinText(hdc, &s_shared->win[i], i, FALSE);
     if (s_focus >= 0 && s_shared->win[s_focus].inUse)
-        DrawWinText(hdc, &s_shared->win[s_focus], TRUE);
+        DrawWinText(hdc, &s_shared->win[s_focus], s_focus, TRUE);
 }
 
 static void Render(void)
@@ -530,6 +585,8 @@ static void Render(void)
 
     if (s_sel < s_top)            s_top = s_sel;
     if (s_sel >= s_top + VIS)     s_top = s_sel - VIS + 1;
+
+    SnapWindows();                  // atomic snapshot of all window command lists
 
     // PASS 1: fills
     if (s_view == VIEW_DESKTOP)
@@ -557,9 +614,9 @@ static void ActivateStartItem(void)
     const SHORTCUT *s = &s_start[s_menuSel];
     s_menuOpen = 0;
     if (s->path)
-        OpenExplorer(s->path);
+        LaunchApp(L"dcwexp.exe", s->path);     // Explorer window
     else if (s->exe)
-        LaunchApp(s->exe);
+        LaunchApp(s->exe, NULL);
 }
 
 static void ActivateExplorerItem(void)
@@ -586,7 +643,7 @@ static void ActivateExplorerItem(void)
     {
         JoinPath(full, s_dir, e->name);
         DbgStr(L"DCSHELL: launching\r\n");
-        GfxLaunch(full);          // hands the display off and back
+        LaunchApp(full, NULL);    // non-blocking (windowed apps don't exit)
         ScanDir();
     }
 }
@@ -628,9 +685,9 @@ static void OnKey(WPARAM wp)
         if (wp == VK_RETURN)
         {
             if (s_desk[s_deskSel].path)
-                OpenExplorer(s_desk[s_deskSel].path);
+                LaunchApp(L"dcwexp.exe", s_desk[s_deskSel].path);   // Explorer window
             else
-                LaunchApp(s_desk[s_deskSel].exe);
+                LaunchApp(s_desk[s_deskSel].exe, NULL);
         }
         return;
     }
@@ -707,6 +764,11 @@ int WINAPI WinMain(HINSTANCE hInst, HINSTANCE hPrev, LPWSTR lpCmd, int nShow)
             DispatchMessageW(&msg);
         }
         FixupFocus();                   // auto-focus new windows, drop closed ones
+        if (s_shared && s_shared->execSeq != s_lastExec)   // a window asked to launch an app
+        {
+            s_lastExec = s_shared->execSeq;
+            ShellLaunch(s_shared->execPath);
+        }
         if (GetTickCount() >= next)     // clock tick -> repaint
         {
             s_dirty = 1;

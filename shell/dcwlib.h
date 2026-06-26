@@ -30,6 +30,7 @@ void   DCWinIcon(DCWin *win, int x, int y, int iconId);
 void   DCWinEndFrame(DCWin *win);          // publishes the frame atomically
 int    DCWinPollKey(DCWin *win, DWORD *key);   // returns 1 and a VK if one was queued
 int    DCWinShouldClose(DCWin *win);       // shell asked us to close
+void   DCWinExec(DCWin *win, const WCHAR *path);  // ask the shell to launch an app
 void   DCWinClose(DCWin *win);
 
 #endif // DCWLIB_H
