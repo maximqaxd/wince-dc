@@ -134,8 +134,27 @@ SPI TX/RX ring or the host-bridge dispatch for the W5500 RX path; next is to add
 `w5500.cpp` (frames reaching `receiveEthFrame`? frames arriving via the rxQueue?) and check the
 netif worker isn't starved by slow per-byte SCI SPI.
 
+### W5500 networking WORKS (2026-06-25, SCI/bus-1)
+DHCP→DNS→TCP to www.sega.com verified over the W5500 in Flycast, full parity with the BBA path.
+Two flycast-side fixes (committed on `maximqaxd/flycast` master):
+1. **`EmulateW5500` config + a "W5500 SPI Ethernet (SH-4 SCI)" checkbox** in Settings→Network
+   (was env-only `FLYCAST_W5500`); `w5500_active()` honors it. Test: BBA off, W5500 on.
+2. **DCNet ethernet-mode fix** — the real gap. `DCNetService` chose ethernet/TAP vs PPP/modem on
+   `config::EmulateBBA` alone; with BBA off + W5500 on it fell to the **modem** path, so the DC's
+   MACRAW (raw ethernet) frames hit a PPP endpoint and nothing bridged (no DHCP → dcwnet silent).
+   Fixed with `useEth = EmulateBBA || w5500_active()` for all DCNet transport decisions (`dcnet.cpp`).
+   (PicoTcp already handled W5500; the RX dispatch `bba_recv_frame`→`w5500_rx_frame` was already wired.)
+
+Image for the test: built from the **stock SDK** (NOT our NK sources) with the patched **nkscifkd**
+(no-KD `KdInit→0`, `docs/08` §A′) for SCIF text logs, dcshell + apps, `W5500Bus=1` — see
+`shell/image-wiring/` + the [[image-build-from-sdk]] memory. Gotcha that cost a round: a new
+`[HKLM\Comm\Netif]` reg block placed mid-`[HKLM\init]` orphans the `Launch40/50/60` keys (sysstart
+stops launching) — append it at the **end** of `gemini.reg`.
+
 ## Next
-1. **Debug W5500 networking** (detection works; DHCP/TCP doesn't) — instrument `w5500.cpp` TX/RX.
-2. **Modem (PPP) backend** — backport from `mppp.dll` (in Ghidra): open the modem serial, LCP/auth/
+1. **W5500 over SCIF (bus 2)** — flycast only emulates the SCI (bus 1) SPI path; add the SCIF
+   bit-bang (`SCSPTR2`, CS on RTS) so `W5500Bus=2` is testable. Ref: KOS `scif-spi.c`.
+2. **Naomi support** for the W5500 emulation.
+3. **Modem (PPP) backend** — backport from `mppp.dll` (in Ghidra): open the modem serial, LCP/auth/
    IPCP, deliver IP directly (no ARP/DHCP), feed IPCP IP+DNS into `NetifOnLease`/`WriteDnsServers`.
    Doesn't fit the Ethernet `LinkOps`; needs its own branch. May be testable via Flycast's modem.

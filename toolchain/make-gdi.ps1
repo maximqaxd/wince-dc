@@ -10,9 +10,9 @@
   Usage: powershell -File make-gdi.ps1 [-Image <0winceos.bin>] [-OutDir <dir>]
 #>
 param(
-  [string]$Image     = "C:\dev\Dreamcast\wince-dc\reference\0winceos.ours.bin",
-  [string]$OutDir    = "C:\dev\Dreamcast\wince-dc\reference\disc",
-  [string]$Utils     = "C:\dev\Dreamcast\wince-dc\utils",
+  [string]$Image     = "$PSScriptRoot\..\reference\0winceos.ours.bin",
+  [string]$OutDir    = "$PSScriptRoot\..\reference\disc",
+  [string]$Utils     = "$PSScriptRoot\..\utils",
   [string]$ExtraData = ""    # optional folder whose contents go into \CD-ROM
 )
 $ErrorActionPreference = "Stop"
