@@ -1,0 +1,7 @@
+LIBRARY dcspi
+EXPORTS
+    SpiInit
+    SpiShutdown
+    SpiSetCS
+    SpiRwByte
+    SpiRwData
