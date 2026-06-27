@@ -1,0 +1,383 @@
+//
+// netif.c - universal microstk link adapter (drop-in "mppp.dll" replacement).
+//
+// microstk binds its one link via LoadLibraryW("mppp.dll") + InterfaceInitialize.
+// We replace mppp.dll with this adapter, which at init runs a DETECT LADDER and
+// binds the first link present:  W5500 -> BBA -> modem -> (none/loopback).
+// Each backend is a LinkOps (probe/init/tx/poll/getmac). Ethernet backends (BBA,
+// W5500) own ARP + framing + DHCP here, because microstk speaks only raw IP.
+//
+// Exports (must match the SDK mppp.dll ordinals - see netif.def):
+//   15 InterfaceInitialize  - the link adapter (this file)
+//   14 FCSTable             - PPP FCS table (dummy for ethernet)
+//   1..13 AfdRas*           - RAS backend; stubbed to report "connected" so dial-
+//                             based titles proceed (the link is up via DHCP).  [ras.c]
+//
+// The link contract (ifnet / NDIS / TX / RX) is in microstk_if.h, extracted from
+// mppp.pdb. The BBA hardware (RTL8139 RX/TX rings + DHCP) is reused from the
+// drivers/bba work via the Bba* hooks below.
+//
+#include "microstk_if.h"
+
+// ---- link backend abstraction --------------------------------------------------
+typedef struct {
+    const char *name;
+    int   (*probe)(void);                       // 1 if the adapter is present
+    int   (*init)(unsigned char mac[6]);        // bring HW up, return MAC
+    int   (*tx)(const unsigned char *frame, int len);   // send a raw ethernet frame
+    int   (*poll)(unsigned char *buf, int max); // get one rx frame, return len or 0
+} LinkOps;
+
+// BBA backend (RTL8139 on the G2 bus) - hardware reused from drivers/bba/bba.c.
+extern int  BbaProbe(void);                     // GAPS magic 0x5a14a501 present?
+extern int  BbaInit(unsigned char mac[6]);
+extern int  BbaTx(const unsigned char *frame, int len);
+extern int  BbaRxPoll(unsigned char *buf, int max);
+static LinkOps s_bba = { "BBA", BbaProbe, BbaInit, BbaTx, BbaRxPoll };
+
+// W5500 backend (MACRAW over dcspi.dll: SCI hardware-SPI / SCIF bit-bang) - see w5500.c.
+extern int W5500Probe(void);
+extern int W5500Init(unsigned char mac[6]);
+extern int W5500Tx(const unsigned char *frame, int len);
+extern int W5500RxPoll(unsigned char *buf, int max);
+static LinkOps s_w5500 = { "W5500", W5500Probe, W5500Init, W5500Tx, W5500RxPoll };
+
+// Modem backend - if a real modem is present, chain to PPP. TODO: detect + PPP.
+static int ModemProbe(void) { return 0; }       // stub: prefer ethernet for now
+static LinkOps s_modem = { "MODEM", ModemProbe, 0, 0, 0 };
+
+static LinkOps *s_link;                          // the chosen backend
+static ifnet   *g_ifn;                           // our interface (microstk filled the callbacks)
+static unsigned char g_mac[6];
+static int      g_haveIP;
+static void DhcpRx(const unsigned char *f, int n);   // fwd: raw DHCP reply handler
+
+// ---- tiny ARP cache (ethernet backends) ----------------------------------------
+#define ARP_N 16
+static struct { ulong ip; unsigned char mac[6]; int used; } s_arp[ARP_N];
+static ulong g_myIP, g_mask, g_gw;       // kept in network-order-as-LE (wire/ARP rep)
+static ulong g_offDns[5];                // DHCP option-6 DNS servers (network order)
+static int   g_offDnsN;
+static int   s_txLog, s_rxLog;           // limit TX/RX diagnostics
+
+static int ArpLookup(ulong ip, unsigned char mac[6])
+{
+    int i;
+    for (i = 0; i < ARP_N; i++)
+        if (s_arp[i].used && s_arp[i].ip == ip) { memcpy(mac, s_arp[i].mac, 6); return 1; }
+    return 0;
+}
+static void ArpInsert(ulong ip, const unsigned char *mac)
+{
+    int i, slot = 0;
+    for (i = 0; i < ARP_N; i++) { if (s_arp[i].used && s_arp[i].ip == ip) { slot = i; break; }
+                                  if (!s_arp[i].used) slot = i; }
+    s_arp[slot].ip = ip; memcpy(s_arp[slot].mac, mac, 6); s_arp[slot].used = 1;
+}
+
+static void EthSend(const unsigned char dst[6], ushort type, const unsigned char *pl, int len)
+{
+    unsigned char f[1600];
+    if (len > 1500) return;
+    memcpy(f, dst, 6); memcpy(f + 6, g_mac, 6);
+    f[12] = (unsigned char)(type >> 8); f[13] = (unsigned char)type;
+    memcpy(f + 14, pl, len);
+    s_link->tx(f, len + 14);
+}
+
+static void ArpRequest(ulong ip)
+{
+    unsigned char a[28], bcast[6];
+    memset(bcast, 0xff, 6);
+    a[0]=0;a[1]=1; a[2]=8;a[3]=0; a[4]=6; a[5]=4; a[6]=0;a[7]=1;     // eth/ip, req
+    memcpy(a+8, g_mac, 6); memcpy(a+14, &g_myIP, 4);
+    memset(a+18, 0, 6);    memcpy(a+24, &ip, 4);
+    EthSend(bcast, 0x0806, a, 28);
+}
+
+// Build an NDIS packet for an inbound IP datagram and hand it to microstk (the exact
+// sequence from mppp's Receive @ 1000ab5c).
+static void DeliverIP(const unsigned char *ip, int len)
+{
+    NDIS_PACKET *pkt;
+    NDIS_BUFFER *buf, *last;
+    unsigned char *mem = 0;
+    if (!g_ifn || !g_ifn->ifn_AllocatePacket || !g_ifn->ifn_IPInput) return;
+    pkt = g_ifn->ifn_AllocatePacket();
+    if (!pkt) return;
+    buf = g_ifn->ifn_AllocateBufferWithMemory((ulong)len, &mem);
+    if (!buf || !mem) { g_ifn->ifn_FreePacket(pkt); return; }
+    memcpy(mem, ip, len);
+    for (last = buf; last->Next; last = last->Next) ;
+    if (pkt->Private.Head == 0) pkt->Private.Tail = last;
+    last->Next = pkt->Private.Head;
+    pkt->Private.Head = buf;
+    pkt->Private.ValidCounts = 0;
+    g_ifn->ifn_IPInput(g_ifn, pkt);
+}
+
+// Handle one raw ethernet frame from the link (ARP ourselves, IP -> microstk).
+static void RxFrame(const unsigned char *f, int len)
+{
+    ushort type;
+    if (len < 14) return;
+    type = (ushort)((f[12] << 8) | f[13]);
+    if (type == 0x0806 && len >= 42)            // ARP
+    {
+        const unsigned char *a = f + 14;
+        ulong sip; memcpy(&sip, a + 14, 4);
+        ArpInsert(sip, a + 8);                  // cache sender
+        if (a[6] == 0 && a[7] == 1)             // request -> reply if for us
+        {
+            ulong tip; memcpy(&tip, a + 24, 4);
+            if (tip == g_myIP && g_myIP)
+            {
+                unsigned char r[28];
+                memcpy(r, a, 28);
+                r[7] = 2;                                   // opcode = reply
+                memcpy(r + 8, g_mac, 6); memcpy(r + 14, &g_myIP, 4);
+                memcpy(r + 18, a + 8, 6);   memcpy(r + 24, a + 14, 4);
+                EthSend(f + 6, 0x0806, r, 28);
+            }
+        }
+    }
+    else if (type == 0x0800)                    // IPv4
+    {
+        const unsigned char *ip = f + 14;
+        if (ip[9] == 17 && f[36] == 0 && f[37] == 68)   // UDP -> port 68 = DHCP reply
+            DhcpRx(f, len);
+        else
+        {
+            if (s_rxLog < 8)
+            {
+                WCHAR w[96];
+                wsprintfW(w, L"netif RX[%d]: src=%u.%u.%u.%u proto=%u len=%d\r\n", s_rxLog,
+                          ip[12], ip[13], ip[14], ip[15], ip[9], len - 14);
+                OutputDebugStringW(w); s_rxLog++;
+            }
+            DeliverIP(ip, len - 14);            // everything else -> microstk
+        }
+    }
+}
+
+// ---- microstk TX/Ioctl (the ifnet vtable) --------------------------------------
+// ifn_IPOutput: gather the NDIS buffer chain into one IP datagram, resolve the
+// next hop (ARP), prepend ethernet, send; ALWAYS FreePacket; return 0 = ok.
+static ulong OurTransmit(ifnet *ifn, NDIS_PACKET *pkt, ulong nextHop)
+{
+    unsigned char ipbuf[1600], mac[6];
+    NDIS_BUFFER *b;
+    int off = 0, hit;
+    ulong dst;
+    (void)nextHop;                              // microstk has no routes; use the IP header dest
+    for (b = pkt->Private.Head; b && off + (int)b->BufferLength <= (int)sizeof(ipbuf); b = b->Next)
+    { memcpy(ipbuf + off, b->VirtualAddress, b->BufferLength); off += (int)b->BufferLength; }
+
+    memcpy(&dst, ipbuf + 16, 4);                // IP dest (network order = our g_* rep)
+    if (g_mask && (dst & g_mask) != (g_myIP & g_mask)) dst = g_gw;   // off-link -> gateway
+
+    hit = ArpLookup(dst, mac);
+    if (s_txLog < 6)
+    {
+        WCHAR w[96]; ulong d; memcpy(&d, ipbuf + 16, 4);
+        wsprintfW(w, L"netif TX[%d]: dst=%u.%u.%u.%u via=%u.%u.%u.%u %s\r\n", s_txLog,
+                  d&0xff,(d>>8)&0xff,(d>>16)&0xff,(d>>24)&0xff,
+                  dst&0xff,(dst>>8)&0xff,(dst>>16)&0xff,(dst>>24)&0xff,
+                  hit ? L"(arp hit)" : L"(arp miss->req)");
+        OutputDebugStringW(w); s_txLog++;
+    }
+
+    if (hit) EthSend(mac, 0x0800, ipbuf, off);
+    else ArpRequest(dst);                       // drop this one; ARP for next time (TCP retransmits)
+
+    ifn->ifn_FreePacket(pkt);                   // contract: we own the packet
+    return 0;
+}
+
+static int OurIoctl(ifnet *ifn, ulong cmd, void *arg) { (void)ifn; (void)cmd; (void)arg; return 0; }
+
+// Write the DHCP-supplied DNS server(s) where the winsock resolver reads them: HKLM\Comm
+// value "DnsServers", REG_BINARY = [count][ip...] (network order) - exactly the layout
+// mppp's IPCP RegAddData uses. Without this gethostbyname has no resolver (microstk has
+// no DNS code of its own).
+static void WriteDnsServers(void)
+{
+    HKEY  h;
+    ulong buf[6];
+    int   i;
+    LONG  rc1, rc2 = -1;
+    if (g_offDnsN <= 0) { OutputDebugStringW(L"netif: DNS: lease had no option-6 servers\r\n"); return; }
+    buf[0] = (ulong)g_offDnsN;
+    for (i = 0; i < g_offDnsN && i < 5; i++) buf[1 + i] = g_offDns[i];   // network order, as received
+    h = 0;
+    rc1 = RegOpenKeyExW(HKEY_LOCAL_MACHINE, L"Comm", 0, KEY_ALL_ACCESS, &h);   // [HKLM\Comm] preexists
+    if (rc1 != ERROR_SUCCESS)
+        rc1 = RegCreateKeyExW(HKEY_LOCAL_MACHINE, L"Comm", 0, 0, 0, 0, 0, &h, 0);
+    if (rc1 == ERROR_SUCCESS)
+    {
+        rc2 = RegSetValueExW(h, L"DnsServers", 0, REG_BINARY, (const BYTE *)buf, (DWORD)(g_offDnsN * 4 + 4));
+        RegCloseKey(h);
+    }
+    { WCHAR b[96]; wsprintfW(b, L"netif: DNS write n=%d openOrCreate.rc=%d setVal.rc=%d\r\n",
+        g_offDnsN, (int)rc1, (int)rc2); OutputDebugStringW(b); }
+}
+
+// Called by the DHCP client on lease: configure microstk + go UP. Returns 1 once bound;
+// returns 0 if microstk hasn't back-filled ifn_IPInterfaceConfigure yet (DHCP raced
+// ahead) so the caller keeps DHCP alive and retries.
+static int NetifOnLease(ulong ip, ulong mask, ulong gw)
+{
+    if (g_haveIP) return 1;                          // already bound (ignore duplicate ACK)
+    g_myIP = ip; g_mask = mask; g_gw = gw;          // routing is ours, network-order rep
+    if (!g_ifn || !g_ifn->ifn_IPInterfaceConfigure) return 0;
+    // arg4 = MTU (NOT a gateway), arg5 = PPP peer (0 = ethernet). ip/mask are passed
+    // NETWORK-order-as-LE (our raw wire/DHCP rep): microstk's IPInput compares ifn_ipAddr
+    // DIRECTLY against the raw packet dest, and stores ipAddr as the wire source - so it
+    // MUST be network order (byteswapping breaks both RX accept and the TX source addr).
+    g_ifn->ifn_IPInterfaceConfigure(g_ifn, ip, mask, 1500, 0);
+    g_ifn->ifn_dwFlags |= IFF_UP;
+    WriteDnsServers();
+    g_haveIP = 1;
+    { WCHAR b[96]; ulong dns = g_offDnsN ? g_offDns[0] : 0;
+      wsprintfW(b, L"netif: bound IP=%u.%u.%u.%u gw=%u.%u.%u.%u dns=%u.%u.%u.%u\r\n",
+        ip&0xff,(ip>>8)&0xff,(ip>>16)&0xff,(ip>>24)&0xff,
+        gw&0xff,(gw>>8)&0xff,(gw>>16)&0xff,(gw>>24)&0xff,
+        dns&0xff,(dns>>8)&0xff,(dns>>16)&0xff,(dns>>24)&0xff); OutputDebugStringW(b); }
+    return 1;
+}
+
+// ---- raw DHCP client (pre-IP; configures microstk on lease) ---------------------
+static DWORD g_xid = 0xDC0DC0DCu;
+static int   g_dhcpState;                       // 0=discover, 1=requested, 2=bound
+static ulong g_offIP, g_offMask, g_offGw, g_offSrv;
+
+static void be16(unsigned char *p, ushort v) { p[0] = (unsigned char)(v >> 8); p[1] = (unsigned char)v; }
+static ushort ipck(const unsigned char *p, int n)
+{ DWORD s = 0; int i; for (i = 0; i + 1 < n; i += 2) s += (p[i] << 8) | p[i+1]; if (i < n) s += p[i] << 8;
+  while (s >> 16) s = (s & 0xffff) + (s >> 16); return (ushort)~s; }
+
+// Build a DHCP frame (msgType 1=DISCOVER, 3=REQUEST). All IPs are raw network-order
+// bytes (memcpy'd), kept consistent everywhere so masking/compare just works.
+static int DhcpBuild(unsigned char *out, int msgType, ulong reqIP, ulong srv)
+{
+    unsigned char *eth = out, *ip = out + 14, *udp = out + 34, *bp = out + 42, *o;
+    int dlen, i;
+    memset(out, 0, 400);
+    for (i = 0; i < 6; i++) eth[i] = 0xff;
+    memcpy(eth + 6, g_mac, 6); be16(eth + 12, 0x0800);
+    bp[0] = 1; bp[1] = 1; bp[2] = 6;
+    bp[4]=(unsigned char)(g_xid>>24); bp[5]=(unsigned char)(g_xid>>16); bp[6]=(unsigned char)(g_xid>>8); bp[7]=(unsigned char)g_xid;
+    be16(bp + 10, 0x8000);
+    memcpy(bp + 28, g_mac, 6);
+    bp[236]=0x63; bp[237]=0x82; bp[238]=0x53; bp[239]=0x63;
+    o = bp + 240;
+    *o++ = 53; *o++ = 1; *o++ = (unsigned char)msgType;
+    if (msgType == 3) { *o++ = 50; *o++ = 4; memcpy(o, &reqIP, 4); o += 4;
+                        *o++ = 54; *o++ = 4; memcpy(o, &srv, 4);   o += 4; }
+    *o++ = 55; *o++ = 4; *o++ = 1; *o++ = 3; *o++ = 6; *o++ = 15;
+    *o++ = 255;
+    dlen = (int)(o - bp); if (dlen < 250) dlen = 250;
+    be16(udp + 0, 68); be16(udp + 2, 67); be16(udp + 4, (ushort)(8 + dlen)); be16(udp + 6, 0);
+    ip[0] = 0x45; be16(ip + 2, (ushort)(20 + 8 + dlen)); ip[8] = 128; ip[9] = 17;
+    for (i = 0; i < 4; i++) ip[16 + i] = 0xff;
+    be16(ip + 10, ipck(ip, 20));
+    return 14 + 20 + 8 + dlen;
+}
+
+static void DhcpStep(void)
+{
+    unsigned char f[400];
+    int len;
+    if (g_dhcpState == 0)      len = DhcpBuild(f, 1, 0, 0);                 // DISCOVER
+    else if (g_dhcpState == 1) len = DhcpBuild(f, 3, g_offIP, g_offSrv);   // (re)REQUEST
+    else return;
+    if (s_link && s_link->tx) s_link->tx(f, len);
+}
+
+static void DhcpRx(const unsigned char *f, int n)
+{
+    const unsigned char *bp = f + 42, *o, *end;
+    int msgType = 0;
+    if (n < 240 + 6 || bp[0] != 2) return;                  // BOOTREPLY
+    memcpy(&g_offIP, bp + 16, 4);                           // yiaddr
+    g_offMask = 0; g_offGw = 0; g_offSrv = 0; g_offDnsN = 0;
+    for (o = bp + 240, end = f + n; o < end && *o != 255; ) {
+        int op = *o++, ln; if (op == 0) continue; ln = *o++;
+        if      (op == 53 && ln == 1) msgType = o[0];
+        else if (op == 1  && ln == 4) memcpy(&g_offMask, o, 4);
+        else if (op == 3  && ln >= 4) memcpy(&g_offGw, o, 4);
+        else if (op == 54 && ln == 4) memcpy(&g_offSrv, o, 4);
+        else if (op == 6  && ln >= 4) { int k;                      // DNS servers
+            for (k = 0; k + 4 <= ln && g_offDnsN < 5; k += 4) memcpy(&g_offDns[g_offDnsN++], o + k, 4); }
+        o += ln;
+    }
+    if (!g_offMask) g_offMask = 0x00ffffff;                 // /24 (network bytes 255.255.255.0)
+    if (!g_offGw)   g_offGw = (g_offIP & g_offMask) | (1u << 24);  // guess .1
+    if (msgType == 2 && g_dhcpState == 0) { g_dhcpState = 1; DhcpStep(); }      // OFFER -> REQUEST
+    else if (msgType == 5 || g_dhcpState == 1) {                                 // ACK (or accept)
+        if (NetifOnLease(g_offIP, g_offMask, g_offGw)) g_dhcpState = 2;          // bound
+        // else microstk not back-filled yet: stay at state 1, worker re-REQUESTs
+    }
+}
+
+// Worker: poll the link for frames + drive DHCP until bound.
+static DWORD WINAPI NetWorker(LPVOID p)
+{
+    unsigned char buf[1600];
+    DWORD lastDhcp = 0;
+    (void)p;
+    for (;;)
+    {
+        int n = s_link->poll ? s_link->poll(buf, sizeof(buf)) : 0;
+        if (n > 0) RxFrame(buf, n);
+        if (!g_haveIP && GetTickCount() - lastDhcp > 1500) { DhcpStep(); lastDhcp = GetTickCount(); }
+        if (n <= 0) Sleep(2);
+    }
+}
+
+// ---- the export microstk calls -------------------------------------------------
+// microstk deliberately calls this TWICE (two "PPP" slots). All our backend state is
+// process-global (one BBA), so we bring the hardware up + start the worker exactly ONCE,
+// and return a fresh distinct ifnet per call (microstk needs distinct pointers). Only
+// the FIRST ifnet becomes the live RX-delivery + DHCP target (g_ifn); later ifnets stay
+// inert/DOWN so microstk routes through the one that gets an IP.
+static int g_hwUp;
+
+int InterfaceInitialize(unsigned short *name, ifnet **ppIf)
+{
+    ifnet *ifn;
+    int    i;
+
+    if (!g_hwUp)                                 // first call: detect + bring up hardware
+    {
+        s_link = 0;
+        if (s_w5500.probe())      s_link = &s_w5500;   // 1st: dedicated W5500 NIC if present
+        else if (s_bba.probe())   s_link = &s_bba;     // 2nd: Broadband Adapter (RTL8139)
+        else if (s_modem.probe()) s_link = &s_modem;   // 3rd: dial-up modem (PPP)
+        if (!s_link || !s_link->init) { OutputDebugStringW(L"netif: no link adapter found\r\n"); return 0; }
+        if (!s_link->init(g_mac))     { OutputDebugStringW(L"netif: link init failed\r\n"); return 0; }
+        { WCHAR b[64]; wsprintfW(b, L"netif: link=%S MAC=%02x:%02x:%02x:%02x:%02x:%02x\r\n",
+            s_link->name, g_mac[0],g_mac[1],g_mac[2],g_mac[3],g_mac[4],g_mac[5]); OutputDebugStringW(b); }
+        g_hwUp = 1;
+    }
+
+    ifn = (ifnet *)LocalAlloc(LPTR, sizeof(ifnet));
+    if (!ifn) return 0;
+    for (i = 0; i < 15 && name && name[i]; i++) ifn->ifn_szName[i] = name[i];
+    ifn->ifn_Ioctl    = OurIoctl;
+    ifn->ifn_IPOutput = OurTransmit;
+    ifn->ifn_dwMTU    = 1500;
+    ifn->ifn_dwFlags  = IFF_BROADCAST;          // ethernet: route by netmask, start DOWN (no IFF_UP)
+    *ppIf = ifn;
+
+    if (!g_ifn)                                 // first interface = the live one
+    {
+        g_ifn = ifn;
+        CloseHandle(CreateThread(0, 0, NetWorker, 0, 0, 0));
+    }
+    return 1;
+}
+
+// DLL entry point AND export @16 (mppp names it "dllentry"); /entry:dllentry skips
+// the CRT entry - fine here (no C++ statics; corelibc fns need no init).
+BOOL WINAPI dllentry(HANDLE h, DWORD reason, LPVOID r) { (void)h; (void)reason; (void)r; return TRUE; }

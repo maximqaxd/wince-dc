@@ -1,0 +1,18 @@
+LIBRARY mppp
+EXPORTS
+    AfdRasDeleteEntry        @1
+    AfdRasDial               @2
+    AfdRasEnumConnections    @3
+    AfdRasEnumEntries        @4
+    AfdRasGetConnectStatus   @5
+    AfdRasGetEntryDialParams @6
+    AfdRasGetEntryProperties @7
+    AfdRasHangUp             @8
+    AfdRasIOControl          @9
+    AfdRasRenameEntry        @10
+    AfdRasSetEntryDialParams @11
+    AfdRasSetEntryProperties @12
+    AfdRasValidateEntryName  @13
+    FCSTable                 @14 DATA
+    InterfaceInitialize      @15
+    dllentry                 @16
