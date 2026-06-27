@@ -51,5 +51,8 @@ if errorlevel 1 (echo [dcwtask] COMPILE FAILED & exit /b 1)
 "%SHBIN%\cl.exe" %CF% /Fo"%OUT%\dcwmem.obj" "%~dp0dcwmem.c"
 if errorlevel 1 (echo [dcwmem] COMPILE FAILED & exit /b 1)
 "%HOSTBIN%\link.exe" /nologo /machine:SH4 /subsystem:windowsce,2.12 /entry:WinMainCRTStartup /out:"%OUT%\dcwmem.exe" "%OUT%\dcwmem.obj" "%OUT%\dcwlib.obj" %CLIBS% >> "%OUT%\dcshell.link.log" 2>&1
+"%SHBIN%\cl.exe" %CF% /Fo"%OUT%\dcwnet.obj" "%~dp0dcwnet.c"
+if errorlevel 1 (echo [dcwnet] COMPILE FAILED & exit /b 1)
+"%HOSTBIN%\link.exe" /nologo /machine:SH4 /subsystem:windowsce,2.12 /entry:WinMainCRTStartup /out:"%OUT%\dcwnet.exe" "%OUT%\dcwnet.obj" "%OUT%\dcwlib.obj" %CLIBS% "%DCSDK%\lib\%DCBT%\winsock.lib" >> "%OUT%\dcshell.link.log" 2>&1
 echo [dcshell] errorlevel=%errorlevel%  (out: %OUT%\dcshell.exe)
 endlocal

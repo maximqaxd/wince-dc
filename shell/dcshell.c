@@ -44,6 +44,7 @@ static const SHORTCUT s_desk[] =
     { L"Clock",        NULL,         L"dcwclock.exe", ICON_CLOCK },
     { L"Task Manager", NULL,         L"dcwtask.exe",  ICON_APP },
     { L"Memtest",      NULL,         L"dcwmem.exe",   ICON_APP },
+    { L"Network",      NULL,         L"dcwnet.exe",   ICON_APP },
 };
 #define DESK_N (sizeof(s_desk) / sizeof(s_desk[0]))
 
