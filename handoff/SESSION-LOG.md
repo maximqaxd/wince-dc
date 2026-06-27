@@ -180,3 +180,35 @@ Drove from-source `nk.exe` past the first-process fault into real userland. Full
 - No `explorer.exe` anywhere in the SDK; `gwes.exe` (windowing) IS present → a custom GUI
   shell/launcher is the path to a "desktop" (deferred; current focus is the kernel).
 - Batch gotcha: `rem` lines with `>` or em-dash break cmd parsing. Keep rem ASCII.
+
+## Networking session (2026-06-27) — full TCP/IP over the stock CE stack  (`docs/09-networking.md`)
+Goal: networking without bringing our own stack. **Approach: replace the SDK `mppp.dll` (dial-up
+PPP) with a universal link shim** (`net/netif/`) so the stock `microstk.exe` + `winsock.dll` run
+over Ethernet. **Result: BBA path verified end-to-end in Flycast — DHCP → DNS → TCP → HTTP** (the
+`dcwnet` app resolved www.sega.com and fetched it over the Broadband Adapter).
+- **Link ABI** (decompiled from `microstk.exe`+`mppp.dll`, Ghidra project `wce`; captured in
+  `net/netif/microstk_if.h`): microstk `LoadLibraryW("mppp.dll")`+`InterfaceInitialize` (called
+  TWICE — distinct ifnet each); TX=`ifn_IPOutput`+must `FreePacket`; RX=alloc pkt+buf+memcpy+chain+
+  `ifn_IPInput`@+0x54 (installed by `IPEnable` in `StackInitialize`, NOT the WinMain back-fill loop).
+- **Three bugs, one debug round each:** (1) `IPInterfaceConfigure(ifn,ip,mask,MTU,peer)` — arg4 is
+  **MTU(1500)**, NOT a gateway; this stack has **no route table** (flat subnet). Passing gw →
+  garbage MTU → TX dead. (2) IPs are **network-order-as-LE everywhere** (IPInput compares
+  `ifn_ipAddr` raw vs the wire dest, and writes it as the wire source) — do **not** byteswap.
+  (3) DNS is **registry-only**: winsock reads `HKLM\Comm:"DnsServers"` (REG_BINARY `[hdr][ips]`,
+  net order) per query — parse DHCP option 6 + `RegSetValueExW` it.
+- **Shim pieces:** `netif.c` (LinkOps ladder W5500→BBA→modem; ARP/DHCP/DNS/routing; idempotent
+  init), `bba_hw.c` (RTL8139 factored from `drivers/bba`, CS-locked G2), `ras.c` (13 `AfdRas*`
+  stubs so dial titles "connect"), `netif.def` (16 exports at exact mppp ordinals), `w5500.c`.
+- **W5500/MACRAW** backend reuses all of netif.c (MACRAW = raw ethernet). Transport =
+  `drivers/dcspi/` (`dcspi.dll`: SCI hardware-SPI + SCIF bit-bang, ported from KOS
+  `c:/dev/dreamcast/kallistios`; reusable later for SD/CF + FAT). **Hardware-only — untested** (no
+  Flycast emu). Gated by `HKLM\Comm\Netif:"W5500Bus"` (1=SCI/PA7-CS, 2=SCIF/RTS-CS; absent=off, so
+  the BBA path is untouched). Lazy-loaded → core networking has no link-time dep on dcspi.
+- **SDK-side edits (NOT in repo — see doc):** deploy `mppp.dll`+`dcspi.dll` into `…\OS\`; `ce.bib`/
+  `platform.bib` add `dcspi.dll` + remove standalone `bba.dll`; `reginit.ini`/`gemini.reg` remove
+  `[HKLM\WDMDrivers\BuiltIn\BBA]` (was double-driving the RTL8139). `drivers/bba` standalone retired.
+- **Stopped mid-** Flycast W5500 emulation (to make W5500 testable). Investigation complete: SCI is
+  dumb RW cells in `serial.cpp` (easy byte-level hook), the host NAT bridge (`net::modbba`/
+  `bba_recv_frame`, picotcp) is fully reusable for MACRAW frames. Plan in `docs/09-networking.md`.
+- **Strip later:** diagnostic `OutputDebugString`s in `netif.c` (`netif TX[]/RX[]`, DNS write) +
+  `w5500.c`.

@@ -44,6 +44,16 @@ tools + a real SH-4 PE compiler. This repo is **self-contained except the DC SDK
   Ghidra SDK kernel). **Full detail + repeatable method + active DCDBG probes: `docs/07-userland-boot.md`.**
   Emulator debug/WinDBG feasibility: `docs/08-emulator-debugging.md`. (`coremain.lib` from 3.0
   source also builds via `build-coredll.bat`, but is NOT used — we keep stock coredll.)
+- ✅ **Networking — full TCP/IP over the STOCK CE stack (2026-06-27).** Replaced the SDK's
+  `mppp.dll` (dial-up PPP) with a universal link shim (`net/netif/`) so stock `microstk.exe` +
+  `winsock.dll` run over Ethernet — no lwIP needed. **BBA path verified END-TO-END in Flycast:
+  DHCP → DNS → TCP → HTTP** (the `dcwnet` app resolved www.sega.com via the DHCP DNS server and
+  fetched over the Broadband Adapter). The mppp/microstk link ABI, the MTU/byte-order/DNS-registry
+  gotchas (each cost a debug round), and the SDK-side `ce.bib`/`reginit.ini` edits are documented in
+  **`docs/09-networking.md`**. A W5500/MACRAW backend over an SPI transport (`drivers/dcspi/` — SCI
+  hardware-SPI + SCIF bit-bang, ported from KOS) is written but **hardware-only/untested**; the
+  modem (PPP) backend is not started. (This also confirms userland now boots far enough to run a
+  windowed desktop shell + winsock apps — see the `shell/` commits.)
 
 ## Setup on a fresh PC
 1. `git clone <this repo>` — includes the leak source + SH toolchain under `vendor/`.
@@ -71,7 +81,16 @@ build-asm.bat    retail [file.src]     :: assemble one SHX shasm source (-cpu=SH
 ## Layout
 - `toolchain/` — `setenv.bat`, `build-image.bat`, `build-kernel.bat`, `build-asm.bat`,
   `build-nklib.bat`, `wrap-image.ps1`, `unwrap-image.ps1`, `bootstrap.ps1`, `README.md`.
-- `docs/` — `01-findings` · `02-toolchain-setup` · `03-build-pipeline` · `04-kernel-build`. **Read these.**
+- `docs/` — `01-findings` · `02-toolchain-setup` · `03-build-pipeline` · `04-kernel-build` ·
+  `05-disc-image` · `06-userland-abi` · `07-userland-boot` · `08-emulator-debugging` ·
+  `09-networking`. **Read these.**
+- `net/` — networking. `netif/` = the universal microstk link shim (drop-in `mppp.dll` replacement;
+  BBA verified + W5500 backend) — see `docs/09-networking.md`. `lwip-port/` + vendored lwIP = the
+  alternative bring-your-own-stack route (built, unused). `build-net.bat`.
+- `drivers/` — `bba/` (RTL8139 WDM driver — RETIRED into the shim's `bba_hw.c`, kept as HW ref);
+  `dcspi/` (reusable SPI transport: SCI hardware-SPI + SCIF bit-bang, for W5500 now + SD/CF/FAT later).
+- `shell/` — the DCWin desktop shell + PVR2/Direct3D compositor + client apps (`dcwcalc`/`dcwclock`/
+  `dcwexp`/`dcwtask`/`dcwmem` memtest/`dcwnet` winsock test). `build-dcshell.bat`.
 - `bsp/` — Dreamcast BSP scaffold (`drivers/`, `inc/`, `files/`, …). The
   `inc/mem_shx_patch.h` reconstruction was removed once `-DWINCEOEM` made pkfuncs.h
   authoritative for the 4 SH-4 constants.
@@ -88,7 +107,21 @@ build-asm.bat    retail [file.src]     :: assemble one SHX shasm source (-cpu=SH
 - `handoff/` — `SESSION-LOG.md` (full history of how we got here) + `memory/` (the assistant's
   project memory). **Read `SESSION-LOG.md` first when resuming.**
 
-## Next action  (updated 2026-06-24 — userland is now BOOTING; read `docs/07-userland-boot.md`)
+## Next action  (NETWORKING track, updated 2026-06-27 — read `docs/09-networking.md`)
+Userland now boots to a windowed desktop shell running winsock apps, and the **BBA networking path
+is complete + verified in Flycast** (DHCP→DNS→TCP→HTTP on the stock stack via our `mppp.dll` shim).
+Next on this track:
+1. **Emulate the W5500 in Flycast** (sources `c:/dev/pc/flycast`) so the W5500/dcspi path + an
+   autodetect become testable instead of blind: a virtual W5500 on the **SCI bus** (byte-level hook
+   in `core/hw/sh4/modules/serial.cpp`; CS via `BSC_PDTRA` bit7 in `bsc.cpp`) bridging MACRAW frames
+   through the existing host NAT (`net::modbba::receiveEthFrame` / dispatch in `bba_recv_frame`).
+   Investigation done; impl not started (stopped here). See `docs/09-networking.md` §Next.
+2. **Modem (PPP) backend** — backport from `mppp.dll` (in Ghidra): serial + LCP/auth/IPCP → feed
+   IPCP IP+DNS into `NetifOnLease`/`WriteDnsServers`. Doesn't fit the Ethernet `LinkOps`.
+Reminder: the SDK-side image edits (deploy mppp/dcspi, ce.bib/reginit.ini) are NOT in the repo —
+reproduce per `docs/09-networking.md` §SDK-side edits.
+
+## Next action — KERNEL/USERLAND track  (older, 2026-06-24 — read `docs/07-userland-boot.md`)
 Big progress past the old "SC_GetOwnerProcess/GetKHeap" fault: that turned out to be a
 `DoImports` page-in fault from a **2.12-vs-3.0 `e32_rom` struct mismatch** (FIXED — `ROMLDR.H`
 + `loader.c`). With that + an API-table fix (`ProcMthds[4]=SC_ProcGetIndex`, FIXED), **coredll +

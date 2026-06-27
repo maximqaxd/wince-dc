@@ -1,5 +1,13 @@
 # bba — Dreamcast Broadband Adapter driver (WDM)
 
+> **RETIRED (2026-06-27).** This standalone WDM driver is superseded by the universal
+> networking shim: its RTL8139 hardware was factored into `net/netif/bba_hw.c`, which the
+> `mppp.dll` link shim drives directly so the **stock** CE TCP/IP stack runs over the BBA
+> (verified: DHCP→DNS→TCP→HTTP). Do NOT load this `bba.dll` alongside the shim — both
+> would fight over the same RTL8139 (remove its `ce.bib` MODULES line + the
+> `[HKLM\WDMDrivers\BuiltIn\BBA]` registry block). Kept in-tree as the RTL8139/GAPS
+> hardware reference. See `docs/09-networking.md`.
+
 A Dreamcast WinCE **WDM driver** for the HIT-0400 Broadband Adapter (RTL8139C on
 the G2 bus), built against the Katana SDK (SH-4) + `wdm.lib`. This is the model the
 DC actually uses (`maple.dll`, `sh4ser.dll`, `seg_rock.dll`), discovered the hard
