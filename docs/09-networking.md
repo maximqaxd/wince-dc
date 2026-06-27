@@ -151,10 +151,30 @@ Image for the test: built from the **stock SDK** (NOT our NK sources) with the p
 `[HKLM\Comm\Netif]` reg block placed mid-`[HKLM\init]` orphans the `Launch40/50/60` keys (sysstart
 stops launching) — append it at the **end** of `gemini.reg`.
 
+### W5500 over SCIF (bus 2) + auto-detect (2026-06-25)
+The W5500 can be driven over the **SCIF** by bit-banging SPI on `SCSPTR2` (CS=RTS, clk=CTS rising
+edge, MOSI/MISO=SPB2DT, mode 0, MSB-first) in addition to the SCI hardware path. `dcspi.c` already
+had it; added the matching **flycast emulation** (`serial.cpp` `SCSPTR2` ↔ `w5500_spi_clock`,
+checkbox "W5500 on SCIF bus") and **bus auto-detect** in `w5500.c`:
+- `HKLM\Comm\Netif\W5500Bus`: 0=off, 1=SCI, 2=SCIF, **3=AUTO** (probe SCI first, then SCIF).
+
+**The SCIF↔console conflict (important).** The SCIF carries the **nkscifkd debug console** (TXD2 pin)
+*and* the bit-bang SPI uses the same pins — they can't coexist. `scif_init_raw` turns the UART
+transmitter off, after which the kernel's `OEMWriteDebugString` polls `SCFSR2.TDFE` forever →
+**deadlock**. This is exactly how KOS treats it: `scif_spi_init()` *refuses* if the serial console
+(dcload-ser) is active, and `scif_spi_shutdown()` re-inits the SCIF. So:
+- **W5500 on SCI + nkscifkd logging on SCIF** = independent peripherals, both work (auto-detect's
+  preferred SCI-first path; the recommended real-HW debug setup).
+- **W5500 on SCIF** = the SCIF can't be the console; run the **retail `nknodbg`** (no debug strings →
+  never polls the SCIF → no deadlock). Pairing SCIF-SPI with nkscifkd is the one combo that hangs.
+- `dcspi.c` snapshots/restores the SCIF UART regs around a SCIF probe, so a *failed* probe (no chip)
+  resurrects the console; the flycast `TDFE`-forced + console-routed bytes are an **emulator-only**
+  convenience to keep nkscifkd testable on SCIF (real HW has no such escape).
+
 ## Next
-1. **W5500 over SCIF (bus 2)** — flycast only emulates the SCI (bus 1) SPI path; add the SCIF
-   bit-bang (`SCSPTR2`, CS on RTS) so `W5500Bus=2` is testable. Ref: KOS `scif-spi.c`.
-2. **Naomi support** for the W5500 emulation.
-3. **Modem (PPP) backend** — backport from `mppp.dll` (in Ghidra): open the modem serial, LCP/auth/
+1. **Naomi support** for the W5500 driver (SH-4 SPI code is on-chip/board-agnostic; the only DC-
+   specific bit is the SCI-bus CS on PA7 GPIO — parameterize it for a Naomi port; SCIF/RTS CS is
+   already board-agnostic).
+2. **Modem (PPP) backend** — backport from `mppp.dll` (in Ghidra): open the modem serial, LCP/auth/
    IPCP, deliver IP directly (no ARP/DHCP), feed IPCP IP+DNS into `NetifOnLease`/`WriteDnsServers`.
    Doesn't fit the Ethernet `LinkOps`; needs its own branch. May be testable via Flycast's modem.

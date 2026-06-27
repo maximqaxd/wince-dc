@@ -15,6 +15,7 @@ DWORD SetKMode(DWORD fMode);            // coredll export (P4 control regs need 
 #define R32(a) (*(volatile DWORD *)(a))
 
 #define SCSMR2  R16(0xFFE80000)
+#define SCBRR2  R8 (0xFFE80004)
 #define SCSCR2  R16(0xFFE80008)
 #define SCFSR2  R16(0xFFE80010)
 #define SCFCR2  R16(0xFFE80018)
@@ -60,9 +61,32 @@ static BYTE bitrev8(BYTE b)
     return b;
 }
 
+// The SCIF is shared with the kernel debug console (nkscifkd logs text via SCFTDR2).
+// Switching it to GPIO/SPI kills that console, so snapshot the UART regs on init and
+// restore them on shutdown: a FAILED SCIF probe (no chip) then leaves the console intact.
+// (If a chip IS found we keep SPI mode until shutdown -- the W5500 owns the SCIF.)
+static WORD s_savSmr, s_savScr, s_savFcr, s_savPtr, s_savLsr;
+static BYTE s_savBrr;
+static int  s_scifSaved;
+static void scif_save_console(void)
+{
+    s_savSmr = SCSMR2; s_savBrr = SCBRR2; s_savScr = SCSCR2;
+    s_savFcr = SCFCR2; s_savPtr = SCSPTR2; s_savLsr = SCLSR2; s_scifSaved = 1;
+}
+static void scif_restore_console(void)
+{
+    if (!s_scifSaved) return;
+    SCSCR2 = 0;                             // stop TX/RX before reprogramming
+    SCFCR2 = 0x06; SCFCR2 = s_savFcr;       // reset then restore the FIFOs
+    SCSMR2 = s_savSmr; SCBRR2 = s_savBrr; SCSPTR2 = s_savPtr; SCLSR2 = s_savLsr;
+    SCSCR2 = s_savScr;                      // re-enable TX (console resumes)
+    s_scifSaved = 0;
+}
+
 // ---- SCIF bit-bang (clock=CTSDT, MOSI/MISO=SPB2DT, CS=RTSDT), SPI mode 0 --------
 static void scif_init_raw(void)
 {
+    scif_save_console();                    // so a failed probe can resurrect the console
     SCSCR2 = 0;
     SCFCR2 = 0x06;                          // flush FIFOs
     SCFCR2 = 0;
@@ -164,7 +188,7 @@ void SpiShutdown(int bus)
     DWORD prev = SetKMode(TRUE);
     __try {
         if (bus == DCSPI_BUS_SCI && s_sciUp) { SCSCR1 = 0; STBCR |= STBCR_SCI; s_sciUp = 0; }
-        else if (bus == DCSPI_BUS_SCIF) { s_scifUp = 0; }
+        else if (bus == DCSPI_BUS_SCIF) { scif_restore_console(); s_scifUp = 0; }
     } __except (EXCEPTION_EXECUTE_HANDLER) { }
     SetKMode(prev);
 }

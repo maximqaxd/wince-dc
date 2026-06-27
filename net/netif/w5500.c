@@ -101,7 +101,11 @@ static int w5_try(int bus, int cs)
     return 0;
 }
 
-// Read the configured bus; 0/absent = disabled.
+// Read the configured bus. HKLM\Comm\Netif : "W5500Bus" (REG_DWORD):
+//   0 / absent = disabled (safe default)
+//   1 = SCI  (bus 1, hardware sync-SPI, CS on PA7 GPIO)
+//   2 = SCIF (bus 2, bit-bang SPI on SCSPTR2, CS on RTS)
+//   3 = AUTO (probe SCI first, then SCIF)
 static DWORD cfg_bus(void)
 {
     HKEY  h;
@@ -121,6 +125,17 @@ int W5500Probe(void)
     if (!load_dcspi()) { OutputDebugStringW(L"w5500: dcspi.dll load failed\r\n"); return 0; }
     if (bus == 1) return w5_try(DCSPI_BUS_SCI,  DCSPI_CS_GPIO);
     if (bus == 2) return w5_try(DCSPI_BUS_SCIF, DCSPI_CS_RTS);
+    if (bus == 3)                                         // AUTO-detect which bus the chip is on
+    {
+        // SCI FIRST: probing SCI only touches the SCI + PA7, never the SCIF, so the
+        // nkscifkd debug console (which lives on the SCIF) survives if the chip is on SCI.
+        OutputDebugStringW(L"w5500: auto-probe SCI...\r\n");
+        if (w5_try(DCSPI_BUS_SCI, DCSPI_CS_GPIO)) return 1;
+        // SCIF LAST: scif_init_raw reconfigures the SCIF to GPIO/SPI, which TAKES OVER the
+        // SCIF and kills the kernel text console. Only do this if SCI had no chip.
+        OutputDebugStringW(L"w5500: auto-probe SCIF (note: this takes over the SCIF debug console)...\r\n");
+        if (w5_try(DCSPI_BUS_SCIF, DCSPI_CS_RTS)) return 1;
+    }
     return 0;
 }
 
