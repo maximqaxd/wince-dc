@@ -114,18 +114,30 @@ add_sh_module(dcwnet TYPE exe ENTRY WinMainCRTStartup OUT dcwnet.exe
 #                           nkscifkd.exe + the checked DLL overlay (vendor/wcesdk/image-debug).
 #   -DAUTORUN=<exe>         program baked into HKLM\init "Autorun" (default dcshell.exe).
 # ====================================================================================
-set(KERNEL  "retail"       CACHE STRING "image kernel/config: retail (silent) or debug (SCIF console + checked DLLs)")
+# Kernel and the system-DLL set are independent knobs:
+#   -DKERNEL=retail|debug  retail = silent nknodbg.exe; debug = patched (no-KD) SCIF-console
+#                          nkscifkd.exe. The kernel only changes boot logging.
+#   -DDLLS=retail|debug    retail (default) = the stock retail OS DLLs (what real games run on);
+#                          debug = overlay the checked DLLs from vendor/wcesdk/image-debug.
+# So a SCIF console over the working retail userland is `-DKERNEL=debug` (DLLS stays retail);
+# the checked DLLs are opt-in (they assert/break some titles, e.g. DDHAL under DirectDraw).
+set(KERNEL  "retail"       CACHE STRING "image kernel: retail (silent nknodbg) or debug (SCIF-console nkscifkd)")
+set(DLLS    "retail"       CACHE STRING "system DLLs: retail (stock) or debug (checked overlay)")
 set(AUTORUN "dcshell.exe"  CACHE STRING "program baked into the image's HKLM\\init Autorun value")
 set_property(CACHE KERNEL PROPERTY STRINGS retail debug)
+set_property(CACHE DLLS   PROPERTY STRINGS retail debug)
 
 if(KERNEL STREQUAL "debug")
   set(KERNEL_IMGFLAG "IMGSERIALDBG=1")            # fmerge picks the patched nkscifkd.exe
-  set(IMG_DEBUG_DIR  "${SDK}/image-debug")        # overlay checked coredll/gwes/microstk/...
 else()
   set(KERNEL_IMGFLAG "IMGNODEBUGGER=1")           # fmerge picks the silent nknodbg.exe
-  set(IMG_DEBUG_DIR  "none")
 endif()
-message(STATUS "image: KERNEL=${KERNEL}  AUTORUN=${AUTORUN}")
+if(DLLS STREQUAL "debug")
+  set(IMG_DEBUG_DIR "${SDK}/image-debug")         # overlay checked coredll/gwes/microstk/...
+else()
+  set(IMG_DEBUG_DIR "none")
+endif()
+message(STATUS "image: KERNEL=${KERNEL} DLLS=${DLLS} AUTORUN=${AUTORUN}")
 
 set(IMG_SEED ${SDK}/image)
 set(IMG_WORK ${CMAKE_BINARY_DIR}/image)
@@ -177,9 +189,18 @@ add_custom_command(OUTPUT ${WINCEOS}
 add_custom_target(image DEPENDS ${WINCEOS})
 
 # Build the bootable GDI (Half-Life DC pipeline: buildgdi + ip.bin) -> disc.gdi.
+#   -DEXTRADATA=<dir>  optional folder whose contents go into the disc's \CD-ROM
+#                      (e.g. a game's files; our 0winceos.bin always overrides 0WINCEOS.BIN).
+set(EXTRADATA "" CACHE STRING "optional folder whose contents go into the disc's \\CD-ROM (relative paths resolve against the repo root)")
+set(GDI_EXTRA "")
+if(EXTRADATA)
+  get_filename_component(EXTRADATA_ABS "${EXTRADATA}" ABSOLUTE BASE_DIR "${REPO}")
+  set(GDI_EXTRA -ExtraData "${EXTRADATA_ABS}")
+  message(STATUS "gdi: EXTRADATA=${EXTRADATA_ABS}")
+endif()
 add_custom_target(gdi
   COMMAND powershell -NoProfile -ExecutionPolicy Bypass -File ${REPO}/toolchain/make-gdi.ps1
-          -Image ${WINCEOS} -OutDir ${DISCDIR}
+          -Image ${WINCEOS} -OutDir ${DISCDIR} ${GDI_EXTRA}
   DEPENDS ${WINCEOS}
   COMMENT "make-gdi: 0winceos.bin -> disc.gdi"
   USES_TERMINAL)

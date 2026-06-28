@@ -72,12 +72,14 @@ cmake --build build --target gdi
 
 | Option | Default | Effect |
 |--------|---------|--------|
-| `-DKERNEL=retail\|debug` | `retail` | `retail` = the silent kernel. `debug` = the SCIF serial-console kernel **and** the checked (debug) system DLLs, for a full diagnostic image. |
+| `-DKERNEL=retail\|debug` | `retail` | `retail` = the silent kernel. `debug` = the SCIF serial-console kernel. Changes boot logging only. |
+| `-DDLLS=retail\|debug` | `retail` | `retail` = the stock OS DLLs (what real games run on). `debug` = the checked (assert-heavy) DLLs; these break some titles (e.g. DirectDraw/DDHAL), so leave this `retail` unless you're chasing a system-DLL bug. |
 | `-DAUTORUN=<exe>` | `dcshell.exe` | The program launched at boot (`HKLM\init` `Autorun`). Use forward slashes for a path, e.g. `-DAUTORUN=/CD-ROM/DC.EXE` to autostart a disc binary. |
+| `-DEXTRADATA=<dir>` | *(none)* | Folder whose contents are placed in the disc's `\CD-ROM` (e.g. a game's files). Relative paths resolve against the repo root; our OS image always wins for `0WINCEOS.BIN`. |
 
 ```sh
-# example: a serial-console debug image that boots straight into a disc binary
-cmake -S . -B build -DKERNEL=debug -DAUTORUN=/CD-ROM/DC.EXE
+# example: a SCIF serial-console image (over the working retail DLLs) with a game on the disc
+cmake -S . -B build -DKERNEL=debug -DEXTRADATA=path/to/game
 cmake --build build --target gdi
 ```
 

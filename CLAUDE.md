@@ -48,17 +48,22 @@ cmake --build build                  # all SH-4 modules -> build/modules/ (dcspi
 cmake --build build --target image   # makeimg -> NK.bin -> wrap -> build/0winceos.bin
 cmake --build build --target gdi     # full chain -> build/disc/disc.gdi
 ```
-Configure-time options:
+Configure-time options (kernel, DLL set, autorun, and disc extra-data are independent):
 - `-DKERNEL=retail|debug` — `retail` (default) bakes the silent `nknodbg.exe`; `debug` bakes the
-  patched (no-KD) SCIF-console `nkscifkd.exe` **and** overlays the checked DLLs from
-  `vendor/wcesdk/image-debug` for a full debug image.
+  patched (no-KD) SCIF-console `nkscifkd.exe`. This only changes boot logging.
+- `-DDLLS=retail|debug` — `retail` (default) ships the stock OS DLLs (what real games run on);
+  `debug` overlays the checked DLLs from `vendor/wcesdk/image-debug`. The checked DLLs assert and
+  break some titles (e.g. DDHAL under DirectDraw), so a SCIF console over a *working* userland is
+  `-DKERNEL=debug` alone (DLLs stay retail).
 - `-DAUTORUN=<exe>` — program baked into `HKLM\init` `Autorun` (default `dcshell.exe`). Use
   forward slashes for a path, e.g. `-DAUTORUN=/CD-ROM/DC.EXE` to autostart a disc binary.
+- `-DEXTRADATA=<dir>` — folder whose contents go into the disc's `\CD-ROM` (relative paths
+  resolve against the repo root). Our `0winceos.bin` always overrides any `0WINCEOS.BIN` there.
 
 The image step seeds the read-only `vendor/wcesdk/image` tree into `build/image`, applies the
-debug overlay + our freshly-built modules + the Autorun edit (`cmake/prep-image.cmake`), then
-runs `makeimg` (which re-merges the `.bib`s, so the `IMG*` env flags pick the kernel). The
-makeimg env lives in `IMG_ENV` in `CMakeLists.txt`.
+optional checked-DLL overlay + our freshly-built modules + the Autorun edit
+(`cmake/prep-image.cmake`), then runs `makeimg` (which re-merges the `.bib`s, so the `IMG*` env
+flags pick the kernel). The makeimg env lives in `IMG_ENV` in `CMakeLists.txt`.
 
 ## Layout
 - `CMakeLists.txt` + `cmake/prep-image.cmake` — the entire build (modules + image + gdi).
