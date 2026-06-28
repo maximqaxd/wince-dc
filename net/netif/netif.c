@@ -216,8 +216,8 @@ extern int FlashromGetDns(unsigned long dns[2]);   // DC system-flash ISP DNS (f
 static ulong dns_ip(BYTE a, BYTE b, BYTE c, BYTE d)
 { return (ulong)a | ((ulong)b << 8) | ((ulong)c << 16) | ((ulong)d << 24); }
 
-// DNS resolution order, matching the KOS path: DHCP option-6 -> DC system-flash ISP
-// config -> public resolver last resort (KOS hardcodes 8.8.4.4). This guarantees
+// DNS resolution order, matching the reference path: DHCP option-6 -> DC system-flash ISP
+// config -> public resolver last resort (the reference hardcodes 8.8.4.4). This guarantees
 // gethostbyname always has a server, so name resolution never silently dies when the
 // network routes but advertised no DNS server.
 static void WriteDnsServers(void)
@@ -236,7 +236,7 @@ static void WriteDnsServers(void)
             g_offDnsN = fn;
             OutputDebugStringW(L"netif: DNS: using flashrom (ISP) DNS servers\r\n");
         }
-        else                                           // 3rd: public resolver (as KOS does)
+        else                                           // 3rd: public resolver (last resort)
         {
             g_offDns[0] = dns_ip(8, 8, 4, 4);          // Google public DNS
             g_offDns[1] = dns_ip(8, 8, 8, 8);
@@ -407,7 +407,7 @@ int InterfaceInitialize(unsigned short *name, ifnet **ppIf)
         }
         FbLog(0x0000A0);                          // blue: link chosen, bringing hardware up (init)
         // Backend probed PRESENT but bring-up failed. This is the real-HW killer: on silicon
-        // BbaInit/W5500Init can fail in ways Flycast never does (GAPS EEPROM handshake, reset
+        // BbaInit/W5500Init can fail in ways an idealized model never does (GAPS EEPROM handshake, reset
         // timing, no PHY/link). We must NOT return 0 here - microstk then wedges on a NULL
         // ifnet and the whole boot hangs/resets before the shell (same wedge the s_null probe
         // fallback below avoids). So on init failure, fall back to the no-op null link: the

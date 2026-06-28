@@ -1,5 +1,5 @@
 <#
-  make-gdi.ps1 - build a Flycast-loadable Dreamcast GDI of our WinCE image,
+  make-gdi.ps1 - build a bootable Dreamcast GDI of our WinCE image,
   using the *proven* Half-Life DC pipeline (HL-DC is itself a WinCE port):
     - utils\ip.bin       : HL-DC's IP.BIN (bootfile field = 0WINCEOS.BIN)
     - utils\buildgdi.exe : Sappharad's GDIBuilder (makes the high-density track 3)
@@ -39,7 +39,7 @@ Copy-Item "$Utils\Half-Life.GDI" $gdi -Force
 # -truncate: do NOT pad the data track to the full GD-ROM (~1.18 GB). buildgdi
 # instead emits the ISO metadata (track03 @45000) + the file data at its real high
 # LBA (a separate track04), skipping the empty gap between -> a ~5 MB disc (no
-# extra data) instead of 1.1 GB of mostly-zero padding. Flycast loads the
+# extra data) instead of 1.1 GB of mostly-zero padding. The Dreamcast loads the
 # resulting multi-track GDI fine; the file data still ends at the disc's end LBA.
 & "$Utils\buildgdi.exe" -data $data -ip "$Utils\ip.bin" -output $OutDir -gdi $gdi -V WINCE -truncate | Out-Null
 if (-not (Test-Path (Join-Path $OutDir "track03.bin"))) { throw "buildgdi did not produce track03.bin" }
@@ -54,4 +54,4 @@ $t1sectors = $t2lba - $t1lba                 # track1 length so it ends at track
 
 Write-Host "GDI ready: $gdi"
 Get-ChildItem $OutDir -File | Select-Object Name,Length | Format-Table -Auto
-Write-Host "Load $gdi in Flycast."
+Write-Host "$gdi is ready to boot."

@@ -8,7 +8,7 @@
 //   DCSPI_BUS_SCIF  software bit-bang on SCSPTR2 (shares the debug serial port!)
 //   DCSPI_BUS_SCI   SH-4 SCI clocked-synchronous mode = true hardware SPI (faster)
 //
-// Ported from KallistiOS hardware/scif-spi.c + hardware/sci.c. SPI mode 0, MSB-first
+// Ported from the reference SCIF-SPI + SCI drivers. SPI mode 0, MSB-first
 // on the wire (the SCI sends LSB-first, so dcspi bit-reverses internally).
 //
 #ifndef DCSPI_H

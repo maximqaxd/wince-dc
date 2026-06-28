@@ -1,6 +1,6 @@
 //
 // flashrom.c - read the Dreamcast SYSTEM FLASH ISP config (DNS servers) as a DNS
-// fallback for the netif shim. Ported from KallistiOS hardware/flashrom.c.
+// fallback for the netif shim. Ported from the reference DC flashrom routine.
 //
 // The DC system flash stores the user's network settings (set by DreamPassport /
 // PlanetWeb / DreamKey): connection method, static IP/netmask/gateway, and 2 DNS
@@ -32,7 +32,7 @@ static FR_FN fr_fn(void) { return (FR_FN)(*(volatile DWORD *)FR_VEC_ADDR); }
 static int fr_info(int part, int *ptrs)        { return fr_fn()(part, ptrs, 0, FR_FUNC_INFO); }
 static int fr_read(int off, void *buf, int n)  { return fr_fn()(off, buf, n, FR_FUNC_READ); }
 
-// CRC-16/CCITT over bytes [0,62) (Marcus Comstedt's algorithm, as in KOS).
+// CRC-16/CCITT over bytes [0,62) (Marcus Comstedt's algorithm).
 static WORD fr_crc(const BYTE *b)
 {
     int i, c, n = 0xffff;
@@ -47,7 +47,7 @@ static WORD fr_crc(const BYTE *b)
 static WORD rd16(const BYTE *p) { return (WORD)(p[0] | (p[1] << 8)); }   // LE, alignment-safe
 
 // Read the latest valid 64-byte logical block 'blockid' from partition 'partid' into
-// out64. Mirrors KOS flashrom_get_block: verify partition magic, scan the allocation
+// out64. Mirrors the reference flashrom_get_block: verify partition magic, scan the allocation
 // bitmap (at the partition tail) for the newest used block, match the logical id, CRC.
 static int fr_get_block(int partid, int blockid, BYTE *out64)
 {

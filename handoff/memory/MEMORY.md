@@ -1,3 +1,0 @@
-- [Dreamcast WinCE port](dreamcast-wince-port.md) — running fuller Windows CE on Dreamcast; assets, paths A/B/C, next steps
-- [User: Dreamcast expertise](user-dreamcast-expertise.md) — low-level DC/OS-porting hobbyist, wants expert-level answers
-- [microstk mppp shim](microstk-mppp-shim.md) — replace SDK mppp.dll so STOCK microstk+winsock run over BBA (verified) / W5500; netif.c/bba_hw.c/ras.c/w5500.c + dcspi transport; modem next

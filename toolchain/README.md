@@ -26,7 +26,7 @@ Targets:
 |--------|--------|------|
 | (default / `all`) | `build/modules/*.dll`, `*.exe` | `dcspi.dll`, `mppp.dll`, `dcshell.exe`, the 6 `dcw*` apps |
 | `image` | `build/0winceos.bin` | seed image work-dir → deploy our modules into `OS\` → `makeimg` → `NK.bin` → `wrap-image.ps1` |
-| `gdi`   | `build/disc/disc.gdi` | `image` → `make-gdi.ps1` (Half-Life DC pipeline) — load this in Flycast |
+| `gdi`   | `build/disc/disc.gdi` | `image` → `make-gdi.ps1` (Half-Life DC pipeline) — the bootable disc |
 
 ```sh
 cmake --build build --target gdi     # full chain: modules -> NK.bin -> 0winceos.bin -> disc.gdi
@@ -50,11 +50,9 @@ the image, edit the vendored `vendor/wcesdk/image/*.bib` / `*.reg`.
 ## Helper scripts (invoked by CMake; runnable standalone)
 | script | does |
 |--------|------|
-| `wrap-image.ps1 -NkBin .. -Out .. -DcSdk vendor\wcesdk` | `NK.bin` → bootable `0winceos.bin` (DUMPNK + 0x800 Sega header + Flycast SH-4 MMU magic) |
-| `make-gdi.ps1 -Image .. -OutDir ..` | `0winceos.bin` → Flycast-loadable `disc.gdi` |
+| `wrap-image.ps1 -NkBin .. -Out .. -DcSdk vendor\wcesdk` | `NK.bin` → bootable `0winceos.bin` (DUMPNK + 0x800 Sega header + SH-4 full-MMU marker) |
+| `make-gdi.ps1 -Image .. -OutDir ..` | `0winceos.bin` → bootable `disc.gdi` |
 | `make-gdi-real.ps1` | rebuild against a real 4x4 Evo GDI → GDEMU-bootable disc |
 | `unwrap-image.ps1 -In .. -Out ..` | `0winceos.bin` → raw memory image (inspect) |
 | `make-disc.ps1` | alternative CDI path (mkisofs + cdi4dc) |
 | `bootstrap.ps1` | sanity-check the vendored toolchain + SDK are present |
-
-See `../docs/03-build-pipeline.md` for the validated chain and the wrapper format.

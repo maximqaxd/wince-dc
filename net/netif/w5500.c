@@ -93,9 +93,9 @@ static WORD w5_r16(BYTE bsb, WORD a)         { BYTE b[2]; w5_read(bsb, a, b, 2);
 // Stable 16-bit read for the chip-updated pointers (Sn_TX_FSR / Sn_RX_RSR): the W5500's
 // MAC engine updates these asynchronously, so a single SPI read can latch a high byte from
 // before an update and a low byte from after (a torn value). Loop until two CONSECUTIVE
-// reads agree (KOS w5500_read_reg16_safe). The old code gave up after 4 tries and returned
+// reads agree (a safe 16-bit register read). The old code gave up after 4 tries and returned
 // a possibly-unstable value -> bogus FSR/RSR -> TX ring overrun / RX ring desync on real HW
-// (Flycast updates atomically, so it never bit there). Bounded at 16 to never hang.
+// (idealized models update atomically, so it never bit there). Bounded at 16 to never hang.
 static WORD w5_r16s(BYTE bsb, WORD a)
 {
     WORD x, y = w5_r16(bsb, a);
@@ -179,7 +179,7 @@ int W5500Init(unsigned char mac[6])
     // Zero ALL 8 sockets' RX/TX buffer sizes (power-on default is 2K each = 16K used) BEFORE
     // giving socket 0 the full 16K. Setting S0=16 without zeroing the rest requests 16+7*2=30K
     // > the chip's 16K -> overlapping buffers, corrupt MACRAW reads/writes (the audit found
-    // this; masked on Flycast's idealized buffer model). Block N reg-block = 1 + 4*N.
+    // this; masked by an idealized buffer model). Block N reg-block = 1 + 4*N.
     for (i = 0; i < 8; i++) { BYTE blk = (BYTE)(1 + 4 * i);
         w5_w1(blk, Sn_RXBUF, 0); w5_w1(blk, Sn_TXBUF, 0); }
     w5_w1(BSB_S0_REG, Sn_RXBUF, 16);

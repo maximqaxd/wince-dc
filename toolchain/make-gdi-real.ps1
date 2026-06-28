@@ -5,12 +5,12 @@
   the source GDI and overlays the files in -data.
 
   Why not make-gdi.ps1? That one uses -truncate to emit a sparse, gapped multi-track GDI
-  (track03 = 25 sectors of ISO metadata, then a huge gap to track04). Flycast tolerates
+  (track03 = 25 sectors of ISO metadata, then a huge gap to track04). Lenient loaders tolerate
   that; GDEMU does not (it expects a real disc), so it drops to the BIOS with no banner.
   This produces the exact layout/IP.BIN the shipped game used -> GDEMU-valid.
 
   NOTE: output is large (~the size of the real disc, ~hundreds of MB). For fast iteration
-  keep using make-gdi.ps1 + Flycast; use this only when burning/copying to GDEMU.
+  keep using make-gdi.ps1; use this only when burning/copying to GDEMU.
 
   Usage: powershell -File make-gdi-real.ps1 [-Image <0winceos.bin>]
 #>

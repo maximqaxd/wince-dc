@@ -2,11 +2,11 @@
 ;++
 ;
 ; g2lock.src - SH-4 interrupt mask/restore for the G2-bus critical sections in
-; bba_hw.c, matching KallistiOS g2_lock()/g2_unlock() (dc/g2bus.h).
+; bba_hw.c, matching the standard g2_lock()/g2_unlock() sequence.
 ;
 ; The G2 bus (AICA + expansion-port BBA) corrupts/locks on real silicon if a PIO
 ; burst is interleaved by another G2 master - an IRQ-context G2 access, or a
-; G2 DMA in flight. KOS guards every transaction by disabling interrupts; the
+; G2 DMA in flight. The reference guards every transaction by disabling interrupts; the
 ; Microsoft SH compiler exposes no IMASK intrinsic and no inline asm, so the
 ; primitive lives here.
 ;

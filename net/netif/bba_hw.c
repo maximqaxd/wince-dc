@@ -10,8 +10,8 @@ DWORD SetKMode(DWORD fMode);          // coredll export (P2/G2 needs kernel mode
 
 // The G2 bus is shared with the AICA (sound) + its DMA engines. On real silicon a PIO
 // burst that is interleaved by another G2 master - an IRQ-context G2 access, or a G2 DMA
-// in flight - corrupts/locks the bus (Flycast tolerates it, which is why this only bites
-// on hardware). So we match KallistiOS g2_lock()/g2_unlock() (dc/g2bus.h) around EVERY
+// in flight - corrupts/locks the bus (idealized bus models tolerate it, which is why this only bites
+// on hardware). So we match the standard g2_lock()/g2_unlock() sequence around EVERY
 // transaction: mask interrupts + suspend G2 DMA + drain the SH4/G2 FIFO. Interrupt
 // masking is an SH-4 asm stub (g2lock.src) - the MS SH compiler has no IMASK intrinsic;
 // it is privileged (SR.MD=1), legal because every accessor runs under SetKMode(TRUE).
@@ -25,7 +25,7 @@ extern void          DcIrqRestore(unsigned long);  // SR<-old
 #define G2_DMA_SUSP_BBA (*(volatile DWORD *)0xA05F783C)
 #define G2_DMA_SUSP_CH2 (*(volatile DWORD *)0xA05F785C)
 
-// Drain until both the SH4->G2 store FIFO and the G2 FIFO are empty (KOS mask G2|SH4;
+// Drain until both the SH4->G2 store FIFO and the G2 FIFO are empty (mask G2|SH4;
 // the old code wrongly waited on AICA|G2 and missed the SH4 store FIFO).
 static void g2_fifo_wait(void) { int i; for (i = 0; i < 0x1800; i++) if (!(G2_FIFO_STATUS & (FIFO_G2 | FIFO_SH4))) break; }
 
@@ -58,14 +58,14 @@ static DWORD g2_read_32(DWORD a) { unsigned long lk=g2_lock(); DWORD v=*(volatil
 static void  g2_write_8 (DWORD a, BYTE  v) { unsigned long lk=g2_lock(); *(volatile BYTE  *)a = v; g2_unlock(lk); }
 static void  g2_write_16(DWORD a, WORD  v) { unsigned long lk=g2_lock(); *(volatile WORD  *)a = v; g2_unlock(lk); }
 static void  g2_write_32(DWORD a, DWORD v) { unsigned long lk=g2_lock(); *(volatile DWORD *)a = v; g2_unlock(lk); }
-// Block ops lock ONCE around the whole loop (as KOS g2_*_block does), draining the FIFO
+// Block ops lock ONCE around the whole loop (as the reference g2_*_block ops do), draining the FIFO
 // every 32 bytes within the held lock.
 static void g2_read_block(BYTE *d, DWORD a, int n)  { unsigned long lk=g2_lock(); int i; for (i = 0; i < n; i++) { if (i && !(i & 31)) g2_fifo_wait(); d[i] = *(volatile BYTE *)(a + i); } g2_unlock(lk); }
 static void g2_write_block(DWORD a, const BYTE *s, int n) { unsigned long lk=g2_lock(); int i; for (i = 0; i < n; i++) { if (i && !(i & 31)) g2_fifo_wait(); *(volatile BYTE *)(a + i) = s[i]; } g2_unlock(lk); }
 // 32-bit block copies for the RTL8139 DMA window (the GAPS-mapped RX/TX frame buffers).
 // The GAPS bridge + G2 bus latch 32-bit; sub-word (byte) access to the DMA window returns
-// or writes INCOHERENT bytes on real silicon (Flycast returns clean bytes either way, which
-// is why byte copies "worked" there). KOS uses g2_read_block_32/g2_write_block_32 for the
+// or writes INCOHERENT bytes on real silicon (idealized models return clean bytes either way, which
+// is why byte copies "worked" there). The reference uses g2_read_block_32/g2_write_block_32 for the
 // frame body and byte access ONLY for the GAPS config-register signature. Length is rounded
 // up to a dword; both buffers are 4-aligned and sized >= the rounded length (RX off and TX
 // buf are dword-aligned; the SH-4 frame buffers are stack/aligned). FIFO drains every 8 dw.
@@ -177,10 +177,10 @@ static int gaps_init(void)
     if (g2_read_8(GAPS_BASE + 0x1650) & 0x1)
         g2_write_16(GAPS_BASE + 0x1654, (g2_read_16(GAPS_BASE + 0x1654) & 0xfffc) | 0x8000);
     g2_write_32(GAPS_BASE + 0x1414, 0x00000001);
-    // GAPS 0x141c "SEGA" magic handshake (KOS): write the 3-step sequence and restore
+    // GAPS 0x141c "SEGA" magic handshake: write the 3-step sequence and restore
     // 'SEGA'. The final write makes GAPS pull RSTB low ~120ns, which autoloads the
     // RTL8139 registers from its EEPROM - notably the MAC. Without this, IDR0 reads
-    // can come back zero on real silicon (Flycast pre-populates them, hiding it).
+    // can come back zero on real silicon (idealized models pre-populate them, hiding it).
     if (g2_read_32(GAPS_BASE + 0x141c) == 0x41474553) {           // 'SEGA' LE
         g2_write_32(GAPS_BASE + 0x141c, 0x55aaff00);
         if (g2_read_32(GAPS_BASE + 0x141c) == 0x55aaff00) {
@@ -191,9 +191,9 @@ static int gaps_init(void)
     }
     return 0;
 }
-// Reset must complete before we touch any other register. KOS polls reset-done on a real
+// Reset must complete before we touch any other register. The reference polls reset-done on a real
 // wall-clock timeout (yielding); the old iteration-count spin completes "instantly" in the
-// emulator but on a cold chip can run out before reset finishes -> we'd then program a chip
+// an idealized model but on a cold chip can run out before reset finishes -> we'd then program a chip
 // mid-reset (writes silently lost / wedge). Yield 1ms per poll, up to ~100ms.
 static void rtl_reset(void) { int i; g2_write_8(NIC(RT_CHIPCMD), RT_CMD_RESET); for (i = 0; i < 100 && (g2_read_8(NIC(RT_CHIPCMD)) & RT_CMD_RESET); i++) Sleep(1); }
 static void rtl_read_mac(void)
@@ -214,7 +214,7 @@ static void rtl_start(void)
     g2_write_32(NIC(RT_RXCONFIG), RX_CONFIG);
     g2_write_32(NIC(RT_TXCONFIG), TX_CONFIG);
 
-    // Bring-up the stock driver / Flycast skip but real silicon needs. Unlock the config
+    // Bring-up the stock driver skips but real silicon needs. Unlock the config
     // regs (CFG9346=0xC0), then: CONFIG1 DVRLOAD; CONFIG4 RX-FIFO auto-clear (so an RX
     // overrun self-recovers instead of wedging); CONFIG5 LDPS = disable link-down power
     // save (keep the PHY powered so it can negotiate). Relock after.
@@ -232,7 +232,7 @@ static void rtl_start(void)
     g2_write_8 (NIC(RT_CHIPCMD), RT_CMD_RX_ENABLE | RT_CMD_TX_ENABLE);
 
     // KICK AUTO-NEGOTIATION - the real-HW fix. On a live cable the PHY must negotiate
-    // before there's carrier; without it no frames flow -> no DHCP -> no DNS. Flycast
+    // before there's carrier; without it no frames flow -> no DHCP -> no DNS. An idealized model
     // fakes instant link, hiding this. We do NOT block boot waiting for link: the netif
     // DHCP worker retries every 1.5s, so the lease lands once link is up (~2-3s).
     g2_write_16(NIC(RT_MII_BMCR), RT_MII_RESET | RT_MII_AN_ENABLE | RT_MII_AN_START);

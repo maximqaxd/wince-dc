@@ -4,7 +4,7 @@
 // Keyboard: polled each frame, edge-detected (with auto-repeat for nav keys),
 // DIK scan codes mapped to VK and queued for the shell's OnKey.
 // Pointer (two sources, either drives the cursor):
-//   - Mouse (DC Maple mouse / host mouse in Flycast): relative deltas, 1:1.
+//   - Mouse (DC Maple mouse / host-injected mouse): relative deltas, 1:1.
 //   - Controller analog stick: deadzone + time-based speed + sub-pixel accumulate.
 // Buttons (mouse L/M/R, or controller A/B/X/Y) -> click.
 //
@@ -37,7 +37,7 @@ static long  g_accX = 0, g_accY = 0;   // sub-pixel motion accumulators (axis*ms
 // DC controller buttons are identified by Maple HID USAGE (inc\maplusag.h), NOT by a fixed
 // rgbButtons[] bit position - the array index depends on enumeration order and varies. So we
 // build a usage->index map at acquire time via EnumObjects, exactly like the SDK
-// samples\dinput\Controller. (The old hardcoded FACE_BITS/DPAD_BITS were Flycast-order
+// samples\dinput\Controller. (The old hardcoded FACE_BITS/DPAD_BITS were wrong-order
 // guesses, which is why A never worked on a real pad.)  usage = 0xFF00 + index:
 #define USG_FIRST   0xFF00
 #define USG_A       0

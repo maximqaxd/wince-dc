@@ -6,7 +6,7 @@
 //
 // Stage 2: GAPS bridge + RTL8139C init, MAC read, RX ring + TX descriptors, an RX
 // worker thread that logs received frames, an ARP TX probe, and SEND/RECV IOCTLs.
-// Polled (no interrupt yet). Hardware sequence ported from KallistiOS
+// Polled (no interrupt yet). Hardware sequence for the broadband adapter
 // (broadband_adapter.c, g2bus.c, fifo.h).
 //
 #include <windows.h>
@@ -58,7 +58,7 @@ static void g2_write_block(DWORD addr, const BYTE *src, int n)
 }
 
 // ---------------------------------------------------------------------------
-// GAPS bridge + RTL8139C (from KOS broadband_adapter). RTL_DMA = chip-side DMA
+// GAPS bridge + RTL8139C. RTL_DMA = chip-side DMA
 // offset (GAPS-relative); RTL_CPU = the same memory in the P2 window.
 // ---------------------------------------------------------------------------
 #define GAPS_BASE   0xA1000000
@@ -147,7 +147,7 @@ static void rtl_read_mac(void)
     g_mac[4] = (BYTE)hi;        g_mac[5] = (BYTE)(hi >> 8);
 }
 
-// Bring up the RX ring + TX descriptors and enable RX/TX (KOS bba_hw_init).
+// Bring up the RX ring + TX descriptors and enable RX/TX.
 static void rtl_start(void)
 {
     int i;
@@ -222,7 +222,7 @@ static WORD ip_csum(const BYTE *p, int n)
 }
 
 // Build a broadcast DHCP DISCOVER (returns length). Subnet-agnostic, so it works
-// in Flycast's built-in BBA DHCP/NAT mode regardless of the host's subnet.
+// in a built-in test BBA DHCP/NAT mode regardless of the host's subnet.
 static int build_dhcp_discover(BYTE *out, DWORD xid)
 {
     BYTE *eth = out, *ip = out + 14, *udp = out + 34, *bp = out + 42;
@@ -259,7 +259,7 @@ static DWORD parse_dhcp_offer(const BYTE *f, int n)
     return ((DWORD)f[58] << 24) | ((DWORD)f[59] << 16) | ((DWORD)f[60] << 8) | f[61];  // yiaddr
 }
 
-// RX worker: poll the ring, log the first frames seen (proof of RX on Flycast's
+// RX worker: poll the ring, log the first frames seen (proof of RX on the test's
 // bridged network), and periodically send an ARP probe (proof of TX).
 static DWORD WINAPI BbaRxThread(LPVOID param)
 {

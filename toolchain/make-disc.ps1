@@ -1,6 +1,6 @@
 <#
   make-disc.ps1 - stage a bootable Dreamcast WinCE disc tree and (if the tools
-  are installed) master a Flycast-loadable CDI/GDI.
+  are installed) master a bootable CDI/GDI.
 
   Boot model (from the SDK's own makecd.bat + ip_drago.bin):
     IP.BIN = ip_drago.bin  (its bootfile field @0x60 is "0WINCEOS.BIN")
@@ -67,7 +67,7 @@ if ($mkisofs) {
     Remove-Item $cdiOut -EA SilentlyContinue
     if ($cdi4dc) {
       & $cdi4dc $iso $cdiOut | Out-Null       # cdi4dc floods progress; discard it
-      if (Test-Path $cdiOut) { Write-Host "CDI: $cdiOut ($((Get-Item $cdiOut).Length) bytes) -- load in Flycast." }
+      if (Test-Path $cdiOut) { Write-Host "CDI: $cdiOut ($((Get-Item $cdiOut).Length) bytes) -- bootable." }
       else { Write-Warning "cdi4dc produced no CDI." }
     } else { Write-Warning "cdi4dc not found (img4dc). ISO built; convert it with cdi4dc." }
   }
@@ -75,5 +75,5 @@ if ($mkisofs) {
   Write-Host ""
   Write-Host "mkisofs/cdi4dc not on PATH. Tree is staged; finish with (see docs/05-disc-image.md):" -ForegroundColor Yellow
   Write-Host "  mkisofs -V WINCE -G `"$ipbinStaged`" -joliet -rock -l -C 0,11702 -o `"$iso`" `"$tree`""
-  Write-Host "  cdi4dc `"$iso`" `"$(Join-Path $OutDir 'wince.cdi')`"     # -> load wince.cdi in Flycast"
+  Write-Host "  cdi4dc `"$iso`" `"$(Join-Path $OutDir 'wince.cdi')`"     # -> bootable wince.cdi"
 }

@@ -1,6 +1,6 @@
 //
 // dcspi.c - Dreamcast SPI transport (SCI hardware sync-serial + SCIF bit-bang).
-// Ported from KallistiOS hardware/sci.c + hardware/scif-spi.c. Exposed as a reusable
+// Ported from the reference SCI + SCIF-SPI drivers. Exposed as a reusable
 // exporting DLL (see dcspi.h / dcspi.def). All P4 control-register access is wrapped
 // in SetKMode(TRUE) so it works from any caller (driver thread, microstk thread).
 //
@@ -157,7 +157,7 @@ static int sci_init_raw(int csmode)
     SCSMR1 = SC_CA;                                  // 8-bit synchronous, CKS=0 (n=0)
     SCBRR1 = SCI_BRR;
     Sleep(1);
-    SCSSR1 &= ~(SC_ORER | SCSSR_FER | SCSSR_PER);    // clear all RX errors (KOS clear_sci_errors)
+    SCSSR1 &= ~(SC_ORER | SCSSR_FER | SCSSR_PER);    // clear all RX errors
     if (SCSSR1 & SC_RDRF) { d = SCRDR1; (void)d; }   // flush
     SCSCR1 = SC_TE | SC_RE;                          // internal clock, full-duplex
     do { if (++t > SCI_WAIT) return -1; } while (!(SCSSR1 & SC_TDRE));
