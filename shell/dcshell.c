@@ -428,8 +428,13 @@ static void DrawWinText(HDC hdc, DcWindow *w, int wi, BOOL active)
 {
     int i;
 
+    // Clip title-bar text to the bar: a glyph cell is GH(16)px tall but the bar is only
+    // 16px, so without this the opaque text bg quad spills ~2px below the bar's bottom edge
+    // (the blue "dip" under the caption). The glyph itself fits, only the overhang is cut.
+    GfxSetClip(w->x - 2, w->y - 18, w->x + w->w + 2, w->y - 2);
     GfxText(hdc, w->x + 18, w->y - 16, CL_WHITE, active ? CL_TITLE : RGB(112,112,112), g_FontBold, w->title);
     GfxText(hdc, w->x + w->w - 11, w->y - 16, CL_TEXT, CL_FACE, g_FontUI, L"X");
+    GfxClearClip();
     GfxSetClip(w->x, w->y, w->x + w->w, w->y + w->h);            // clip content text to the client area
     for (i = 0; i < s_snapN[wi]; i++)
     {
