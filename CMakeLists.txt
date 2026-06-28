@@ -93,7 +93,7 @@ add_sh_module(sdcard TYPE dll ENTRY DllMain OUT sdcard.dll
           ${REPO}/drivers/sdcard/diskio.c
           ${REPO}/drivers/sdcard/fatfs/ff.c ${REPO}/drivers/sdcard/fatfs/ccsbcs.c
   INCLUDES ${REPO}/drivers/sdcard ${REPO}/drivers/sdcard/fatfs ${REPO}/drivers/dcspi
-  LIBS coredll.lib corelibc.lib
+  LIBS coredll.lib corelibc.lib wdm.lib
   EXTRALIBS ${OUTDIR}/dcspi.lib)
 add_dependencies(sdcard dcspi)
 

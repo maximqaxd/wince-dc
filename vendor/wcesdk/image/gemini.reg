@@ -29,6 +29,13 @@ IF INITMICROSTK !
 	"Depend60"=hex:28,00
 ENDIF
 
+; DCWin SD-card storage: a WDM-loaded FAT FSD that mounts the SD card as "\External Storage".
+; wdevice.exe (Launch40) loads it; it self-registers into the namespace via RegisterAFS.
+[HKEY_LOCAL_MACHINE\WDMDrivers\BuiltIn\ExtStorage]
+	"Dll"="sdcard.dll"
+	"Order"=dword:2
+	"FriendlyName"="DCWin SD Storage"
+
 [HKEY_LOCAL_MACHINE\Dtrace]
 	"BufferSize"=dword:186A0
 	"TraceTime"=dword:2710
