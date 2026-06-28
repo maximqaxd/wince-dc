@@ -1,38 +1,60 @@
-# Toolchain — WinCE-on-Dreamcast (Path B)
+# Build — WinCE-on-Dreamcast
 
-All scripts assume the four paths at the top of `setenv.bat` are correct:
+The whole build is driven by **CMake** at the repo root (`CMakeLists.txt`). Everything it
+needs is vendored under `vendor/` — the SH-4 compiler (`vendor/sh-toolchain`) and the Sega
+"Dragon" CE 2.12 SDK (`vendor/wcesdk`: headers, libs, image tools, the OS modules + the
+patched kernels). No external SDK, no `C:\wcedreamcast`, no `setenv.bat`.
 
-| var | default | what |
-|-----|---------|------|
-| `DCSDK`    | `C:\wcedreamcast` | Sega "Dragon" CE 2.12 SDK: makeimg, modules, .bib/.reg |
-| `WINCESRC` | `C:\dev\Dreamcast\wince-src` | leaked CE 3.0 source (WINCE300 branch) |
-| `GWESLAB`  | `C:\dev\Dreamcast\vendor\WindowsCE-Build-Tools` | gweslab SH `cl.exe` (SH4) |
-| `WCE212`   | `C:\Windows CE Tools\wce212\bin` | authentic 2.12 `SHCL.EXE` (fallback) |
+CMake's own language model is bypassed (`project(... NONE)`) because the 1999 Renesas-SH
+`cl.exe` isn't a CMake-known compiler; each step is an explicit custom command driving the
+vendored `cl.exe` / `shasm.exe` / `link.exe` and the `makeimg` image pipeline. Toolchain
+DLLs are found by prepending the toolchain bins to `PATH` per-command (`cmake -E env
+--modify path_list_prepend`).
 
-## Compilers (both validated on this host)
-- **gweslab `cl.exe`** — "MS C/C++ Optimizing Compiler 13.10.3343 for Renesas SH",
-  **defaults to SH-4** (`dumpbin` → `1A6 machine (SH4)`). **Primary.**
-- **wce212 `SHCL.EXE`** — "MS 32-bit C/C++ Compiler 12.01.8511 for Hitachi SH" (the
-  exact 2.12 vintage). Defaults to SH-3; SH-4 flag TBD. Authentic fallback.
+## Prerequisites
+- **CMake ≥ 3.20 + a generator.** The VS-bundled pair works out of the box:
+  `…\Microsoft Visual Studio\18\Community\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe`
+  and the Ninja next to it. No compiler toolchain from VS is used — only cmake+ninja.
 
-## Scripts
+## Configure + build
+```sh
+cmake -G Ninja -DCMAKE_MAKE_PROGRAM=<path-to-ninja> -S . -B build
+cmake --build build            # builds all SH-4 modules (DLLs + EXEs) into build/modules/
+```
+Targets:
+| target | output | what |
+|--------|--------|------|
+| (default / `all`) | `build/modules/*.dll`, `*.exe` | `dcspi.dll`, `mppp.dll`, `dcshell.exe`, the 6 `dcw*` apps |
+| `image` | `build/0winceos.bin` | seed image work-dir → deploy our modules into `OS\` → `makeimg` → `NK.bin` → `wrap-image.ps1` |
+| `gdi`   | `build/disc/disc.gdi` | `image` → `make-gdi.ps1` (Half-Life DC pipeline) — load this in Flycast |
+
+```sh
+cmake --build build --target gdi     # full chain: modules -> NK.bin -> 0winceos.bin -> disc.gdi
+```
+
+## How the image step works
+`makeimg`/`romimage` are 1999 tools with three sharp edges the CMake build handles:
+- **Native paths only** — forward-slash paths get mangled in the path join, so the env
+  values (`_FLATRELEASEDIR`, `WCEDREAMCASTROOT`) are converted with `file(TO_NATIVE_PATH)`.
+- **No trailing backslash in env values** — a trailing `\` escapes the closing quote on the
+  command line and blanks the var, collapsing every module path to flat. `RELEASEDIR_*`
+  therefore use forward slashes (`/OS/`); Win32 accepts the mixed separator.
+- **Kernel `.map` is required** — `romimage` reads `nknodbg.map` (same basename as the
+  kernel) to locate `pTOC`; both `nknodbg.map` and `nkscifkd.map` are vendored next to the
+  kernels in `vendor/wcesdk/image/`.
+
+The read-only `vendor/wcesdk/image` tree is seeded into `build/image` (writable) and our
+freshly-built modules overlay `build/image/OS/` before `makeimg` runs. To change what's in
+the image, edit the vendored `vendor/wcesdk/image/*.bib` / `*.reg`.
+
+## Helper scripts (invoked by CMake; runnable standalone)
 | script | does |
 |--------|------|
-| `setenv.bat [retail\|debug]` | sets the DC SDK makeimg env + puts SH cc / image tools on PATH |
-| `build-image.bat [retail\|debug]` | `makeimg` → `release\<type>\NK.bin` (B000FF CE ROM) |
-| `wrap-image.ps1 -NkBin .. -Out ..` | `NK.bin` → bootable `0winceos.bin` (DUMPNK + 0x800 Sega header) |
+| `wrap-image.ps1 -NkBin .. -Out .. -DcSdk vendor\wcesdk` | `NK.bin` → bootable `0winceos.bin` (DUMPNK + 0x800 Sega header + Flycast SH-4 MMU magic) |
+| `make-gdi.ps1 -Image .. -OutDir ..` | `0winceos.bin` → Flycast-loadable `disc.gdi` |
+| `make-gdi-real.ps1` | rebuild against a real 4x4 Evo GDI → GDEMU-bootable disc |
 | `unwrap-image.ps1 -In .. -Out ..` | `0winceos.bin` → raw memory image (inspect) |
-| `build-kernel.bat [retail\|debug] [file.c]` | EXPERIMENTAL: compile leaked NK/SHX sources |
+| `make-disc.ps1` | alternative CDI path (mkisofs + cdi4dc) |
+| `bootstrap.ps1` | sanity-check the vendored toolchain + SDK are present |
 
-## The loop
-```
-build-image.bat retail                                  # -> NK.bin (validated round-trip)
-powershell -File wrap-image.ps1 ^
-   -NkBin C:\wcedreamcast\release\retail\NK.bin ^
-   -Out   C:\wcedreamcast\release\retail\0winceos.bin   # -> bootable image
-```
-To change what's in the image, edit `C:\wcedreamcast\release\retail\*.bib` / `*.reg`
-before `build-image.bat`. To replace the kernel, drop a freshly-built `nknodbg.exe`
-over `release\retail\nknodbg.exe` (what `ce.bib` pulls in as `nk.exe`) then rebuild.
-
-See `../docs/03-build-pipeline.md` for the full validated chain and the wrapper format.
+See `../docs/03-build-pipeline.md` for the validated chain and the wrapper format.

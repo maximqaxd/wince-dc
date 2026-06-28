@@ -56,53 +56,46 @@ tools + a real SH-4 PE compiler. This repo is **self-contained except the DC SDK
   windowed desktop shell + winsock apps — see the `shell/` commits.)
 
 ## Setup on a fresh PC
-1. `git clone <this repo>` — includes the leak source + SH toolchain under `vendor/`.
-2. **Get the DC SDK** (the one external dep): place the Sega Dreamcast WinCE SDK at
-   `C:\wcedreamcast` (or set `WCEDREAMCASTROOT` to its path). Run
-   `powershell -File toolchain\bootstrap.ps1` to verify everything is present.
-3. All scripts derive paths from the repo + `WCEDREAMCASTROOT`; nothing else to configure.
+1. `git clone <this repo>` — **fully self-contained.** Both the SH-4 compiler
+   (`vendor/sh-toolchain`) and the Sega "Dragon" CE 2.12 SDK (`vendor/wcesdk`: headers, libs,
+   image tools, OS modules, patched kernels + their `.map`s) are vendored. No external SDK,
+   no `C:\wcedreamcast`.
+2. Install **CMake ≥ 3.20 + Ninja** (the VS-bundled pair works — see `toolchain/README.md`).
+   Nothing else to configure; the build derives all paths from the repo.
 
-## Build / commands (run from `toolchain\`)
-```bat
-build-image.bat retail                 :: makeimg  -> C:\wcedreamcast\release\retail\NK.bin
-powershell -File wrap-image.ps1 -NkBin C:\wcedreamcast\release\retail\NK.bin ^
-                                -Out   C:\wcedreamcast\release\retail\0winceos.bin
-build-nklib.bat retail                 :: build whole kernel core -> reference\kernel-obj\nkmain.lib
-build-oal.bat   retail                 :: build reconstructed DC OAL -> reference\kernel-obj\oal_dc.lib
-build-crt.bat   retail                 :: build minimal SH-4 C runtime -> reference\kernel-obj\crt.lib
-build-nk.bat    retail                 :: link nkmain.lib+oal_dc.lib+crt.lib -> nk.exe
-build-image.bat retail                 :: makeimg (swap our nk.exe in for nknodbg.exe first) -> NK.bin
-powershell -File make-disc.ps1 -Image reference\0winceos.ours.bin -Cdi  :: -> wince.cdi (Flycast)
-build-kernel.bat retail [file.c]       :: compile one NK/SHX C source (smoke / per-file)
-build-asm.bat    retail [file.src]     :: assemble one SHX shasm source (-cpu=SH4 -DCELOG=0)
+## Build / commands (CMake — see `toolchain/README.md`)
+```sh
+cmake -G Ninja -DCMAKE_MAKE_PROGRAM=<ninja> -S . -B build
+cmake --build build                  # all SH-4 modules -> build/modules/ (dcspi/mppp/dcshell/dcw*)
+cmake --build build --target image   # makeimg -> NK.bin -> wrap -> build/0winceos.bin
+cmake --build build --target gdi     # full chain -> build/disc/disc.gdi (load in Flycast)
 ```
-`setenv.bat [retail|debug]` sets the whole environment; the others call it.
+The image step seeds the read-only `vendor/wcesdk/image` tree into `build/image`, overlays our
+freshly-built modules into `build/image/OS/`, runs `makeimg`, then `wrap-image.ps1` +
+`make-gdi.ps1`. CMake mirrors the old `setenv.bat` makeimg env verbatim (`IMG_ENV` in
+`CMakeLists.txt`). The from-source kernel build (`build-nklib`/`build-oal`/`build-crt`/`build-nk`)
+was retired with the leak source — the image uses the vendored stock kernels (`nknodbg.exe`).
 
 ## Layout
-- `toolchain/` — `setenv.bat`, `build-image.bat`, `build-kernel.bat`, `build-asm.bat`,
-  `build-nklib.bat`, `wrap-image.ps1`, `unwrap-image.ps1`, `bootstrap.ps1`, `README.md`.
+- `CMakeLists.txt` — the entire build (modules + image + gdi). `project(NONE)` driving the
+  vendored `cl.exe`/`shasm.exe`/`link.exe`/`makeimg`.
+- `toolchain/` — `wrap-image.ps1`, `make-gdi.ps1`, `make-gdi-real.ps1`, `make-disc.ps1`,
+  `unwrap-image.ps1`, `bootstrap.ps1`, `README.md` (CMake build doc).
 - `docs/` — `01-findings` · `02-toolchain-setup` · `03-build-pipeline` · `04-kernel-build` ·
   `05-disc-image` · `06-userland-abi` · `07-userland-boot` · `08-emulator-debugging` ·
   `09-networking`. **Read these.**
 - `net/` — networking. `netif/` = the universal microstk link shim (drop-in `mppp.dll` replacement;
   BBA verified + W5500 backend) — see `docs/09-networking.md`. `lwip-port/` + vendored lwIP = the
-  alternative bring-your-own-stack route (built, unused). `build-net.bat`.
+  alternative bring-your-own-stack route (built, unused). Built by CMake (`mppp` target).
 - `drivers/` — `bba/` (RTL8139 WDM driver — RETIRED into the shim's `bba_hw.c`, kept as HW ref);
-  `dcspi/` (reusable SPI transport: SCI hardware-SPI + SCIF bit-bang, for W5500 now + SD/CF/FAT later).
+  `dcspi/` (reusable SPI transport: SCI hardware-SPI + SCIF bit-bang, for W5500 now + SD/CF/FAT later;
+  CMake `dcspi` target).
 - `shell/` — the DCWin desktop shell + PVR2/Direct3D compositor + client apps (`dcwcalc`/`dcwclock`/
-  `dcwexp`/`dcwtask`/`dcwmem` memtest/`dcwnet` winsock test). `build-dcshell.bat`.
-- `bsp/` — Dreamcast BSP scaffold (`drivers/`, `inc/`, `files/`, …). The
-  `inc/mem_shx_patch.h` reconstruction was removed once `-DWINCEOEM` made pkfuncs.h
-  authoritative for the 4 SH-4 constants.
-- **HAL/OAL reconstruction** (CE PLATFORM tree, PDB-matched file/func names):
-  `vendor/wince-src/PLATFORM/DREAMCAST/KERNEL/HAL/` — `fwinit.{src,c}`, `cfwkatan.c`, `fwkatana.c`,
-  `ktimer.c`, `timer.c`, `rtc.c`, `oemwdm.c`, `oemioctl.c`, `isr.c`, `mdppfs.c`, `debug.c`,
-  `compress.c`, `kdstub.c`, `dc_hw.h`, `SOURCES`, `OAL-NOTES.md`. Built by `build-oal.bat` →
-  `oal_dc.lib`. Reverse-engineered from the shipped SDK kernel; NOT from the leak.
-- **SH-4 CRT** (`NK\CRT\SHX\`, fulllibc-PDB-matched names): `memmove.c`/`memset.c`/`memcmp.c`/
-  `strcmp.c`/`strlen.c`, `__divlu.c`/`__modlu.c`/`__modls.c`/`i64div.c`/`i64mod.c`,
-  `lshi64.c`/`rshui64.c`, `crtfp.c` (soft-float stubs — no fulllibc original). `build-crt.bat` → `crt.lib`.
-- `vendor/wince-src/` — leaked CE 3.0 source (WINCE300). `vendor/sh-toolchain/` — SH compiler + CE3 headers.
+  `dcwexp`/`dcwtask`/`dcwmem` memtest/`dcwnet` winsock test). CMake `dcshell` + `dcw*` targets.
+- `vendor/sh-toolchain/` — SH-4 compiler + CE3 headers. `vendor/wcesdk/` — the vendored Sega
+  "Dragon" CE 2.12 SDK (`inc`, `lib`, `tools`, `image`: OS modules + config + stock kernels
+  `nknodbg.exe`/`nkscifkd.exe` and their `.map`s). The leaked CE 3.0 source (`vendor/wince-src`)
+  and the from-source kernel/HAL/OAL/CRT build were retired — we ship the stock SDK kernel.
 - `reference/MANIFEST.md` — build artifacts + SHA-256 (binaries gitignored).
 - `handoff/` — `SESSION-LOG.md` (full history of how we got here) + `memory/` (the assistant's
   project memory). **Read `SESSION-LOG.md` first when resuming.**
