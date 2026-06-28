@@ -5,6 +5,7 @@
 //
 #include "../dcspi/dcspi.h"
 #include "sdblk.h"
+#include "syslog.h"
 
 #define BUS  DCSPI_BUS_SCIF        // SD adapter wired to the serial port (CS on RTS)
 #define CSM  DCSPI_CS_RTS
@@ -85,13 +86,17 @@ int SdInit(void)
     int i, v2 = 0;
 
     g_inited = 0; g_byteAddr = 1; g_sectors = 0;
-    if (SpiInit(BUS, CSM)) return -1;
+    SysLog(L"sd: SdInit enter");
+    if (SpiInit(BUS, CSM)) { SysLog(L"sd: SpiInit FAILED"); return -1; }
+    SysLog(L"sd: SpiInit ok (SCIF)");
 
     cs(0);                                          // CS high during the power-up clocks
     for (i = 0; i < 10; i++) wb(0xFF);              // >= 74 clocks
     cs(1);
 
-    if (sd_cmd(CMD0, 0) != 0x01) { cs(0); return -2; }            // enter idle/SPI mode
+    r = sd_cmd(CMD0, 0);
+    SysLog(L"sd: CMD0 -> %02x", r);
+    if (r != 0x01) { cs(0); return -2; }                         // enter idle/SPI mode
 
     if (sd_cmd(CMD8, 0x000001AA) == 0x01)                        // v2 card
     {
@@ -119,6 +124,7 @@ int SdInit(void)
 
     cs(0); rb();
     g_inited = 1;
+    SysLog(L"sd: init OK sectors=%u byteAddr=%d", g_sectors, g_byteAddr);
     return 0;
 }
 

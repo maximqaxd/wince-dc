@@ -12,6 +12,7 @@
 //
 #include <windows.h>
 #include "dcspi.h"               // DCSPI_BUS_* / DCSPI_CS_* constants only
+#include "syslog.h"
 
 // dcspi.dll entry points, bound on demand (no static import).
 typedef int           (*PFN_Init)(int, int);
@@ -105,15 +106,13 @@ static WORD w5_r16s(BYTE bsb, WORD a)
 }
 
 // ---- LinkOps ---------------------------------------------------------------------
-extern void FbLog(unsigned long rgb);            // on-screen POST trail (fblog.c)
-
 static int w5_try(int bus, int cs)
 {
-    FbLog(bus == DCSPI_BUS_SCI ? 0x600000 : 0x400030);   // dark-red=SCI / purple=SCIF: entering SpiInit
-    if (pInit(bus, cs) != 0) return 0;                   // (SCI init drives Port A; SCIF reconfigs SCIF)
-    FbLog(0xA03000);                                     // orange: SpiInit OK, reading VERSIONR over SPI
+    SysLog(L"w5500: SpiInit bus=%d", bus);               // (SCI init drives Port A; SCIF reconfigs SCIF)
+    if (pInit(bus, cs) != 0) return 0;
+    SysLog(L"w5500: reading VERSIONR");
     g_bus = bus; g_cs = cs;
-    if (w5_r1(BSB_COMMON, VERSIONR) == 0x04) { FbLog(0x20FF20); return 1; }   // bright green: W5500 detected
+    if (w5_r1(BSB_COMMON, VERSIONR) == 0x04) { SysLog(L"w5500: detected (bus %d)", bus); return 1; }
     if (pShutdown) pShutdown(bus);
     g_bus = -1;
     return 0;

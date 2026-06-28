@@ -18,6 +18,7 @@
 // drivers/bba work via the Bba* hooks below.
 //
 #include "microstk_if.h"
+#include "syslog.h"
 
 // ---- link backend abstraction --------------------------------------------------
 typedef struct {
@@ -385,8 +386,6 @@ static DWORD WINAPI NetWorker(LPVOID p)
 // inert/DOWN so microstk routes through the one that gets an IP.
 static int g_hwUp;
 
-extern void FbLog(unsigned long rgb);            // on-screen POST trail (fblog.c)
-
 int InterfaceInitialize(unsigned short *name, ifnet **ppIf)
 {
     ifnet *ifn;
@@ -394,18 +393,18 @@ int InterfaceInitialize(unsigned short *name, ifnet **ppIf)
 
     if (!g_hwUp)                                 // first call: detect + bring up hardware
     {
-        FbLog(0x303030);                         // gray: shim reached InterfaceInitialize
+        SysLog(L"netif: InterfaceInitialize");
         s_link = 0;
-        FbLog(0x800000);                         // red: probing W5500 (SCI/SCIF SpiInit + VERSIONR)
+        SysLog(L"netif: probing W5500");
         if (s_w5500.probe())      s_link = &s_w5500;   // 1st: dedicated W5500 NIC if present
         else
         {
-            FbLog(0x808000);                     // olive: W5500 absent, probing BBA (GAPS)
+            SysLog(L"netif: W5500 absent, probing BBA");
             if (s_bba.probe())        s_link = &s_bba;     // 2nd: Broadband Adapter (RTL8139)
             else if (s_modem.probe()) s_link = &s_modem;   // 3rd: dial-up modem (PPP)
-            else { s_link = &s_null; OutputDebugStringW(L"netif: no link adapter - stack up on loopback only\r\n"); }
+            else { s_link = &s_null; SysLog(L"netif: no adapter, loopback only"); }
         }
-        FbLog(0x0000A0);                          // blue: link chosen, bringing hardware up (init)
+        SysLog(L"netif: link chosen, bringing up");
         // Backend probed PRESENT but bring-up failed. This is the real-HW killer: on silicon
         // BbaInit/W5500Init can fail in ways an idealized model never does (GAPS EEPROM handshake, reset
         // timing, no PHY/link). We must NOT return 0 here - microstk then wedges on a NULL
@@ -415,17 +414,14 @@ int InterfaceInitialize(unsigned short *name, ifnet **ppIf)
         // of bricking the boot. This makes "BBA-only" and "W5500-only" boot-survivable.
         if (!s_link->init(g_mac))
         {
-            FbLog(0xFF00FF);                     // magenta: init FAILED -> null fallback
-            { WCHAR b[80]; wsprintfW(b, L"netif: %S init FAILED -> null link (network down, boot continues)\r\n",
-                s_link->name); OutputDebugStringW(b); }
+            SysLog(L"netif: %S init FAILED, null fallback", s_link->name);
             s_link = &s_null;
             s_link->init(g_mac);                 // NullInit cannot fail
         }
-        else FbLog(0x00A000);                    // green: link init OK
-        { WCHAR b[64]; wsprintfW(b, L"netif: link=%S MAC=%02x:%02x:%02x:%02x:%02x:%02x\r\n",
-            s_link->name, g_mac[0],g_mac[1],g_mac[2],g_mac[3],g_mac[4],g_mac[5]); OutputDebugStringW(b); }
+        else SysLog(L"netif: %S init OK MAC %02x:%02x:%02x:%02x:%02x:%02x", s_link->name,
+                    g_mac[0],g_mac[1],g_mac[2],g_mac[3],g_mac[4],g_mac[5]);
         g_hwUp = 1;
-        FbLog(0x00FFFF);                         // cyan: hardware up, starting worker
+        SysLog(L"netif: hardware up, worker starting");
     }
 
     ifn = (ifnet *)LocalAlloc(LPTR, sizeof(ifnet));

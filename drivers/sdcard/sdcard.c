@@ -12,6 +12,7 @@
 #include <wdm.h>
 #include "fatfs/ff.h"
 #include "sdblk.h"
+#include "syslog.h"
 
 // ---- CE coredll API-set / AFS primitives (exported by name, no public header) ----------
 typedef int (*APIFN)(void);
@@ -107,6 +108,7 @@ static BOOL  V_RemoveDirectory(void *vol, const WCHAR *path)
 static DWORD V_GetFileAttributes(void *vol, const WCHAR *path)
 {
     FILINFO fno; DWORD a; (void)vol;
+    SysLog(L"sd: GetAttr '%s'", path ? path : L"(null)");
     if (IsRoot(path)) return FILE_ATTRIBUTE_DIRECTORY;
     LOCK(); a = (f_stat(path, &fno) == FR_OK) ? fno.fattrib : 0xFFFFFFFF; UNLOCK();
     return a;
@@ -160,10 +162,14 @@ static HANDLE V_FindFirstFile(void *vol, HANDLE hProc, const WCHAR *spec, WIN32_
     s = (SDFIND *)LocalAlloc(LPTR, sizeof(SDFIND));
     if (!s) { SetLastError(ERROR_OUTOFMEMORY); return INVALID_HANDLE_VALUE; }
     for (i = 0; i < 63 && p[i]; i++) s->pat[i] = p[i]; s->pat[i] = 0;
+    if (!s->pat[0]) { s->pat[0] = L'*'; s->pat[1] = 0; }            // empty spec -> match all
 
+    SysLog(L"sd: FindFirst '%s' pat='%s'", spec ? spec : L"(null)", s->pat);
     LOCK();
-    if (f_opendir(&s->dir, IsRoot(dir) ? L"\\" : dir) == FR_OK)
     {
+        FRESULT fr = f_opendir(&s->dir, IsRoot(dir) ? L"\\" : dir);
+        SysLog(L"sd: f_opendir('%s')=%d", IsRoot(dir) ? L"\\" : dir, fr);
+        if (fr == FR_OK)
         for (;;)
         {
             fno.lfname = lfn; fno.lfsize = 256; lfn[0] = 0;
@@ -281,7 +287,11 @@ static void FsdInit(void)
 
     g_afsidx = RegisterAFSName(L"External Storage");
     if (g_afsidx >= 0)
-        RegisterAFS(g_afsidx, g_hVol, 1, 4);        // dwData unused (single volume)
+    {
+        BOOL r = RegisterAFS(g_afsidx, g_hVol, 1, 4);   // dwData unused (single volume)
+        SysLog(L"sd: FsdInit afs=%d RegisterAFS=%d", g_afsidx, r);
+    }
+    else SysLog(L"sd: RegisterAFSName failed");
 }
 
 static NTSTATUS DriverEntry(PDRIVER_OBJECT drv, PUNICODE_STRING reg)

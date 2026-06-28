@@ -49,6 +49,7 @@ static const SHORTCUT s_deskDefault[] =
     { L"Clock",        NULL,         L"dcwclock.exe", ICON_CLOCK },
     { L"Task Manager", NULL,         L"dcwtask.exe",  ICON_APP },
     { L"Network",      NULL,         L"dcwnet.exe",   ICON_APP },
+    { L"System Log",   NULL,         L"dcwlog.exe",   ICON_APP },
 };
 #define DEFAULT_N (sizeof(s_deskDefault) / sizeof(s_deskDefault[0]))
 #define MAXDESK   24

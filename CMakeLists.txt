@@ -90,9 +90,9 @@ add_sh_module(dcspi TYPE dll ENTRY DllMain DEF ${REPO}/drivers/dcspi/dcspi.def O
 # ---- SD-card storage: SD block driver + ChaN FatFs (WDM/AFS mount layer is WIP) ----
 add_sh_module(sdcard TYPE dll ENTRY DllMain OUT sdcard.dll
   SOURCES ${REPO}/drivers/sdcard/sdcard.c ${REPO}/drivers/sdcard/sdblk.c
-          ${REPO}/drivers/sdcard/diskio.c
+          ${REPO}/drivers/sdcard/diskio.c ${REPO}/shell/syslog.c
           ${REPO}/drivers/sdcard/fatfs/ff.c ${REPO}/drivers/sdcard/fatfs/ccsbcs.c
-  INCLUDES ${REPO}/drivers/sdcard ${REPO}/drivers/sdcard/fatfs ${REPO}/drivers/dcspi
+  INCLUDES ${REPO}/drivers/sdcard ${REPO}/drivers/sdcard/fatfs ${REPO}/drivers/dcspi ${REPO}/shell
   LIBS coredll.lib corelibc.lib wdm.lib
   EXTRALIBS ${OUTDIR}/dcspi.lib)
 add_dependencies(sdcard dcspi)
@@ -100,9 +100,9 @@ add_dependencies(sdcard dcspi)
 # ---- universal microstk link shim (mppp.dll) --------------------------------------
 add_sh_module(mppp TYPE dll ENTRY dllentry DEF ${REPO}/net/netif/netif.def OUT mppp.dll
   SOURCES ${REPO}/net/netif/netif.c ${REPO}/net/netif/bba_hw.c ${REPO}/net/netif/ras.c
-          ${REPO}/net/netif/w5500.c ${REPO}/net/netif/flashrom.c ${REPO}/net/netif/fblog.c
+          ${REPO}/net/netif/w5500.c ${REPO}/net/netif/flashrom.c ${REPO}/shell/syslog.c
   ASM     ${REPO}/net/netif/g2lock.src
-  INCLUDES ${REPO}/drivers/dcspi
+  INCLUDES ${REPO}/drivers/dcspi ${REPO}/shell
   LIBS coredll.lib corelibc.lib)
 
 # ---- DCWin desktop shell + PVR2 compositor ----------------------------------------
@@ -119,6 +119,9 @@ endforeach()
 add_sh_module(dcwnet TYPE exe ENTRY WinMainCRTStartup OUT dcwnet.exe
   SOURCES ${REPO}/shell/dcwnet.c ${REPO}/shell/dcwlib.c
   LIBS coredll.lib corelibc.lib winsock.lib)
+add_sh_module(dcwlog TYPE exe ENTRY WinMainCRTStartup OUT dcwlog.exe   # the System Log viewer
+  SOURCES ${REPO}/shell/dcwlog.c ${REPO}/shell/dcwlib.c ${REPO}/shell/syslog.c
+  LIBS coredll.lib corelibc.lib)
 
 # ====================================================================================
 # Bootable image pipeline (opt-in: `cmake --build build --target gdi`).
