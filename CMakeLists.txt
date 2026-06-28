@@ -90,8 +90,8 @@ add_sh_module(mppp TYPE dll ENTRY dllentry DEF ${REPO}/net/netif/netif.def OUT m
 
 # ---- DCWin desktop shell + PVR2 compositor ----------------------------------------
 add_sh_module(dcshell TYPE exe ENTRY WinMainCRTStartup OUT dcshell.exe
-  SOURCES ${REPO}/shell/dcshell.c ${REPO}/shell/dcgfx.c ${REPO}/shell/dcinput.c
-  LIBS coredll.lib corelibc.lib ddraw.lib d3dim.lib dinput.lib dxguid.lib)
+  SOURCES ${REPO}/shell/dcshell.c ${REPO}/shell/dcgfx.c ${REPO}/shell/dcinput.c ${REPO}/shell/vmustore.c
+  LIBS coredll.lib corelibc.lib ddraw.lib d3dim.lib dinput.lib dxguid.lib mapledev.lib psguid.lib)
 
 # ---- DCWin client apps (each links the client lib) --------------------------------
 foreach(app dcwcalc dcwclock dcwexp dcwtask dcwmem)

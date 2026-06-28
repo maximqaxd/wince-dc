@@ -15,6 +15,7 @@
 #include "dcgfx.h"
 #include "dcwin.h"
 #include "dcinput.h"
+#include "vmustore.h"
 
 #define TASK_H    26
 #define ROW_H     18            // Start-menu row height
@@ -36,7 +37,11 @@ typedef struct
     int          icon;     // ICON_*
 } SHORTCUT;
 
-static const SHORTCUT s_desk[] =
+// Built-in desktop shortcuts. The live desktop is a mutable copy (s_desk) so the user can
+// drag items off the Start menu to add their own; user-added entries are persisted to the
+// VMU. String pointers always point at const tables (defaults here / s_start below), so the
+// live array stores no allocations.
+static const SHORTCUT s_deskDefault[] =
 {
     { L"My Dreamcast", L"\\",        NULL,            ICON_SWIRL },
     { L"CD-ROM",       L"\\CD-ROM",  NULL,            ICON_DRIVE },
@@ -45,7 +50,11 @@ static const SHORTCUT s_desk[] =
     { L"Task Manager", NULL,         L"dcwtask.exe",  ICON_APP },
     { L"Network",      NULL,         L"dcwnet.exe",   ICON_APP },
 };
-#define DESK_N (sizeof(s_desk) / sizeof(s_desk[0]))
+#define DEFAULT_N (sizeof(s_deskDefault) / sizeof(s_deskDefault[0]))
+#define MAXDESK   24
+static SHORTCUT s_desk[MAXDESK];      // live desktop shortcuts
+static int      s_deskUser[MAXDESK];  // for user-added: the s_start[] index it came from; -1 = built-in
+static int      s_deskN = 0;
 
 static const SHORTCUT s_start[] =
 {
@@ -74,11 +83,12 @@ static int   s_wmMouseSeen = 0;  // logged once when GWES mouse messages arrive
 static int   s_cx = SCREEN_W / 2, s_cy = SCREEN_H / 2;   // pointer position
 
 // Desktop icon cell positions (top-left of the 96x54 clickable cell). Mutable so icons can
-// be dragged. Initialised to a column-major grid by DeskPosInit() - icons flow top-to-bottom
-// then wrap into the next column so they never run under the taskbar.
-static POINT s_deskPos[DESK_N];
+// be dragged. Built-ins are laid out in a column-major grid by DeskPosInit() (flow top-to-
+// bottom, then wrap into the next column so they never run under the taskbar); user-added
+// icons keep their dropped / persisted position.
+static POINT s_deskPos[MAXDESK];
 static int   s_deskPosInit = 0;
-static int   s_deskRows    = 6;   // icons per column (computed from the usable height)
+static int   s_deskRows    = 6;   // built-in icons per column (computed from the usable height)
 #define ICELL_W 96
 #define ICELL_H 54
 #define DESK_X0 14
@@ -87,16 +97,105 @@ static int   s_deskRows    = 6;   // icons per column (computed from the usable 
 #define DESK_DX (ICELL_W + 12)    // column pitch
 static void DeskPosInit(void)
 {
-    int i, row = 0, col = 0;
+    int i, slot = 0;
     s_deskRows = (TASK_Y - DESK_Y0) / DESK_DY;
     if (s_deskRows < 1) s_deskRows = 1;
-    for (i = 0; i < (int)DESK_N; i++)
+    for (i = 0; i < s_deskN; i++)
     {
-        s_deskPos[i].x = DESK_X0 + col * DESK_DX;
-        s_deskPos[i].y = DESK_Y0 + row * DESK_DY;
-        if (++row >= s_deskRows) { row = 0; col++; }
+        if (s_deskUser[i] >= 0) continue;          // user icons keep their saved / dropped pos
+        s_deskPos[i].x = DESK_X0 + (slot / s_deskRows) * DESK_DX;
+        s_deskPos[i].y = DESK_Y0 + (slot % s_deskRows) * DESK_DY;
+        slot++;
     }
     s_deskPosInit = 1;
+}
+
+// --- dynamic shortcuts + VMU persistence --------------------------------------------
+// Persistence blob (one VMU block): 'DCW1' magic, a count, then count records of the
+// originating s_start[] index + the icon's desktop position.
+#define SHC_MAGIC 0x31574344u                      // 'D','C','W','1'
+typedef struct { short idx, x, y; } ShcEntry;
+
+static void SaveShortcuts(void)
+{
+    BYTE      buf[512];
+    DWORD    *hdr = (DWORD *)buf;
+    ShcEntry *e   = (ShcEntry *)(buf + 8);
+    int       i, count = 0, cap = (int)((sizeof(buf) - 8) / sizeof(ShcEntry));
+    memset(buf, 0, sizeof(buf));
+    for (i = 0; i < s_deskN && count < cap; i++)
+    {
+        if (s_deskUser[i] < 0) continue;
+        e[count].idx = (short)s_deskUser[i];
+        e[count].x   = (short)s_deskPos[i].x;
+        e[count].y   = (short)s_deskPos[i].y;
+        count++;
+    }
+    hdr[0] = SHC_MAGIC; hdr[1] = (DWORD)count;
+    VmuSave(buf, 8 + count * (int)sizeof(ShcEntry));
+}
+
+static void LoadShortcuts(void)
+{
+    BYTE      buf[512];
+    DWORD    *hdr = (DWORD *)buf;
+    ShcEntry *e   = (ShcEntry *)(buf + 8);
+    int       got = 0, i, count;
+    if (!VmuLoad(buf, sizeof(buf), &got) || got < 8 || hdr[0] != SHC_MAGIC) return;
+    count = (int)hdr[1];
+    for (i = 0; i < count && s_deskN < MAXDESK; i++)
+    {
+        int idx = e[i].idx;
+        if (idx < 0 || idx >= (int)START_N) continue;
+        if (!s_start[idx].exe && !s_start[idx].path) continue;
+        s_desk[s_deskN]     = s_start[idx];
+        s_deskUser[s_deskN] = idx;
+        s_deskPos[s_deskN].x = e[i].x;
+        s_deskPos[s_deskN].y = e[i].y;
+        s_deskN++;
+    }
+}
+
+// Seed the live desktop from the built-ins, append persisted user shortcuts, lay out.
+static void DeskInit(void)
+{
+    int i;
+    for (i = 0; i < (int)DEFAULT_N; i++) { s_desk[i] = s_deskDefault[i]; s_deskUser[i] = -1; }
+    s_deskN = (int)DEFAULT_N;
+    LoadShortcuts();
+    DeskPosInit();
+}
+
+// Add a Start-menu item to the desktop at (x,y) and persist. Returns 1 if added.
+static int AddDesktopShortcut(int startIdx, int x, int y)
+{
+    if (s_deskN >= MAXDESK || startIdx < 0 || startIdx >= (int)START_N) return 0;
+    if (!s_start[startIdx].exe && !s_start[startIdx].path) return 0;   // e.g. "Shut Down..."
+    x -= ICELL_W / 2; y -= 16;
+    if (x < 0) x = 0; if (x > SCREEN_W - ICELL_W) x = SCREEN_W - ICELL_W;
+    if (y < 0) y = 0; if (y > TASK_Y - ICELL_H)   y = TASK_Y - ICELL_H;
+    s_desk[s_deskN]      = s_start[startIdx];
+    s_deskUser[s_deskN]  = startIdx;
+    s_deskPos[s_deskN].x = x; s_deskPos[s_deskN].y = y;
+    s_deskSel = s_deskN;
+    s_deskN++;
+    SaveShortcuts();
+    s_deskDirty = 1;
+    return 1;
+}
+
+// Remove a user-added shortcut (built-ins can't be removed) and persist.
+static void RemoveShortcut(int i)
+{
+    int k;
+    if (i < 0 || i >= s_deskN || s_deskUser[i] < 0) return;
+    for (k = i; k < s_deskN - 1; k++)
+    { s_desk[k] = s_desk[k + 1]; s_deskUser[k] = s_deskUser[k + 1]; s_deskPos[k] = s_deskPos[k + 1]; }
+    s_deskN--;
+    if (s_deskSel >= s_deskN) s_deskSel = s_deskN - 1;
+    if (s_deskSel < 0) s_deskSel = 0;
+    SaveShortcuts();
+    s_deskDirty = 1;
 }
 
 // Pointer drag state machine (mouse-L or controller-A held). Lets the user move/resize
@@ -105,6 +204,7 @@ static void DeskPosInit(void)
 #define DRAG_WMOVE  1    // moving a window (grabbed its title bar)
 #define DRAG_WSIZE  2    // resizing a window (grabbed its bottom-right corner)
 #define DRAG_ICON   3    // moving a desktop shortcut
+#define DRAG_STARTITEM 4 // dragging a Start-menu item out onto the desktop (creates a shortcut)
 #define DRAG_THRESH 3    // px of motion before a press becomes a drag (vs a click)
 #define WIN_MINW    80
 #define WIN_MINH    40
@@ -278,7 +378,7 @@ static void RenderDesktopFills(void)
     int i, x, y;
 
     GfxFill(0, 0, SCREEN_W, TASK_Y, CL_DESKTOP);
-    for (i = 0; i < (int)DESK_N; i++)
+    for (i = 0; i < s_deskN; i++)
     {
         int lw = GfxTextWidth(g_FontUI, s_desk[i].label), lx;
         x = s_deskPos[i].x; y = s_deskPos[i].y;
@@ -292,7 +392,7 @@ static void RenderDesktopFills(void)
 static void RenderDesktopText(HDC hdc)
 {
     int i, x, y;
-    for (i = 0; i < (int)DESK_N; i++)
+    for (i = 0; i < s_deskN; i++)
     {
         COLORREF bg = (i == s_deskSel && !s_menuOpen) ? CL_TITLE : CL_DESKTOP;
         int lw = GfxTextWidth(g_FontUI, s_desk[i].label), lx;
@@ -574,10 +674,11 @@ static void OnKey(WPARAM wp)
     {
         int row = s_deskSel % s_deskRows;
         if (wp == VK_UP    && row > 0)                                  s_deskSel--;
-        if (wp == VK_DOWN  && row < s_deskRows - 1 && s_deskSel + 1 < (int)DESK_N) s_deskSel++;
+        if (wp == VK_DOWN  && row < s_deskRows - 1 && s_deskSel + 1 < s_deskN) s_deskSel++;
         if (wp == VK_LEFT  && s_deskSel - s_deskRows >= 0)             s_deskSel -= s_deskRows;
-        if (wp == VK_RIGHT && s_deskSel + s_deskRows < (int)DESK_N)    s_deskSel += s_deskRows;
+        if (wp == VK_RIGHT && s_deskSel + s_deskRows < s_deskN)    s_deskSel += s_deskRows;
     }
+    if (wp == VK_DELETE) { RemoveShortcut(s_deskSel); return; }   // remove a user-added shortcut
     if (wp == VK_RETURN)
     {
         if (s_desk[s_deskSel].path)
@@ -662,7 +763,7 @@ static int HandleClick(int x, int y)
             }
         }
     }
-    for (k = 0; k < (int)DESK_N; k++)               // desktop icons (mutable cell positions)
+    for (k = 0; k < s_deskN; k++)               // desktop icons (mutable cell positions)
     {
         int ix = s_deskPos[k].x, iy = s_deskPos[k].y;
         if (x >= ix && x < ix + ICELL_W && y >= iy && y < iy + ICELL_H)
@@ -683,6 +784,17 @@ static void DragHitTest(int x, int y)
     int j, k;
     s_dragKind = DRAG_NONE; s_dragTarget = -1;
 
+    if (s_menuOpen)                                 // grabbing a Start-menu row -> drag-to-desktop
+    {
+        int h = (int)START_N * ROW_H + 8, my = TASK_Y - h + 4, row;
+        if (x >= 4 && x < 4 + MENU_W && y >= my && y < my + (int)START_N * ROW_H)
+        {
+            row = (y - my) / ROW_H;
+            if (row >= 0 && row < (int)START_N && (s_start[row].exe || s_start[row].path))
+            { s_dragKind = DRAG_STARTITEM; s_dragTarget = row; }
+        }
+        return;                                     // menu is modal: never grab windows/icons under it
+    }
     if (s_shared && !s_menuOpen)                    // windows, top-most (focused) first
     {
         int order[DCWIN_MAXWIN + 1], n = 0;
@@ -700,7 +812,7 @@ static void DragHitTest(int x, int y)
             { s_dragKind = DRAG_WMOVE; s_dragTarget = order[j]; s_dragOffX = x - w->x; s_dragOffY = y - w->y; s_focus = order[j]; return; }
         }
     }
-    for (k = 0; k < (int)DESK_N; k++)               // desktop icon -> move
+    for (k = 0; k < s_deskN; k++)               // desktop icon -> move
     {
         int ix = s_deskPos[k].x, iy = s_deskPos[k].y;
         if (x >= ix && x < ix + ICELL_W && y >= iy && y < iy + ICELL_H)
@@ -795,7 +907,7 @@ int WINAPI WinMain(HINSTANCE hInst, HINSTANCE hPrev, LPWSTR lpCmd, int nShow)
         return 1;
     }
     DbgStr(L"DCSHELL: desktop up\r\n");
-    DeskPosInit();                      // default desktop-icon positions (draggable thereafter)
+    DeskInit();                         // seed shortcuts (built-ins + VMU-persisted) + lay out
 
     // Run a notch above client apps. We are the window server: input polling and the
     // cursor present must preempt a CPU-bound or fast-republishing client, or the
@@ -850,6 +962,16 @@ int WINAPI WinMain(HINSTANCE hInst, HINSTANCE hPrev, LPWSTR lpCmd, int nShow)
             else if (!ptr && s_ptrWas)                     // UP: drop, or click if it never moved
             {
                 if (!s_dragMoved) { if (!HandleClick(s_cx, s_cy)) OnKey(VK_RETURN); }
+                else if (s_dragKind == DRAG_STARTITEM && s_dragTarget >= 0)
+                {
+                    int h = (int)START_N * ROW_H + 8, my = TASK_Y - h + 4;
+                    if (s_cy < TASK_Y && (s_cy < my || s_cx >= 4 + MENU_W))   // dropped on the desktop
+                        AddDesktopShortcut(s_dragTarget, s_cx, s_cy);
+                    s_menuOpen = 0;
+                }
+                else if (s_dragKind == DRAG_ICON && s_dragTarget >= 0 &&
+                         s_dragTarget < s_deskN && s_deskUser[s_dragTarget] >= 0)
+                    SaveShortcuts();                         // persist a moved user shortcut
                 s_dragKind = DRAG_NONE; s_dragTarget = -1; s_dragMoved = 0; s_dirty = 1;
             }
             s_ptrWas = ptr;
