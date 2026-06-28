@@ -34,7 +34,7 @@ set(ENVPFX ${CMAKE_COMMAND} -E env
 # Includes are passed as /I (no INCLUDE env), libs as full paths (no LIB env), so there
 # are no semicolon-list pitfalls; cl/link find their backend DLLs next to themselves.
 function(add_sh_module NAME)
-  cmake_parse_arguments(M "" "TYPE;ENTRY;DEF;OUT" "SOURCES;ASM;LIBS;INCLUDES" ${ARGN})
+  cmake_parse_arguments(M "" "TYPE;ENTRY;DEF;OUT" "SOURCES;ASM;LIBS;INCLUDES;EXTRALIBS" ${ARGN})
   set(objs "")
   set(incflags /I${SDK_INC})
   foreach(d ${M_INCLUDES})
@@ -58,8 +58,11 @@ function(add_sh_module NAME)
   endforeach()
   set(out ${OUTDIR}/${M_OUT})
   set(lf /nologo /machine:SH4 /subsystem:windowsce,2.12 /entry:${M_ENTRY})
+  set(byprod "")
   if(M_TYPE STREQUAL "dll")
     list(APPEND lf /dll)
+    get_filename_component(_ob ${M_OUT} NAME_WE)   # link /dll also emits the import lib + exp
+    set(byprod BYPRODUCTS ${OUTDIR}/${_ob}.lib ${OUTDIR}/${_ob}.exp)
   endif()
   if(M_DEF)
     list(APPEND lf /def:${M_DEF})
@@ -68,9 +71,13 @@ function(add_sh_module NAME)
   foreach(l ${M_LIBS})
     list(APPEND libs ${SDK_LIB}/${l})
   endforeach()
+  foreach(l ${M_EXTRALIBS})      # full-path libs built by us (e.g. the generated dcspi.lib)
+    list(APPEND libs ${l})
+  endforeach()
   add_custom_command(OUTPUT ${out}
     COMMAND ${ENVPFX} "${LINK}" ${lf} /out:${out} ${objs} ${libs}
-    DEPENDS ${objs} VERBATIM)
+    ${byprod}
+    DEPENDS ${objs} ${M_EXTRALIBS} VERBATIM)
   add_custom_target(${NAME} ALL DEPENDS ${out})
   set_property(GLOBAL APPEND PROPERTY WINCE_MODULES ${out})
 endfunction()
@@ -79,6 +86,16 @@ endfunction()
 add_sh_module(dcspi TYPE dll ENTRY DllMain DEF ${REPO}/drivers/dcspi/dcspi.def OUT dcspi.dll
   SOURCES ${REPO}/drivers/dcspi/dcspi.c
   LIBS coredll.lib corelibc.lib)
+
+# ---- SD-card storage: SD block driver + ChaN FatFs (WDM/AFS mount layer is WIP) ----
+add_sh_module(sdcard TYPE dll ENTRY DllMain OUT sdcard.dll
+  SOURCES ${REPO}/drivers/sdcard/sdcard.c ${REPO}/drivers/sdcard/sdblk.c
+          ${REPO}/drivers/sdcard/diskio.c
+          ${REPO}/drivers/sdcard/fatfs/ff.c ${REPO}/drivers/sdcard/fatfs/ccsbcs.c
+  INCLUDES ${REPO}/drivers/sdcard ${REPO}/drivers/sdcard/fatfs ${REPO}/drivers/dcspi
+  LIBS coredll.lib corelibc.lib
+  EXTRALIBS ${OUTDIR}/dcspi.lib)
+add_dependencies(sdcard dcspi)
 
 # ---- universal microstk link shim (mppp.dll) --------------------------------------
 add_sh_module(mppp TYPE dll ENTRY dllentry DEF ${REPO}/net/netif/netif.def OUT mppp.dll
