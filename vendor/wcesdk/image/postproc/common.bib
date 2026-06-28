@@ -1,0 +1,273 @@
+IF CONFIGTOOL
+MODULES
+;  Name            Path                                        Memory Type
+;  --------------  ------------------------------------------  -----------
+   nk.exe          $(_FLATRELEASEDIR)\nknodbg.exe              NK  SH
+;Windows CE Core Operating System
+
+;Windows CE Core
+;Windows CE Core Operating System
+
+;Required
+;This component contains files that must be present in order to build a proper Windows CE image.
+
+;Core OS (Standard)
+;This is the core Windows CE operating system, including the Windows CE kernel.  This component must be present in order for the Dreamcast to boot properly.
+	coredll.dll	$(_FLATRELEASEDIR)\CoreOS_Standard\coredll.dll		NK  SH
+
+	filesys.exe	$(_FLATRELEASEDIR)\CoreOS_Standard\filesys.exe		NK  SH
+
+	gwes.exe	$(_FLATRELEASEDIR)\CoreOS_Standard\gwes.exe		NK  SH
+
+	ole32.dll	$(_FLATRELEASEDIR)\CoreOS_Standard\ole32.dll		NK  SH
+
+
+;Core OS (HTML/IME)
+;Codepage table
+;Windbg debugger
+;Windbg debugger
+
+;SCSI Windbg debugger
+;Serial Windbg debugger
+;No Windbg debugger
+;This option disables the Windbg debugger.  Debugging of applications through Microsoft Visual C++ is still available.
+
+;Windows CE OS
+;Windows CE Components and Drivers
+
+;Initialization Code
+;This contains code which is run once when the system is booted, but can be unloaded after that.
+	sysstart.exe	$(_FLATRELEASEDIR)\OS\sysstart.exe		NK  SH
+
+	timer.dll	$(_FLATRELEASEDIR)\OS\timer.dll		NK  SH
+
+
+;GDI Driver
+;This is the graphics driver for GDI.
+	ddi.dll	$(_FLATRELEASEDIR)\OS\ddi.dll		NK  SH
+
+
+;Platform Utilities
+;This library contains functions to access the Boot ROM firmware.  This library is also required by the graphics & sound drivers.
+	platutil.dll	$(_FLATRELEASEDIR)\OS\platutil.dll		NK  SH
+
+
+;WDM
+;WDM (Windows Device Model) system.  This component is required for normal operation.
+	wdevice.exe	$(_FLATRELEASEDIR)\OS\wdevice.exe		NK  SH
+
+	wdmlib.dll	$(_FLATRELEASEDIR)\OS\wdmlib.dll		NK  SH
+
+	wdmoem.dll	$(_FLATRELEASEDIR)\OS\wdmoem.dll		NK  SH
+
+
+;Shell
+;This is what allows Windows CE to talk to DCTool.  When creating the final GDROM for your game, unselect this component.
+	shell.exe	$(_FLATRELEASEDIR)\OS\shell.exe		NK  SH
+
+	toolhelp.dll	$(_FLATRELEASEDIR)\OS\toolhelp.dll		NK  SH
+
+
+;GDROM driver
+;Support for the GDROM filesystem
+	wsegacd.dll	$(_FLATRELEASEDIR)\OS\wsegacd.dll		NK  SH
+
+
+;Maple driver
+;Driver for all main input devices, such as the gamepad and steering wheel
+	maple.dll	$(_FLATRELEASEDIR)\OS\maple.dll		NK  SH
+
+
+;DirectX
+;DirectX 6.1 libraries
+
+;DirectDraw
+;DirectDraw 6.1 library, used for 2D graphics
+	ddraw.dll	$(_FLATRELEASEDIR)\OS\ddraw.dll		NK  SH
+
+
+;Direct3D
+;Direct3D Immediate Mode 6.1 library, used for 3D graphics
+	d3dim.dll	$(_FLATRELEASEDIR)\OS\d3dim.dll		NK  SH
+
+
+;Graphics Driver
+;Graphics driver for DirectDraw and Direct3D
+	ddhal.dll	$(_FLATRELEASEDIR)\OS\ddhal.dll		NK  SH
+
+
+;DirectPlay
+;DPlay WSP
+;DPlay Modem SP
+;Sound Driver
+;Sound driver required for DirectSound and MIDI
+	sndcore.dll	$(_FLATRELEASEDIR)\OS\sndcore.dll		NK  SH
+
+
+;DirectSound
+;DirectSound 6.1 library, used for PCM audio playback
+	dsound.dll	$(_FLATRELEASEDIR)\OS\dsound.dll		NK  SH
+
+
+;DirectMusic
+;DirectInput
+;DirectInput 6.1 library, used for accessing the gamepad and other input devices
+	dinputx.dll	$(_FLATRELEASEDIR)\OS\dinputx.dll		NK  SH
+
+
+;Peripherals
+;Drivers for all peripherals and extension devices, such as the VMU
+	mapledev.dll	$(_FLATRELEASEDIR)\OS\mapledev.dll		NK  SH
+
+
+;DirectShow
+;Fonts and Language
+;This component group contains fonts and Input Method Editors for Japanese and Traditional Chinese.
+
+;Arial font
+;Arial TrueType font
+
+;Japanese font
+;MS Ming font
+;Hei MT Bold
+;Null font
+;Tankanji IME
+;Pocket IME
+;Traditional Chinese IME
+;HTML
+;Miscellaneous libraries
+;This component group contains other libraries and services provided for the Dreamcast, such as MIDI, Winsock, and Wininet.
+
+;MIDI
+;Multimedia timer
+;Networking
+;Winsock, PPP, serial driver, and modem driver
+	microstk.exe	$(_FLATRELEASEDIR)\OS\microstk.exe		NK  SH
+
+	mppp.dll	$(_FLATRELEASEDIR)\OS\mppp.dll		NK  SH
+
+	winsock.dll	$(_FLATRELEASEDIR)\OS\winsock.dll		NK  SH
+
+	schannel.dll	$(_FLATRELEASEDIR)\OS\schannel.dll		NK  SH
+
+	sh4ser.dll	$(_FLATRELEASEDIR)\OS\sh4ser.dll		NK  SH
+
+	seg_rock.dll	$(_FLATRELEASEDIR)\OS\seg_rock.dll		NK  SH
+
+
+;DTrace
+;User defined
+;All files not provided with the sdk having to go in the image should be put there
+
+
+
+FILES
+;  Name            Path                                        Memory Type
+;  --------------  ------------------------------------------  -----------
+;Windows CE Core Operating System
+
+;Windows CE Core
+;Windows CE Core Operating System
+
+;Required
+;This component contains files that must be present in order to build a proper Windows CE image.
+	default.fdf	$(_FLATRELEASEDIR)\default.fdf		NK  SH
+
+
+;Core OS (Standard)
+;This is the core Windows CE operating system, including the Windows CE kernel.  This component must be present in order for the Dreamcast to boot properly.
+
+;Core OS (HTML/IME)
+;Codepage table
+;Windbg debugger
+;Windbg debugger
+
+;SCSI Windbg debugger
+;Serial Windbg debugger
+;No Windbg debugger
+;This option disables the Windbg debugger.  Debugging of applications through Microsoft Visual C++ is still available.
+
+;Windows CE OS
+;Windows CE Components and Drivers
+
+;Initialization Code
+;This contains code which is run once when the system is booted, but can be unloaded after that.
+
+;GDI Driver
+;This is the graphics driver for GDI.
+
+;Platform Utilities
+;This library contains functions to access the Boot ROM firmware.  This library is also required by the graphics & sound drivers.
+
+;WDM
+;WDM (Windows Device Model) system.  This component is required for normal operation.
+
+;Shell
+;This is what allows Windows CE to talk to DCTool.  When creating the final GDROM for your game, unselect this component.
+
+;GDROM driver
+;Support for the GDROM filesystem
+
+;Maple driver
+;Driver for all main input devices, such as the gamepad and steering wheel
+
+;DirectX
+;DirectX 6.1 libraries
+
+;DirectDraw
+;DirectDraw 6.1 library, used for 2D graphics
+
+;Direct3D
+;Direct3D Immediate Mode 6.1 library, used for 3D graphics
+
+;Graphics Driver
+;Graphics driver for DirectDraw and Direct3D
+
+;DirectPlay
+;DPlay WSP
+;DPlay Modem SP
+;Sound Driver
+;Sound driver required for DirectSound and MIDI
+	armcom.drv	$(_FLATRELEASEDIR)\OS\armcom.drv		NK  SHU
+
+
+;DirectSound
+;DirectSound 6.1 library, used for PCM audio playback
+
+;DirectMusic
+;DirectInput
+;DirectInput 6.1 library, used for accessing the gamepad and other input devices
+
+;Peripherals
+;Drivers for all peripherals and extension devices, such as the VMU
+
+;DirectShow
+;Fonts and Language
+;This component group contains fonts and Input Method Editors for Japanese and Traditional Chinese.
+
+;Arial font
+;Arial TrueType font
+	arial.ttf	$(_FLATRELEASEDIR)\OS\arial.ttf		NK  SHU
+
+
+;Japanese font
+;MS Ming font
+;Hei MT Bold
+;Null font
+;Tankanji IME
+;Pocket IME
+;Traditional Chinese IME
+;HTML
+;Miscellaneous libraries
+;This component group contains other libraries and services provided for the Dreamcast, such as MIDI, Winsock, and Wininet.
+
+;MIDI
+;Multimedia timer
+;Networking
+;Winsock, PPP, serial driver, and modem driver
+
+;DTrace
+;User defined
+;All files not provided with the sdk having to go in the image should be put there
+
+ENDIF

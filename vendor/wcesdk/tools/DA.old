@@ -1,0 +1,6 @@
+DA-Check v2.2
+Date (D/M/Y)  18 / 06 / 2026,  Time 22:38:40.
+Initialize SALSA Library
+ERROR ! SALSA FAILED TO INITIALIZE
+SALSA error report <ASPI: ASPI layer not initialised (ASPI_Inited == FALSE)>
+Exiting DA-Check.

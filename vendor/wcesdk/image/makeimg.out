@@ -1,0 +1,292 @@
+[Reading input file]
+Parsing locales: 0409
+Parsing calendars: 0001
+Parsing codepages: 437 1252
+Parsing unicode tables
+Parsing sortkeys
+Parsing ideograph exceptions
+Parsing expansions
+Parsing exceptions
+Parsing compressions
+Parsing case tables
+[Writing out nls file]
+  Header: 52 bytes
+Writing out locales
+    Locale 0409: 1288 bytes
+  Total for all locales: 1288 bytes
+Writing out calendars
+    Calendar 1: 28 bytes
+  Total for all calendars: 28 bytes
+Writing out code pages
+    Codepage 437: 2724 bytes
+    Codepage 1252: 2300 bytes
+  Total for all codepages: 5024 bytes
+Writing out unicode tables
+  Header: 48 bytes
+    Ascii digits: 816
+    Compatibility zone: 2748
+    Compressions: 4230
+    Hiragana: 344
+    Katakana: 344
+    Halfwidth: 888
+    Fullwidth: 864
+    Ctypes: 14230
+  Total data: 24464
+Writing out sort tables
+  Header: 48 bytes
+    SortMap: 31608
+    Reverse diacritics: 0
+    Double compressions: 0
+    SortMap locale exceptions: 0
+    SortMap ideograph exceptions: 0
+    Locale compressions: 0
+    Uppercase tables: 2220
+    Lowercase tables: 2196
+    Expansions: 222
+  Total data: 36246
+Success parsing locale file
+txt2ucde: Got COUNTRY=USA, using CodePage=1252
+regcomp: Got COUNTRY=USA, using CodePage=1252
+InitRegistry Finished (1436 lines).
+Windows CE ROM Image Builder  v1.0  Copyright Microsoft 1995.
+Using compression page size of 4096
+GetMapSymbols: pTOC found at 00001bac
+Writing ROM Signature and TOC pointer at 8c010040
+Setting PageSize to 4096
+Using compression page size of 4096
+RAM AutoSize: RAM Start=8C1E0000h RAM Size=DF0000h
+GetMapSymbols: pTOC found at 00001bac
+
+MODULES Section
+Module       Section  Start     Length  psize   vsize   Filler
+------------ -------- --------- ------- ------- ------- ------
+nk.exe       .text    8c011000h  122880  121856  121576 o32_rva=1000h
+nk.exe       .pdata   8c02f000h    8192    4608    4472 o32_rva=2C000h
+coredll.dll  .text    8c031000h  184320  183808  183492 o32_rva=1000h
+coredll.dll  .rsrc    8c05e000h    4096    1024     536 o32_rva=31000h
+filesys.exe  .text    8c05f000h   24576   24064   23972 o32_rva=1000h
+filesys.exe  .rsrc    8c065000h    4096     512     172 o32_rva=B000h
+gwes.exe     .text    8c066000h  192512  191488  191020 o32_rva=1000h
+ole32.dll    .text    8c095000h    8192    7168    6754 o32_rva=1000h
+sysstart.exe .text    8c097000h    4096    3072    2584 o32_rva=1000h
+timer.dll    .text    8c098000h    8192    5120    4738 o32_rva=1000h
+ddi.dll      .text    8c09a000h   32768   29184   28794 o32_rva=1000h
+platutil.dll .text    8c0a2000h   16384   13824   13768 o32_rva=1000h
+platutil.dll PSG      8c0a6000h    4096     512      68 o32_rva=5000h
+wdevice.exe  .text    8c0a7000h    4096    2560    2404 o32_rva=1000h
+wdmlib.dll   .text    8c0a8000h   12288   12288   12122 o32_rva=1000h
+wdmoem.dll   .text    8c0ab000h    4096    1024     997 o32_rva=1000h
+shell.exe    .text    8c0ac000h   40960   37376   36874 o32_rva=1000h
+toolhelp.dll .text    8c0b6000h    4096    2048    1983 o32_rva=1000h
+wsegacd.dll  .text    8c0b7000h   20480   19968   19827 o32_rva=1000h
+maple.dll    .text    8c0bc000h   28672   28160   27746 o32_rva=1000h
+ddraw.dll    .text    8c0c3000h   61440   57856   57565 o32_rva=1000h
+d3dim.dll    .text    8c0d2000h   81920   78336   77898 o32_rva=1000h
+ddhal.dll    .text    8c0e6000h  147456  144896  144836 o32_rva=1000h
+sndcore.dll  .text    8c10a000h   16384   15872   15776 o32_rva=1000h
+dsound.dll   .text    8c10e000h   28672   27648   27526 o32_rva=1000h
+dinputx.dll  .text    8c115000h   12288   12288   11889 o32_rva=1000h
+mapledev.dll .text    8c118000h   53248   52224   51931 o32_rva=1000h
+microstk.exe .text    8c125000h   49152   46080   45940 o32_rva=1000h
+mppp.dll     .text    8c131000h   65536   63488   62990 o32_rva=1000h
+winsock.dll  .text    8c141000h   12288    8704    8450 o32_rva=1000h
+schannel.dll .text    8c144000h   98304   95232   94963 o32_rva=1000h
+schannel.dll .rsrc    8c15c000h   16384   13824   16384 o32_rva=1B000h
+sh4ser.dll   .text    8c160000h   12288    9216    8979 o32_rva=1000h
+seg_rock.dll .text    8c163000h  241664  240128  239912 o32_rva=1000h
+nk.exe       .KDATA   8c02eae8h       0       0    7168 FILLER>8c1e0000h
+nk.exe       .data    8c02eae8h    1261    1261   41096 FILLER>8c1e1c00h
+coredll.dll  .data    8c02efd5h       8       8     356 FILLER
+coredll.dll  .pdata   8c19e000h    4680    4680    6216
+filesys.exe  .data    8c030178h    1416    1416    9488 FILLER
+filesys.exe  .pdata   8c030700h     900     900    1264 FILLER
+gwes.exe     .data    8c05e218h    1585    1585   13740 FILLER
+gwes.exe     .pdata   8c19f248h    6356    6354    8848
+ole32.dll    .data    8c030a84h     106     106     204 FILLER
+ole32.dll    .pdata   8c030aeeh     259     259     320 FILLER
+sysstart.exe .data    8c030bf1h     103     103     148 FILLER
+sysstart.exe .pdata   8c030c58h      61      61      64 FILLER
+timer.dll    .data    8c030c95h     123     123    1492 FILLER
+timer.dll    .pdata   8c030d10h     181     181     224 FILLER
+ddi.dll      .data    8c030dc5h     152     152    8480 FILLER
+ddi.dll      .pdata   8c05dcc4h     597     597     768 FILLER
+platutil.dll .data    8c030e5dh     144     144     320 FILLER
+platutil.dll .pdata   8c05e849h     492     492     656 FILLER
+wdevice.exe  .data    8c030eedh     106     106     144 FILLER
+wdevice.exe  .pdata   8c030f57h      59      59      72 FILLER
+wdmlib.dll   .data    8c05df19h     149     149     340 FILLER
+wdmlib.dll   .pdata   8c05ea35h     440     440     552 FILLER
+wdmoem.dll   .data    8c02efddh      16      16     788 FILLER
+wdmoem.dll   .pdata   8c030f92h      38      38      40 FILLER
+shell.exe    .data    8c1a0b1ch   18916   18915   34313
+shell.exe    .pdata   8c05ebedh     735     735     984 FILLER
+toolhelp.dll .data    8c030fb8h      24      24      28 FILLER
+toolhelp.dll .pdata   8c05eecch      92      92     104 FILLER
+wsegacd.dll  .data    8c064da4h     261     261     352 FILLER
+wsegacd.dll  .pdata   8c0650ach     667     667     896 FILLER
+maple.dll    .data    8c05ef28h     173     173     704 FILLER
+maple.dll    .pdata   8c065347h     549     549     672 FILLER
+ddraw.dll    .data    8c06556ch     639     639    2684 FILLER
+ddraw.dll    .pdata   8c0657ebh    1273    1273    1592 FILLER
+ddraw.dll    share    8c02efedh       0       0      24 FILLER
+d3dim.dll    .data    8c094a2ch    1309    1309   15344 FILLER
+d3dim.dll    .pdata   8c099284h    2044    2044    2680 FILLER
+ddhal.dll    .data    8c0a107ch    3011    3011   37988 FILLER
+ddhal.dll    .pdata   8c0a55c8h    2574    2574    3416 FILLER
+sndcore.dll  .data    8c064ea9h     147     147    4492 FILLER
+sndcore.dll  .pdata   8c065ce4h     744     744     992 FILLER
+dsound.dll   .data    8c096a64h     305     305    1120 FILLER
+dsound.dll   .pdata   8c096b95h    1100    1100    1432 FILLER
+dinputx.dll  .data    8c064f3ch     124     124     200 FILLER
+dinputx.dll  .pdata   8c097a18h     403     403     496 FILLER
+mapledev.dll .data    8c097babh     385     385    1380 FILLER
+mapledev.dll .pdata   8c0a6044h    1564    1564    2032 FILLER
+microstk.exe .data    8c097d2ch     318     318     677 FILLER
+microstk.exe .pdata   8c0a6660h    1432    1432    1784 FILLER
+mppp.dll     .data    8c099a80h     509     509    1820 FILLER
+mppp.dll     .pdata   8c0a7964h    1518    1518    1952 FILLER
+winsock.dll  .data    8c05dfaeh      52      52      56 FILLER
+winsock.dll  .pdata   8c097e6ah     283     283     368 FILLER
+schannel.dll .data    8c0ab3e8h    1040    1040    1876 FILLER
+schannel.dll .pdata   8c0b500ch    2141    2141    2760 FILLER
+sh4ser.dll   .data    8c099c7dh     321     321     460 FILLER
+sh4ser.dll   .pdata   8c099dbeh     275     275     360 FILLER
+seg_rock.dll .data    8c1a5500h   46744   46744  116744
+seg_rock.dll .pdata   8c1b0b98h    6644    6641    8504
+nk.exe       E32      8c094f4ch     100                 FILLER
+nk.exe       O32      8c097f88h      96                 FILLER
+coredll.dll  E32      8c099ed4h     100                 FILLER
+coredll.dll  O32      8c099f38h      96                 FILLER
+filesys.exe  E32      8c099f98h     100                 FILLER
+filesys.exe  O32      8c0a1c40h      96                 FILLER
+gwes.exe     E32      8c0a1ca0h     100                 FILLER
+gwes.exe     O32      8c064fb8h      72                 FILLER
+ole32.dll    E32      8c0a1d04h     100                 FILLER
+ole32.dll    O32      8c094fb0h      72                 FILLER
+sysstart.exe E32      8c0a1d68h     100                 FILLER
+sysstart.exe O32      8c0a1dcch      72                 FILLER
+timer.dll    E32      8c0a1e14h     100                 FILLER
+timer.dll    O32      8c0a1e78h      72                 FILLER
+ddi.dll      E32      8c0a1ec0h     100                 FILLER
+ddi.dll      O32      8c0a1f24h      72                 FILLER
+platutil.dll E32      8c0a1f6ch     100                 FILLER
+platutil.dll O32      8c0a6bf8h      96                 FILLER
+wdevice.exe  E32      8c0a6c58h     100                 FILLER
+wdevice.exe  O32      8c0a6cbch      72                 FILLER
+wdmlib.dll   E32      8c0a6d04h     100                 FILLER
+wdmlib.dll   O32      8c0a6d68h      72                 FILLER
+wdmoem.dll   E32      8c0a6db0h     100                 FILLER
+wdmoem.dll   O32      8c0a6e14h      72                 FILLER
+shell.exe    E32      8c0a6e5ch     100                 FILLER
+shell.exe    O32      8c0a6ec0h      72                 FILLER
+toolhelp.dll E32      8c0a6f08h     100                 FILLER
+toolhelp.dll O32      8c0a6f6ch      72                 FILLER
+wsegacd.dll  E32      8c0a7f54h     100                 FILLER
+wsegacd.dll  O32      8c0a6fb4h      72                 FILLER
+maple.dll    E32      8c0aaf5ch     100                 FILLER
+maple.dll    O32      8c0a7fb8h      72                 FILLER
+ddraw.dll    E32      8c0ab7f8h     100                 FILLER
+ddraw.dll    O32      8c0ab85ch      96                 FILLER
+d3dim.dll    E32      8c0ab8bch     100                 FILLER
+d3dim.dll    O32      8c0ab920h      72                 FILLER
+ddhal.dll    E32      8c0ab968h     100                 FILLER
+ddhal.dll    O32      8c0ab9cch      72                 FILLER
+sndcore.dll  E32      8c0aba14h     100                 FILLER
+sndcore.dll  O32      8c0aba78h      72                 FILLER
+dsound.dll   E32      8c0abac0h     100                 FILLER
+dsound.dll   O32      8c0abb24h      72                 FILLER
+dinputx.dll  E32      8c0abb6ch     100                 FILLER
+dinputx.dll  O32      8c0abbd0h      72                 FILLER
+mapledev.dll E32      8c0abc18h     100                 FILLER
+mapledev.dll O32      8c0abc7ch      72                 FILLER
+microstk.exe E32      8c0abcc4h     100                 FILLER
+microstk.exe O32      8c0abd28h      72                 FILLER
+mppp.dll     E32      8c0abd70h     100                 FILLER
+mppp.dll     O32      8c0abdd4h      72                 FILLER
+winsock.dll  E32      8c0abe1ch     100                 FILLER
+winsock.dll  O32      8c0abe80h      72                 FILLER
+schannel.dll E32      8c0abec8h     100                 FILLER
+schannel.dll O32      8c0abf2ch      96                 FILLER
+sh4ser.dll   E32      8c0abf8ch     100                 FILLER
+sh4ser.dll   O32      8c0b586ch      72                 FILLER
+seg_rock.dll E32      8c0b58b4h     100                 FILLER
+seg_rock.dll O32      8c0b5918h      72                 FILLER
+nk.exe       FileName 8c02efedh       7                 FILLER
+coredll.dll  FileName 8c02eff4h      12                 FILLER
+filesys.exe  FileName 8c030fd0h      12                 FILLER
+gwes.exe     FileName 8c030fdch       9                 FILLER
+ole32.dll    FileName 8c030fe5h      10                 FILLER
+sysstart.exe FileName 8c030fefh      13                 FILLER
+timer.dll    FileName 8c05dfe2h      10                 FILLER
+ddi.dll      FileName 8c05dfech       8                 FILLER
+platutil.dll FileName 8c05efd5h      13                 FILLER
+wdevice.exe  FileName 8c05dff4h      12                 FILLER
+wdmlib.dll   FileName 8c05efe2h      11                 FILLER
+wdmoem.dll   FileName 8c05efedh      11                 FILLER
+shell.exe    FileName 8c065fcch      10                 FILLER
+toolhelp.dll FileName 8c065fd6h      13                 FILLER
+wsegacd.dll  FileName 8c065fe3h      12                 FILLER
+maple.dll    FileName 8c065fefh      10                 FILLER
+ddraw.dll    FileName 8c096fe1h      10                 FILLER
+d3dim.dll    FileName 8c096febh      10                 FILLER
+ddhal.dll    FileName 8c096ff5h      10                 FILLER
+sndcore.dll  FileName 8c097fe8h      12                 FILLER
+dsound.dll   FileName 8c097ff4h      11                 FILLER
+dinputx.dll  FileName 8c0a1fd0h      12                 FILLER
+mapledev.dll FileName 8c0a1fdch      13                 FILLER
+microstk.exe FileName 8c0a1fe9h      13                 FILLER
+mppp.dll     FileName 8c0a1ff6h       9                 FILLER
+winsock.dll  FileName 8c0a5fd6h      12                 FILLER
+schannel.dll FileName 8c0a5fe2h      13                 FILLER
+sh4ser.dll   FileName 8c0a5fefh      11                 FILLER
+seg_rock.dll FileName 8c0aafc0h      13                 FILLER
+default.fdf  FileName 8c0aafcdh      12                 FILLER
+armcom.drv   FileName 8c0aafd9h      11                 FILLER
+arial.ttf    FileName 8c0aafe4h      10                 FILLER
+
+FILES Section
+    Raw   Compr Location Filler File
+  51682   12473 8c1b258c        default.fdf
+  31068   31068 8c1b5648        armcom.drv
+ 138396  138396 8c1bcfa4        arial.ttf
+
+ 221146  181937                 Total
+
+Unfilled ROM Holes (Address,Length):
+8c0e504ch    4020 8c0d10e0h    3872 8c143104h    3836 8c15b2f4h    3340 
+8c162314h    3308 8c130374h    3212 8c1095c4h    2620 8c15f600h    2560 
+8c140610h    2544 8c0b67c0h    2112 8c19d928h    1752 8c0b5960h    1696 
+8c124adch    1316 8c114b88h    1144 8c0c2c64h     924 8c0bbd74h     652 
+8c10dda0h     608 8c117e74h     396 8c0aafeeh      18 8c0abff0h      16 
+8c05eff8h       8 8c094ff8h       8 8c065ff9h       7 8c0a5ffah       6 
+8c030ffch       4 8c099ffch       4 8c0a6ffch       4 8c096fffh       1 
+8c097fffh       1 8c0a1fffh       1 
+Writing ROM Signature and TOC pointer at 8c010040
+RAM AutoSize: RAM Start=8C1E0000h RAM Size=DF0000h
+ROM Header                          8c1dec40  00000054h  (        84)
+Modules Table of Contents           8c1dec94  000003a0h  (       928)
+Files Table of Contents             8c1df034  00000054h  (        84)
+Kernel Data Copy Section            8c1df088  00000010h  (        16)
+
+Starting ip= 8c0120c0h
+
+First DLL Address:        01b20000h
+Last DLL Address:         02000000h
+Physical Start Address:   8c010000h
+Physical End Address:     8c1df098h
+Start RAM:                8c1e0000h
+Start of free RAM:        8c1ec000h
+End of RAM:               8cfd0000h
+Number of Modules:        29
+Number of Copy Sections:  1
+Copy Section Offset:      8c1df088h
+Starting ip:              8c010004h
+Raw files size:           0006bfb4h
+Compressed files size:    00058d62h
+Kernel Flags:             00000001h
+FileSys 4K Chunks/Mbyte:  0 <2Mbyte  0 2-4Mbyte  0 4-6Mbyte  0 >6Mbyte
+Driver globals            8cfd0000h, 00030000h
+Total ROM size:           001cf098h (   1896600)
+cpy&tok: Got COUNTRY=USA, COUNTRY3=(null) using dir=USA cp=1252 lcid=409 pl=9 sl=1
+Copying files from usasnap for USA release...
+MAKEIMG: localization SKIPPED since COUNTRY is unchanged

@@ -1,0 +1,13 @@
+# wnaspi32 targets configuration
+#
+# Only put an entry here if the device needs an async delay, ie
+#    the dll returns SS_PENDING, waits for async_delay milliseconds, and raises the event/calls the callback
+# If async_delay = 0 (default), the dll will return the real response immediately, and
+#    raise an event/call the callback immediately (even before the response actually)
+# (Most devices shouldn't need this if they followed Adaptec's recommendations...)
+#
+# Vendor, Model, async_delay (msecs)
+#
+# ! ADAPT the next line to your setup !
+#
+SEGA OA ,Saturn CartDev  ,100

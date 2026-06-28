@@ -1,0 +1,211 @@
+DA-Check v2.2
+Date (D/M/Y)  18 / 06 / 2026,  Time 22:43:25.
+Initialize SALSA Library
+SALSA Lib 1.23 : Build Ver. 1.23 built on Jul 20 1998 @ 12:03:37
+All SCSI devices detected on bus...
+HOST 0 : SCSI ID 0 SEGA     KATANA_DA        1.00                     , Type [3], SALSA Type [2]
+HOST 0 : SCSI ID 1 SEGA     KATANA_DA        1.00                     , Type [3], SALSA Type [2]
+HOST 0 : SCSI ID 2 SEGA     KATANA_DA        1.00                     , Type [3], SALSA Type [2]
+HOST 0 : SCSI ID 3 SEGA     KATANA_DA        1.00                     , Type [3], SALSA Type [2]
+HOST 0 : SCSI ID 4 SEGA     KATANA_DA        1.00                     , Type [3], SALSA Type [2]
+HOST 0 : SCSI ID 5 SEGA     KATANA_DA        1.00                     , Type [3], SALSA Type [2]
+HOST 0 : SCSI ID 6 SEGA     KATANA_DA        1.00                     , Type [3], SALSA Type [2]
+HOST 0 : SCSI ID 7 SEGA     KATANA_DA        1.00                     , Type [3], SALSA Type [2]
+Searching for Katatna DA's.
+Found DA.
+Requesting Device Details...
+Device on SCSI Host <0> : SCSI Device <0>.
+SCSI ID [0], SCSI Type [3],  Inq.Text 'SEGA     KATANA_DA        1.00                     ', SALSA Type [2]
+Requesting DA Version Information....
+Firmware Version 1.11.. Built on  .
+Requesting DA ProductID Information....
+Product '', Model '', Serial No. '', Test Date ''.
+Found DA on HOST 0 : SCSI ID 0
+Found DA.
+Requesting Device Details...
+Device on SCSI Host <0> : SCSI Device <1>.
+SCSI ID [1], SCSI Type [3],  Inq.Text 'SEGA     KATANA_DA        1.00                     ', SALSA Type [2]
+Requesting DA Version Information....
+Firmware Version 1.11.. Built on  .
+Requesting DA ProductID Information....
+Product '', Model '', Serial No. '', Test Date ''.
+Found DA on HOST 0 : SCSI ID 1
+Found DA.
+Requesting Device Details...
+Device on SCSI Host <0> : SCSI Device <2>.
+SCSI ID [2], SCSI Type [3],  Inq.Text 'SEGA     KATANA_DA        1.00                     ', SALSA Type [2]
+Requesting DA Version Information....
+Firmware Version 1.11.. Built on  .
+Requesting DA ProductID Information....
+Product '', Model '', Serial No. '', Test Date ''.
+Found DA on HOST 0 : SCSI ID 2
+Found DA.
+Requesting Device Details...
+Device on SCSI Host <0> : SCSI Device <3>.
+SCSI ID [3], SCSI Type [3],  Inq.Text 'SEGA     KATANA_DA        1.00                     ', SALSA Type [2]
+Requesting DA Version Information....
+Firmware Version 1.11.. Built on  .
+Requesting DA ProductID Information....
+Product '', Model '', Serial No. '', Test Date ''.
+Found DA on HOST 0 : SCSI ID 3
+Found DA.
+Requesting Device Details...
+Device on SCSI Host <0> : SCSI Device <4>.
+SCSI ID [4], SCSI Type [3],  Inq.Text 'SEGA     KATANA_DA        1.00                     ', SALSA Type [2]
+Requesting DA Version Information....
+Firmware Version 1.11.. Built on  .
+Requesting DA ProductID Information....
+Product '', Model '', Serial No. '', Test Date ''.
+Found DA on HOST 0 : SCSI ID 4
+Found DA.
+Requesting Device Details...
+Device on SCSI Host <0> : SCSI Device <5>.
+SCSI ID [5], SCSI Type [3],  Inq.Text 'SEGA     KATANA_DA        1.00                     ', SALSA Type [2]
+Requesting DA Version Information....
+Firmware Version 1.11.. Built on  .
+Requesting DA ProductID Information....
+Product '', Model '', Serial No. '', Test Date ''.
+Found DA on HOST 0 : SCSI ID 5
+Found DA.
+Requesting Device Details...
+Device on SCSI Host <0> : SCSI Device <6>.
+SCSI ID [6], SCSI Type [3],  Inq.Text 'SEGA     KATANA_DA        1.00                     ', SALSA Type [2]
+Requesting DA Version Information....
+Firmware Version 1.11.. Built on  .
+Requesting DA ProductID Information....
+Product '', Model '', Serial No. '', Test Date ''.
+Found DA on HOST 0 : SCSI ID 6
+Found DA.
+Requesting Device Details...
+Device on SCSI Host <0> : SCSI Device <7>.
+SCSI ID [7], SCSI Type [3],  Inq.Text 'SEGA     KATANA_DA        1.00                     ', SALSA Type [2]
+Requesting DA Version Information....
+Firmware Version 1.11.. Built on  .
+Requesting DA ProductID Information....
+Product '', Model '', Serial No. '', Test Date ''.
+Found DA on HOST 0 : SCSI ID 7
+Found 8 DA's in total.
+
+Selecting DA on HOST 0 : SCSI ID 0
+Product '', Model '', Serial No. '', Test Date ''.
+Firmware Version 1.11.. Built on  .
+Requesting DA/CONSOLE Inquiry status....
+Checking for debug support....
+Testing Inquiry's console status...
+The console is 'executing' user code outside debug stub (RUNNING)
+Requesting Current CPU Mode.
+Current CPU Mode = OS
+RESET in CPU Mode.
+About to enable CPU Mode
+Reading DA configuration details.
+Config Status :
+DA Mode = OS
+Load Stub in Cached Memory = Disabled.
+Persistant suspend = Disabled.
+Reserved Function 3 = Disabled.
+Reserved Function 4 = Disabled.
+Reserved Function 5 = Disabled.
+Writing DA configuration details.
+Config Status :
+DA Mode = CPU
+Load Stub in Cached Memory = Disabled.
+Persistant suspend = Disabled.
+Reserved Function 3 = Disabled.
+Reserved Function 4 = Disabled.
+Reserved Function 5 = Disabled.
+Requesting Console Reset with Debug Support....
+Requesting DA/CONSOLE Inquiry status....
+Checking for debug support....
+Testing Inquiry's console status...
+The console is 'executing' user code outside debug stub (RUNNING)
+Requesting Console stub configuration....
+HOST 0 : SCSI ID 0 : Found Error: UNDEFINED CPU TYPE 
+Requesting DA/CONSOLE Inquiry status....
+Checking for debug support....
+Found debug support.
+Checking for GD-ROM unit....
+GD-ROM unit not found.
+SALSA error report <CDM: The GD-ROM unit mechanism is not fitted>
+Requesting debug stub load address....
+Debug stub is loaded at address <0x00000000>
+Selected DA HOST 0 : SCSI ID 0 OK.
+Starting D.A. Test.
+Testing Resets ...
+RESET in OS Mode.
+About to enable OS Mode
+Reading DA configuration details.
+Config Status :
+DA Mode = OS
+Load Stub in Cached Memory = Disabled.
+Persistant suspend = Disabled.
+Reserved Function 3 = Disabled.
+Reserved Function 4 = Disabled.
+Reserved Function 5 = Disabled.
+Writing DA configuration details.
+Config Status :
+DA Mode = OS
+Load Stub in Cached Memory = Disabled.
+Persistant suspend = Disabled.
+Reserved Function 3 = Disabled.
+Reserved Function 4 = Disabled.
+Reserved Function 5 = Disabled.
+Requesting Console Reset with Debug Support....
+Requesting DA/CONSOLE Inquiry status....
+Checking for debug support....
+Testing Inquiry's console status...
+The console is 'executing' user code outside debug stub (RUNNING)
+RESET in CPU Mode.
+About to enable CPU Mode
+Reading DA configuration details.
+Config Status :
+DA Mode = OS
+Load Stub in Cached Memory = Disabled.
+Persistant suspend = Disabled.
+Reserved Function 3 = Disabled.
+Reserved Function 4 = Disabled.
+Reserved Function 5 = Disabled.
+Writing DA configuration details.
+Config Status :
+DA Mode = CPU
+Load Stub in Cached Memory = Disabled.
+Persistant suspend = Disabled.
+Reserved Function 3 = Disabled.
+Reserved Function 4 = Disabled.
+Reserved Function 5 = Disabled.
+Requesting Console Reset with Debug Support....
+Requesting DA/CONSOLE Inquiry status....
+Checking for debug support....
+Testing Inquiry's console status...
+The console is 'executing' user code outside debug stub (RUNNING)
+Please wait until reset has finished ...
+Test Console Memory
+Requesting 16k Stub Load Address.
+Testing memory Read / Write Mode : Longs
+0x00 Pattern Memory Test, BlockSize 8192, Read/Writing Bytes.
+Passed Memory Test.
+0xFF Pattern Memory Test, Random Block Size, Read/Writing Words.
+Failed memory test between 0x0C030000 and 0x0C0318BE .
+Random Pattern Memory Test, Random Block Size, Read/Writing Longs.
+Failed memory test between 0x0C050000 and 0x0C05476C .
+Starting channel loopback test... : SLOW Mode
+Reserving channel <0> and validating for use...
+Reserving channel <1> and validating for use...
+Reserving channel <2> and validating for use...
+Reserving channel <3> and validating for use...
+Loading Channel Loop Back Test exe onto console.
+Modifying PC to start of test program...
+Requesting Console Resume execution...
+Requesting DA/CONSOLE Inquiry status....
+Checking for debug support....
+Testing Inquiry's console status...
+The console is 'executing' user code outside debug stub (RUNNING)
+Looping data thru buffers.
+Releasing channel <0> from exclusive use...
+Releasing channel <1> from exclusive use...
+Releasing channel <2> from exclusive use...
+Releasing channel <3> from exclusive use...
+TEST D.A.  cancelled by the User.
+Error ! The Serial Numbers on the DA and GDM are not identical.
+Reflashing DA withC:\Dev\firmares\ga4_6_4d.fsh
+Successfully Reflashed DA.
+Exiting DA-Check.
