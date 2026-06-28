@@ -88,26 +88,28 @@ static void HandleKey(DWORD k)
 
 static void Draw(DCWin *w)
 {
-    int i, y;
+    int i, y, cw = EW, ch = EH, vis;
+    DCWinClientSize(w, &cw, &ch);                           // current size (shell may have resized us)
+    vis = (ch - 18) / EROW; if (vis < 1) vis = 1;           // rows that fit -> more files when taller
     DCWinBeginFrame(w);
-    DCWinFill(w, 0, 0, EW, EH, RGB(255, 255, 255));         // list background
-    DCWinFill(w, 0, 0, EW, 16, RGB(192, 192, 192));         // path bar
+    DCWinFillBg(w, RGB(255, 255, 255));                     // list background fills the window
+    DCWinFill(w, 0, 0, cw, 16, RGB(192, 192, 192));         // path bar spans the width
     DCWinText(w, 4, 1, RGB(0, 0, 0), RGB(192, 192, 192), g_dir);
 
-    if (g_sel < g_top)            g_top = g_sel;
-    if (g_sel >= g_top + EVIS)    g_top = g_sel - EVIS + 1;
+    if (g_sel < g_top)           g_top = g_sel;
+    if (g_sel >= g_top + vis)    g_top = g_sel - vis + 1;
 
-    for (i = g_top; i < g_count && i < g_top + EVIS; i++)
+    for (i = g_top; i < g_count && i < g_top + vis; i++)
     {
         ENT     *e   = &g_ent[i];
         int      sel = (i == g_sel);
         COLORREF bg  = sel ? RGB(0, 0, 128) : RGB(255, 255, 255);
         COLORREF fg  = sel ? RGB(255, 255, 255) : RGB(0, 0, 0);
         y = 18 + (i - g_top) * EROW;
-        if (sel) DCWinFill(w, 2, y, EW - 4, EROW, RGB(0, 0, 128));   /* (x,y,WIDTH,HEIGHT) */
+        if (sel) DCWinFill(w, 2, y, cw - 4, EROW, RGB(0, 0, 128));   /* (x,y,WIDTH,HEIGHT) */
         DCWinIcon(w, 4, y + 2, FileIcon(e));
         DCWinText(w, 24, y + 3, fg, bg, e->name);
-        if (!IsDir(e)) { WCHAR sz[20]; wsprintfW(sz, L"%u", e->size); DCWinText(w, EW - 70, y + 3, fg, bg, sz); }
+        if (!IsDir(e)) { WCHAR sz[20]; wsprintfW(sz, L"%u", e->size); DCWinText(w, cw - 70, y + 3, fg, bg, sz); }
     }
     DCWinEndFrame(w);
 }
@@ -130,6 +132,7 @@ int WINAPI WinMain(HINSTANCE hInst, HINSTANCE hPrev, LPWSTR lpCmd, int nShow)
     {
         int changed = 0;
         while (DCWinPollKey(w, &key)) { HandleKey(key); changed = 1; }
+        if (DCWinResized(w)) changed = 1;                   // shell resized us -> redraw to fit
         if (changed) Draw(w);
         if (DCWinShouldClose(w)) break;
         Sleep(20);

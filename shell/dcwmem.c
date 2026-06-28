@@ -165,7 +165,8 @@ int WINAPI WinMain(HINSTANCE hInst, HINSTANCE hPrev, LPWSTR lpCmd, int nShow)
     {
         MEMORYSTATUS ms;
         WCHAR        ram[72], row[72];
-        int          busy, changed = 0;
+        int          busy, changed = 0, cw = CW, ch = CH;
+        changed |= DCWinClientSize(w, &cw, &ch);   // resize/maximize -> redraw to fit
 
         while (DCWinPollKey(w, &key))
         {
@@ -185,10 +186,10 @@ int WINAPI WinMain(HINSTANCE hInst, HINSTANCE hPrev, LPWSTR lpCmd, int nShow)
 
         if (changed || !drawnOnce)
         {
-            int pc = Percent(), bw = CW - 24;
+            int pc = Percent(), bw = cw - 24;             // progress bar spans the width
             drawnOnce = 1;
             DCWinBeginFrame(w);
-            DCWinFill(w, 0, 0, CW, CH, RGB(192, 192, 192));
+            DCWinFillBg(w, RGB(192, 192, 192));            // background fills the window
 
             memset(&ms, 0, sizeof(ms)); ms.dwLength = sizeof(ms);
             GlobalMemoryStatus(&ms);

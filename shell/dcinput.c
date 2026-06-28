@@ -23,11 +23,14 @@ static LPDIRECTINPUTDEVICE2 g_joy   = NULL;
 static LPDIRECTINPUTDEVICE2 g_mouse = NULL;
 static HWND                 g_hwnd  = NULL;
 static int                  g_wmPointer = 0;   // a GWES WM_MOUSE* arrived -> pointer exists
+static HANDLE               g_newDev = NULL;   // maple "MAPLE_NEW_DEVICE" hotplug event
+static DWORD                g_reEnumUntil = 0; // poll-rescan for devices until this tick
 
 static BYTE  g_now[256], g_last[256];
 static DWORD g_repeatAt[256];
 static int   g_cx = SCRW / 2, g_cy = SCRH / 2;
 static int   g_btnLast = 0, g_mbtnLast = 0, g_click = 0, g_activate = 0;
+static int   g_mHeld = 0, g_jHeld = 0;   // pointer button currently HELD (mouse-L / controller-A) for drag
 static DWORD g_lastTick = 0;
 static long  g_accX = 0, g_accY = 0;   // sub-pixel motion accumulators (axis*ms)
 
@@ -95,18 +98,27 @@ static BOOL CALLBACK EnumCb(LPCDIDEVICEINSTANCE di, LPVOID ctx)
 {
     LPDIRECTINPUTDEVICE  d1 = NULL;
     LPDIRECTINPUTDEVICE2 d2 = NULL;
-    DWORD                t;
+    DWORD                t = GET_DIDEVICE_TYPE(di->dwDevType);
+    (void)ctx;
+
+    // Log each device DInput reports (before CreateDevice) - but only types we don't yet
+    // have, so the 1s hotplug re-scan doesn't spam; we still see a mouse the moment it appears.
+    {
+        int have = (t == DIDEVTYPE_KEYBOARD && g_kbd) || (t == DIDEVTYPE_MOUSE && g_mouse) ||
+                   (t == DIDEVTYPE_JOYSTICK && g_joy);
+        if (!have) { WCHAR b[96]; wsprintfW(b, L"DCIN: enum type=%u (2=mouse 3=kbd 4=joy) dwDevType=%08x\r\n",
+            (unsigned)t, (unsigned)di->dwDevType); OutputDebugStringW(b); }
+    }
 
     if (IDirectInput_CreateDevice(g_di, &di->guidInstance, &d1, NULL) != DI_OK)
-        return DIENUM_CONTINUE;
+    { OutputDebugStringW(L"DCIN:   CreateDevice FAILED\r\n"); return DIENUM_CONTINUE; }
     if (IDirectInputDevice_QueryInterface(d1, &IID_IDirectInputDevice2, (LPVOID *)&d2) != S_OK)
     {
+        OutputDebugStringW(L"DCIN:   QueryInterface(IDirectInputDevice2) FAILED\r\n");
         IDirectInputDevice_Release(d1);
         return DIENUM_CONTINUE;
     }
     IDirectInputDevice_Release(d1);
-
-    t = GET_DIDEVICE_TYPE(di->dwDevType);
     if (t == DIDEVTYPE_KEYBOARD && !g_kbd)
     {
         IDirectInputDevice2_SetDataFormat(d2, &c_dfDIKeyboard);
@@ -118,10 +130,11 @@ static BOOL CALLBACK EnumCb(LPCDIDEVICEINSTANCE di, LPVOID ctx)
     {
         HRESULT hr;
         WCHAR   b[64];
+        // DC/CE mouse: SetDataFormat + Acquire ONLY. The SDK (samples\misc\DesktopCompat)
+        // wraps SetCooperativeLevel in #ifndef UNDER_CE - it is NOT set on the Dreamcast.
+        // Our previous SetCooperativeLevel(DISCL_BACKGROUND) made the mouse deliver no data
+        // (c_dfDIMouse is relative-axis by default, which is what we want for a pointer).
         IDirectInputDevice2_SetDataFormat(d2, &c_dfDIMouse);
-        // a cooperative level is required for the mouse to deliver data (the
-        // classic "acquired but GetDeviceState returns nothing" gotcha)
-        IDirectInputDevice2_SetCooperativeLevel(d2, g_hwnd, DISCL_BACKGROUND | DISCL_NONEXCLUSIVE);
         hr = IDirectInputDevice2_Acquire(d2);
         g_mouse = d2;
         wsprintfW(b, L"DCIN: mouse acquired (hr=%08x)\r\n", (unsigned)hr);
@@ -164,7 +177,16 @@ BOOL DInInit(HWND hwnd)
         OutputDebugStringW(L"DCIN: DirectInputCreate FAILED\r\n");
         return FALSE;
     }
-    IDirectInput_EnumDevices(g_di, 0, EnumCb, NULL, DIEDFL_ATTACHEDONLY);
+    // Maple hotplug: a mouse/controller on a later port often registers with DInput a moment
+    // AFTER boot, so the initial enum may only see the port-A keyboard. The SDK re-enumerates
+    // when the driver signals "MAPLE_NEW_DEVICE"; we also poll-rescan for a few seconds.
+    g_newDev = CreateEventW(NULL, FALSE, FALSE, L"MAPLE_NEW_DEVICE");
+    g_reEnumUntil = GetTickCount() + 10000;
+    // Flags = 0 (DIEDFL_ALLDEVICES), NOT DIEDFL_ATTACHEDONLY (the SDK uses 0; ATTACHEDONLY
+    // dropped the mouse). The maple driver only reports actually-present devices.
+    IDirectInput_EnumDevices(g_di, 0, EnumCb, NULL, 0);
+    { WCHAR b[80]; wsprintfW(b, L"DCIN: found kbd=%d mouse=%d joy=%d\r\n",
+        g_kbd ? 1 : 0, g_mouse ? 1 : 0, g_joy ? 1 : 0); OutputDebugStringW(b); }
     g_joyPrimeUntil = GetTickCount() + JOY_PRIME_MS;   // settle the controller before edge-detecting
     return (g_kbd != NULL);
 }
@@ -207,6 +229,18 @@ void DInUpdate(void)
     DWORD nowt = GetTickCount();
     int   i;
 
+    // Hotplug re-scan: pick up a mouse/controller that registered after the initial enum.
+    // Trigger on the maple MAPLE_NEW_DEVICE event, and poll-rescan every 1s for the first 10s.
+    {
+        static DWORD lastScan = 0;
+        int evt = (g_newDev && WaitForSingleObject(g_newDev, 0) != WAIT_TIMEOUT);
+        if (g_di && (evt || (nowt < g_reEnumUntil && nowt - lastScan >= 1000)))
+        {
+            lastScan = nowt;
+            IDirectInput_EnumDevices(g_di, 0, EnumCb, NULL, 0);
+        }
+    }
+
     if (g_kbd)
     {
         for (i = 0; i < 256; i++) g_last[i] = g_now[i];
@@ -241,8 +275,10 @@ void DInUpdate(void)
             if (g_cx < 0) g_cx = 0;  if (g_cx >= SCRW) g_cx = SCRW - 1;
             if (g_cy < 0) g_cy = 0;  if (g_cy >= SCRH) g_cy = SCRH - 1;
             btn = (ms.rgbButtons[0] | ms.rgbButtons[1] | ms.rgbButtons[2]) & 0x80;
-            if (!g_mousePrimed) { g_mousePrimed = 1; g_mbtnLast = btn; }   // baseline, no edge
-            else { if (btn && !g_mbtnLast) g_click = 1; g_mbtnLast = btn; }
+            // DI mouse drives the pointer button as a HELD state -> the shell's press/drag/
+            // release model handles click vs drag. (g_click stays for the GWES WM-tap path.)
+            g_mHeld = btn ? 1 : 0;
+            (void)g_mbtnLast; (void)g_mousePrimed;
         }
     }
 
@@ -273,6 +309,7 @@ void DInUpdate(void)
             dn[0] = JBTN(js, USG_UA); dn[1] = JBTN(js, USG_DA);
             dn[2] = JBTN(js, USG_LA); dn[3] = JBTN(js, USG_RA);
             face  = (JBTN(js, USG_A) || JBTN(js, USG_START)) ? 1 : 0;
+            g_jHeld = (nowt < g_joyPrimeUntil) ? 0 : JBTN(js, USG_A);   // A held (drag), post-settle
             if (nowt < g_joyPrimeUntil)
             {
                 // STARTUP SETTLE WINDOW: just track the baseline, generate NO edges (lets the
@@ -321,3 +358,4 @@ int  DInTookActivate(void)      { int a = g_activate; g_activate = 0; return a; 
 int  DInHasPointer(void)        { return (g_mouse != NULL) || (g_joy != NULL) || g_wmPointer; }
 void DInCursor(int *x, int *y)  { *x = g_cx; *y = g_cy; }
 int  DInTookClick(void)         { int c = g_click; g_click = 0; return c; }
+int  DInPointerDown(void)       { return g_mHeld || g_jHeld; }   // pointer button currently HELD (drag)

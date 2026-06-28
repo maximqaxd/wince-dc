@@ -198,7 +198,8 @@ int WINAPI WinMain(HINSTANCE hInst, HINSTANCE hPrev, LPWSTR lpCmd, int nShow)
     for (;;)
     {
         WCHAR ram[64], row[64], mem[12];
-        int   i, y, changed = 0;
+        int   i, y, changed = 0, cw = CW, ch = CH;
+        changed |= DCWinClientSize(w, &cw, &ch);   // resize/maximize -> redraw to fit
 
         while (DCWinPollKey(w, &key))
         {
@@ -231,10 +232,10 @@ int WINAPI WinMain(HINSTANCE hInst, HINSTANCE hPrev, LPWSTR lpCmd, int nShow)
         {
             g_drawnOnce = 1;
             DCWinBeginFrame(w);
-            DCWinFill(w, 0, 0, CW, CH, RGB(192, 192, 192));
+            DCWinFillBg(w, RGB(192, 192, 192));            // background fills the window
             RamLine(ram);
             DCWinText(w, 8, 6, RGB(0, 0, 0), RGB(192, 192, 192), ram);
-            DCWinFill(w, 6, 22, CW - 12, ROWH, RGB(0, 0, 128));
+            DCWinFill(w, 6, 22, cw - 12, ROWH, RGB(0, 0, 128));   // header spans the width
             DCWinText(w, 10, 23, RGB(255, 255, 255), RGB(0, 0, 128), L"PID    Mem    Image");
 
             for (i = 0; i < ROWS && g_top + i < g_n; i++)

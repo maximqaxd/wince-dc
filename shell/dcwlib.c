@@ -11,6 +11,7 @@ struct DCWin
     DcWindow *w;
     DcCmd     build[DCWIN_MAXCMD];
     int       buildN;
+    int       lastW, lastH;   // last size seen by DCWinClientSize (change detection)
 };
 
 static struct DCWin g_win;   // single window per client process
@@ -45,8 +46,35 @@ DCWin *DCWinOpen(int x, int y, int w, int h, const WCHAR *title, int iconId)
     g_win.w->cmdCount = 0;
     g_win.w->gen      = 0;            // even = stable (seqlock)
     g_win.buildN      = 0;
+    g_win.lastW       = w; g_win.lastH = h;
     g_win.w->inUse    = 1;               // publish only once fully initialised
     return &g_win;
+}
+
+// Current client size (the shell may have resized us). Returns 1 if it changed since last call.
+int DCWinClientSize(DCWin *win, int *cw, int *ch)
+{
+    int w = (int)win->w->w, h = (int)win->w->h, changed;
+    if (w < 1) w = 1;
+    if (h < 1) h = 1;
+    changed = (w != win->lastW || h != win->lastH);
+    win->lastW = w; win->lastH = h;
+    if (cw) *cw = w;
+    if (ch) *ch = h;
+    return changed;
+}
+
+// 1 if the shell resized us since last call (consumes the change). OR into your dirty flag.
+int DCWinResized(DCWin *win) { return DCWinClientSize(win, 0, 0); }
+
+// Fill the whole current client area with one colour - the standard first draw of a frame, so
+// the window always fills after a resize/maximize without the app tracking dimensions.
+void DCWinFillBg(DCWin *win, COLORREF color)
+{
+    int w = (int)win->w->w, h = (int)win->w->h;
+    if (w < 1) w = 1;
+    if (h < 1) h = 1;
+    DCWinFill(win, 0, 0, w, h, color);
 }
 
 void DCWinBeginFrame(DCWin *win)

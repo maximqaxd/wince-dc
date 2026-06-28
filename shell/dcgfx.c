@@ -153,6 +153,13 @@ static WORD Conv4444(WORD px565)
     return (WORD)(0xF000 | ((r5 >> 1) << 8) | ((g6 >> 2) << 4) | (b5 >> 1));
 }
 
+// --- clip rect (compositor-side window clipping) --------------------------------
+static float s_clipX0, s_clipY0, s_clipX1, s_clipY1;
+static int   s_clipOn = 0;
+void GfxSetClip(int x0, int y0, int x1, int y1)
+{ s_clipX0 = (float)x0; s_clipY0 = (float)y0; s_clipX1 = (float)x1; s_clipY1 = (float)y1; s_clipOn = 1; }
+void GfxClearClip(void) { s_clipOn = 0; }
+
 // --- quad list ------------------------------------------------------------------
 static void PushQuad(float x0, float y0, float x1, float y1,
                      float u0, float v0, float u1, float v1, D3DCOLOR col, BYTE tex)
@@ -161,6 +168,23 @@ static void PushQuad(float x0, float y0, float x1, float y1,
     WORD        *ix;
     int          b, q;
     if (s_nQuad >= MAX_QUADS) return;
+    // Software clip to the active clip rect, adjusting UVs so textured quads (glyphs/icons)
+    // clip cleanly instead of spilling outside a window's client area.
+    if (s_clipOn)
+    {
+        float cx0 = x0, cy0 = y0, cx1 = x1, cy1 = y1;
+        if (cx0 < s_clipX0) cx0 = s_clipX0;  if (cy0 < s_clipY0) cy0 = s_clipY0;
+        if (cx1 > s_clipX1) cx1 = s_clipX1;  if (cy1 > s_clipY1) cy1 = s_clipY1;
+        if (cx1 <= cx0 || cy1 <= cy0) return;                // fully outside
+        if (x1 > x0 && y1 > y0)                               // re-map UVs to the clipped extent
+        {
+            float du = (u1 - u0), dv = (v1 - v0);
+            float nu0 = u0 + du * (cx0 - x0) / (x1 - x0), nu1 = u0 + du * (cx1 - x0) / (x1 - x0);
+            float nv0 = v0 + dv * (cy0 - y0) / (y1 - y0), nv1 = v0 + dv * (cy1 - y0) / (y1 - y0);
+            u0 = nu0; u1 = nu1; v0 = nv0; v1 = nv1;
+        }
+        x0 = cx0; y0 = cy0; x1 = cx1; y1 = cy1;
+    }
     b = s_nQuad * 4;
     v = &s_vb[b];
     v[0].sx=x0; v[0].sy=y0; v[0].sz=0; v[0].rhw=1; v[0].color=col; v[0].specular=0; v[0].tu=u0; v[0].tv=v0;
@@ -553,8 +577,18 @@ BOOL GfxPresent(int cursorX, int cursorY, BOOL showCursor)
     if (showCursor)                                  // cursor = ICON_CURSOR quad, drawn last (top)
     {
         RectUV *u = &s_iconUV[ICON_CURSOR][0];
-        PushQuad((float)cursorX, (float)cursorY, (float)(cursorX + 16), (float)(cursorY + 16),
-                 u->u0, u->v0, u->u1, u->v1, 0xFFFFFFFF, 1);
+        float x1, y1;
+        // Clamp the hotspot on-screen and clip the 16x16 sprite to the screen so the pointer
+        // never draws past the edges (the arrow's tip is the top-left hotspot, so it can sit
+        // right at an edge; we just don't extend the quad beyond the framebuffer).
+        if (cursorX < 0) cursorX = 0; else if (cursorX > SCREEN_W - 1) cursorX = SCREEN_W - 1;
+        if (cursorY < 0) cursorY = 0; else if (cursorY > SCREEN_H - 1) cursorY = SCREEN_H - 1;
+        x1 = (float)(cursorX + 16); if (x1 > SCREEN_W) x1 = SCREEN_W;
+        y1 = (float)(cursorY + 16); if (y1 > SCREEN_H) y1 = SCREEN_H;
+        PushQuad((float)cursorX, (float)cursorY, x1, y1,
+                 u->u0, u->v0,
+                 u->u0 + (u->u1 - u->u0) * (x1 - cursorX) / 16.0f,   // scale UV to the clipped extent
+                 u->v0 + (u->v1 - u->v0) * (y1 - cursorY) / 16.0f, 0xFFFFFFFF, 1);
     }
 
     if (IDirect3DDevice2_BeginScene(s_dev) == D3D_OK)

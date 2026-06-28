@@ -151,6 +151,8 @@ int WINAPI WinMain(HINSTANCE hInst, HINSTANCE hPrev, LPWSTR lpCmd, int nShow)
     for (;;)
     {
         int changed = 0;
+        int cw = CW, ch = CH;
+        if (DCWinClientSize(w, &cw, &ch)) changed = 1;   // shell resized/maximized -> republish to fit
 
         while (DCWinPollKey(w, &key))
         {
@@ -176,8 +178,8 @@ int WINAPI WinMain(HINSTANCE hInst, HINSTANCE hPrev, LPWSTR lpCmd, int nShow)
             int i, y;
             drawnOnce = 1;
             DCWinBeginFrame(w);
-            DCWinFill(w, 0, 0, CW, CH, RGB(192, 192, 192));
-            DCWinFill(w, 6, 6, CW - 12, 16, RGB(0, 0, 128));
+            DCWinFill(w, 0, 0, cw, ch, RGB(192, 192, 192));        // background fills the window
+            DCWinFill(w, 6, 6, cw - 12, 16, RGB(0, 0, 128));       // header spans the full width
             DCWinText(w, 10, 7, RGB(255, 255, 255), RGB(0, 0, 128), L"winsock / microstk probe");
             for (i = 0, y = 30; i < g_nLine; i++, y += 16)
                 DCWinText(w, 10, y, RGB(0, 0, 0), RGB(192, 192, 192), g_line[i]);

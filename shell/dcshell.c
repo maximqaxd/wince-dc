@@ -73,6 +73,38 @@ static BOOL  s_diKbd    = FALSE; // DI keyboard acquired (else fall back to WM_K
 static int   s_wmMouseSeen = 0;  // logged once when GWES mouse messages arrive
 static int   s_cx = SCREEN_W / 2, s_cy = SCREEN_H / 2;   // pointer position
 
+// Desktop icon cell positions (top-left of the 96x54 clickable cell). Mutable so icons can
+// be dragged. Initialised to the default left column by DeskPosInit().
+static POINT s_deskPos[DESK_N];
+static int   s_deskPosInit = 0;
+#define ICELL_W 96
+#define ICELL_H 54
+static void DeskPosInit(void)
+{
+    int i;
+    for (i = 0; i < (int)DESK_N; i++) { s_deskPos[i].x = 14; s_deskPos[i].y = 24 + i * 76; }
+    s_deskPosInit = 1;
+}
+
+// Pointer drag state machine (mouse-L or controller-A held). Lets the user move/resize
+// windows and move desktop shortcuts; a press with no drag is treated as a click on release.
+#define DRAG_NONE   0
+#define DRAG_WMOVE  1    // moving a window (grabbed its title bar)
+#define DRAG_WSIZE  2    // resizing a window (grabbed its bottom-right corner)
+#define DRAG_ICON   3    // moving a desktop shortcut
+#define DRAG_THRESH 3    // px of motion before a press becomes a drag (vs a click)
+#define WIN_MINW    80
+#define WIN_MINH    40
+static int s_dragKind = DRAG_NONE, s_dragTarget = -1;
+static int s_dragOffX = 0, s_dragOffY = 0;     // cursor - target origin, at grab time
+static int s_dragMoved = 0, s_ptrWas = 0, s_downX = 0, s_downY = 0;
+
+// Window maximize/restore + minimize (shell-side, keyed by window slot). s_winRestore =
+// {x,y,w,h} saved before maximizing. Both reset when a slot frees so a reused slot is normal.
+static int s_winMax[DCWIN_MAXWIN];
+static int s_winRestore[DCWIN_MAXWIN][4];
+static int s_winMin[DCWIN_MAXWIN];        // window minimized (hidden; only its taskbar button shows)
+
 static DcShared *s_shared    = NULL;
 static HANDLE    s_sharedMap = NULL;
 
@@ -230,26 +262,26 @@ static void CycleFocus(void)
 //
 static void RenderDesktopFills(void)
 {
-    int i, y;
+    int i, x, y;
 
     GfxFill(0, 0, SCREEN_W, TASK_Y, CL_DESKTOP);
     for (i = 0; i < (int)DESK_N; i++)
     {
-        y = 24 + i * 76;
+        x = s_deskPos[i].x; y = s_deskPos[i].y;
         if (i == s_deskSel && !s_menuOpen)
-            GfxFill(14, y + 36, 110, y + 52, CL_TITLE);     // label highlight
-        GfxIconBig(s_desk[i].icon, 46, y);                  // 32x32 icon
+            GfxFill(x, y + 36, x + ICELL_W, y + 52, CL_TITLE);   // label highlight
+        GfxIconBig(s_desk[i].icon, x + 32, y);                   // 32x32 icon
     }
 }
 
 static void RenderDesktopText(HDC hdc)
 {
-    int i, y;
+    int i, x, y;
     for (i = 0; i < (int)DESK_N; i++)
     {
         COLORREF bg = (i == s_deskSel && !s_menuOpen) ? CL_TITLE : CL_DESKTOP;
-        y = 24 + i * 76;
-        GfxText(hdc, 18, y + 37, CL_WHITE, bg, g_FontUI, s_desk[i].label);
+        x = s_deskPos[i].x; y = s_deskPos[i].y;
+        GfxText(hdc, x + 4, y + 37, CL_WHITE, bg, g_FontUI, s_desk[i].label);
     }
 }
 
@@ -366,7 +398,21 @@ static void DrawWinFills(DcWindow *w, int wi, BOOL active)
     GfxIcon((int)w->icon, w->x, w->y - 18);                                    // title-bar icon
     GfxFill(w->x + w->w - 14, w->y - 16, w->x + w->w + 1, w->y - 3, CL_FACE);  // close box
     { RECT cb; SetRect(&cb, w->x + w->w - 14, w->y - 16, w->x + w->w + 1, w->y - 3); GfxBevel(&cb, TRUE); }
+    {   // maximize/restore box (left of close) + its glyph (a little window w/ a title bar)
+        int mx0 = w->x + w->w - 30, my0 = w->y - 16;
+        RECT mb; SetRect(&mb, mx0, my0, w->x + w->w - 15, w->y - 3);
+        GfxFill(mb.left, mb.top, mb.right, mb.bottom, CL_FACE); GfxBevel(&mb, TRUE);
+        GfxFill(mx0 + 3, my0 + 3, mx0 + 12, my0 + 10, CL_TEXT);    // outline
+        GfxFill(mx0 + 4, my0 + 5, mx0 + 11, my0 + 9,  CL_FACE);    // interior (leaves a top "title bar")
+    }
+    {   // minimize box (left of maximize) + its glyph (a low bar)
+        int nx0 = w->x + w->w - 46, ny0 = w->y - 16;
+        RECT nb; SetRect(&nb, nx0, ny0, w->x + w->w - 31, w->y - 3);
+        GfxFill(nb.left, nb.top, nb.right, nb.bottom, CL_FACE); GfxBevel(&nb, TRUE);
+        GfxFill(nx0 + 3, ny0 + 8, nx0 + 12, ny0 + 10, CL_TEXT);    // the "minimize" bar
+    }
 
+    GfxSetClip(w->x, w->y, w->x + w->w, w->y + w->h);             // clip content to the client area
     for (i = 0; i < s_snapN[wi]; i++)
     {
         DcCmd *c = &s_snap[wi][i];
@@ -375,6 +421,7 @@ static void DrawWinFills(DcWindow *w, int wi, BOOL active)
         else if (c->op == DCOP_ICON)
             GfxIcon((int)c->color, w->x + c->x, w->y + c->y);
     }
+    GfxClearClip();
 }
 
 static void DrawWinText(HDC hdc, DcWindow *w, int wi, BOOL active)
@@ -383,12 +430,14 @@ static void DrawWinText(HDC hdc, DcWindow *w, int wi, BOOL active)
 
     GfxText(hdc, w->x + 18, w->y - 16, CL_WHITE, active ? CL_TITLE : RGB(112,112,112), g_FontBold, w->title);
     GfxText(hdc, w->x + w->w - 11, w->y - 16, CL_TEXT, CL_FACE, g_FontUI, L"X");
+    GfxSetClip(w->x, w->y, w->x + w->w, w->y + w->h);            // clip content text to the client area
     for (i = 0; i < s_snapN[wi]; i++)
     {
         DcCmd *c = &s_snap[wi][i];
         if (c->op == DCOP_TEXT)
             GfxText(hdc, w->x + c->x, w->y + c->y, c->color, c->color2, g_FontUI, c->text);
     }
+    GfxClearClip();
 }
 
 // Composite ONE window completely (fills, then text) so an overlapping window's
@@ -436,9 +485,9 @@ static void Render(void)
     if (s_shared)
     {
         for (i = 0; i < DCWIN_MAXWIN; i++)
-            if (s_shared->win[i].inUse && i != s_focus)
+            if (s_shared->win[i].inUse && !s_winMin[i] && i != s_focus)
                 RenderWindow(i, FALSE);
-        if (s_focus >= 0 && s_shared->win[s_focus].inUse)
+        if (s_focus >= 0 && s_shared->win[s_focus].inUse && !s_winMin[s_focus])
             RenderWindow(s_focus, TRUE);
     }
 
@@ -511,8 +560,32 @@ static void OnKey(WPARAM wp)
     }
 }
 
+// Maximize/restore a window (toggle). Full-screen = the desktop area above the taskbar,
+// leaving room for the title bar. Saves the pre-maximize geometry to restore.
+static void ToggleMaximize(int wi)
+{
+    DcWindow *w;
+    if (!s_shared || wi < 0 || wi >= DCWIN_MAXWIN || !s_shared->win[wi].inUse) return;
+    w = &s_shared->win[wi];
+    if (s_winMax[wi])
+    {
+        w->x = s_winRestore[wi][0]; w->y = s_winRestore[wi][1];
+        w->w = s_winRestore[wi][2]; w->h = s_winRestore[wi][3];
+        s_winMax[wi] = 0;
+    }
+    else
+    {
+        s_winRestore[wi][0] = w->x; s_winRestore[wi][1] = w->y;
+        s_winRestore[wi][2] = w->w; s_winRestore[wi][3] = w->h;
+        w->x = 2; w->y = 20;                              // title bar sits at y=2..20
+        w->w = SCREEN_W - 4; w->h = TASK_Y - 22;          // fill down to the taskbar
+        s_winMax[wi] = 1;
+    }
+    s_dirty = 1;
+}
+
 // Cursor hit-test (top-down): Start menu -> Start button -> taskbar buttons ->
-// windows (close box / body) -> desktop icons. Returns 1 if the click was
+// windows (close box / maximize box / body) -> desktop icons. Returns 1 if the click was
 // consumed by a target (close box, taskbar/start, desktop icon), 0 if it landed
 // on a window body (focus it, but let an Enter through to the window) or empty
 // space. The controller's "A" uses the return: consumed -> done; else -> Enter.
@@ -535,7 +608,10 @@ static int HandleClick(int x, int y)
     {
         int bx = 80;
         for (k = 0; k < DCWIN_MAXWIN; k++)
-        { if (!s_shared->win[k].inUse) continue; if (x >= bx && x < bx + 110) { s_focus = k; return 1; } bx += 116; }
+        { if (!s_shared->win[k].inUse) continue;
+          if (x >= bx && x < bx + 110)            // restore a minimized window + focus it
+          { if (s_winMin[k]) s_winMin[k] = 0; s_focus = k; s_dirty = 1; return 1; }
+          bx += 116; }
     }
     if (s_shared)                                   // windows: topmost (focused) first
     {
@@ -545,19 +621,24 @@ static int HandleClick(int x, int y)
         for (j = 0; j < n; j++)
         {
             DcWindow *w = &s_shared->win[order[j]];
+            if (s_winMin[order[j]]) continue;        // minimized: not on the desktop
             if (x >= w->x - 2 && x < w->x + w->w + 2 && y >= w->y - 18 && y < w->y + w->h + 2)
             {
                 if (x >= w->x + w->w - 14 && x <= w->x + w->w + 1 && y >= w->y - 16 && y <= w->y - 3)
                 { w->wantClose = 1; return 1; }     // close box -> consumed
+                if (x >= w->x + w->w - 30 && x <= w->x + w->w - 15 && y >= w->y - 16 && y <= w->y - 3)
+                { ToggleMaximize(order[j]); return 1; }   // maximize/restore box
+                if (x >= w->x + w->w - 46 && x <= w->x + w->w - 31 && y >= w->y - 16 && y <= w->y - 3)
+                { s_winMin[order[j]] = 1; if (s_focus == order[j]) s_focus = -1; s_dirty = 1; return 1; }  // minimize
                 s_focus = order[j];                 // body -> focus it, fall through to Enter
                 return 0;
             }
         }
     }
-    for (k = 0; k < (int)DESK_N; k++)               // desktop icons
+    for (k = 0; k < (int)DESK_N; k++)               // desktop icons (mutable cell positions)
     {
-        int iy = 24 + k * 76;
-        if (x >= 14 && x < 110 && y >= iy && y < iy + 54)
+        int ix = s_deskPos[k].x, iy = s_deskPos[k].y;
+        if (x >= ix && x < ix + ICELL_W && y >= iy && y < iy + ICELL_H)
         {
             s_deskSel = k;
             if (s_desk[k].path) LaunchApp(L"dcwexp.exe", s_desk[k].path);
@@ -566,6 +647,72 @@ static int HandleClick(int x, int y)
         }
     }
     return 0;                                        // empty space
+}
+
+// ---- pointer drag: move/resize windows, move desktop shortcuts --------------------
+// Hit-test at a pointer-DOWN to decide what (if anything) a drag would grab.
+static void DragHitTest(int x, int y)
+{
+    int j, k;
+    s_dragKind = DRAG_NONE; s_dragTarget = -1;
+
+    if (s_shared && !s_menuOpen)                    // windows, top-most (focused) first
+    {
+        int order[DCWIN_MAXWIN + 1], n = 0;
+        if (s_focus >= 0 && s_shared->win[s_focus].inUse) order[n++] = s_focus;
+        for (k = 0; k < DCWIN_MAXWIN; k++) if (s_shared->win[k].inUse && k != s_focus) order[n++] = k;
+        for (j = 0; j < n; j++)
+        {
+            DcWindow *w = &s_shared->win[order[j]];
+            if (s_winMin[order[j]]) continue;          // minimized windows aren't on the desktop
+            // bottom-right corner (12x12) -> resize
+            if (x >= w->x + w->w - 12 && x <= w->x + w->w + 2 && y >= w->y + w->h - 12 && y <= w->y + w->h + 2)
+            { s_dragKind = DRAG_WSIZE; s_dragTarget = order[j]; s_dragOffX = x - (w->x + w->w); s_dragOffY = y - (w->y + w->h); s_focus = order[j]; return; }
+            // title bar (excluding the min/max/close boxes) -> move
+            if (x >= w->x - 2 && x < w->x + w->w - 46 && y >= w->y - 18 && y < w->y - 2)
+            { s_dragKind = DRAG_WMOVE; s_dragTarget = order[j]; s_dragOffX = x - w->x; s_dragOffY = y - w->y; s_focus = order[j]; return; }
+        }
+    }
+    for (k = 0; k < (int)DESK_N; k++)               // desktop icon -> move
+    {
+        int ix = s_deskPos[k].x, iy = s_deskPos[k].y;
+        if (x >= ix && x < ix + ICELL_W && y >= iy && y < iy + ICELL_H)
+        { s_dragKind = DRAG_ICON; s_dragTarget = k; s_dragOffX = x - ix; s_dragOffY = y - iy; s_deskSel = k; return; }
+    }
+}
+
+// Apply a drag while the pointer is held + has moved past the threshold.
+static void DragApply(int x, int y)
+{
+    if (s_dragKind == DRAG_ICON && s_dragTarget >= 0)
+    {
+        int nx = x - s_dragOffX, ny = y - s_dragOffY;
+        if (nx < 0) nx = 0; if (nx > SCREEN_W - ICELL_W) nx = SCREEN_W - ICELL_W;
+        if (ny < 0) ny = 0; if (ny > TASK_Y - ICELL_H)   ny = TASK_Y - ICELL_H;
+        s_deskPos[s_dragTarget].x = nx; s_deskPos[s_dragTarget].y = ny;
+        s_deskDirty = 1;                            // icons live in the cached desktop layer
+    }
+    else if (s_shared && s_dragTarget >= 0 && s_shared->win[s_dragTarget].inUse)
+    {
+        DcWindow *w = &s_shared->win[s_dragTarget];
+        if (s_dragKind == DRAG_WMOVE)
+        {
+            int nx = x - s_dragOffX, ny = y - s_dragOffY;
+            if (ny < 18) ny = 18;                              // keep the title bar on-screen
+            if (nx < -(w->w - 40)) nx = -(w->w - 40);
+            if (nx > SCREEN_W - 40) nx = SCREEN_W - 40;
+            if (ny > TASK_Y - 1) ny = TASK_Y - 1;
+            w->x = nx; w->y = ny;
+        }
+        else if (s_dragKind == DRAG_WSIZE)
+        {
+            int nw = x - s_dragOffX - w->x, nh = y - s_dragOffY - w->y;
+            if (nw < WIN_MINW) nw = WIN_MINW; if (nw > SCREEN_W) nw = SCREEN_W;
+            if (nh < WIN_MINH) nh = WIN_MINH; if (nh > SCREEN_H) nh = SCREEN_H;
+            w->w = nw; w->h = nh;
+        }
+    }
+    s_dirty = 1;
 }
 
 static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
@@ -621,6 +768,7 @@ int WINAPI WinMain(HINSTANCE hInst, HINSTANCE hPrev, LPWSTR lpCmd, int nShow)
         return 1;
     }
     DbgStr(L"DCSHELL: desktop up\r\n");
+    DeskPosInit();                      // default desktop-icon positions (draggable thereafter)
 
     // Run a notch above client apps. We are the window server: input polling and the
     // cursor present must preempt a CPU-bound or fast-republishing client, or the
@@ -659,10 +807,29 @@ int WINAPI WinMain(HINSTANCE hInst, HINSTANCE hPrev, LPWSTR lpCmd, int nShow)
             DInCursor(&s_cx, &s_cy);
             if (s_cx != ox || s_cy != oy) moved = 1;   // cursor moved -> needs a present
         }
-        if (DInTookClick())             // mouse: pure cursor click at the pointer
+        // Pointer press / drag / release. A press that doesn't drag is a CLICK on release
+        // (preserving the old click + controller-activate behaviour); a press that grabs a
+        // title bar / window corner / desktop icon and then moves becomes a drag.
+        {
+            int ptr = DInPointerDown();
+            if (ptr && !s_ptrWas)                          // DOWN: arm a possible drag
+            { s_downX = s_cx; s_downY = s_cy; s_dragMoved = 0; DragHitTest(s_cx, s_cy); s_dirty = 1; }
+            else if (ptr && s_ptrWas)                      // HELD: drag once past the threshold
+            {
+                if (!s_dragMoved && (abs(s_cx - s_downX) > DRAG_THRESH || abs(s_cy - s_downY) > DRAG_THRESH))
+                    s_dragMoved = 1;
+                if (s_dragMoved && s_dragKind != DRAG_NONE) DragApply(s_cx, s_cy);
+            }
+            else if (!ptr && s_ptrWas)                     // UP: drop, or click if it never moved
+            {
+                if (!s_dragMoved) { if (!HandleClick(s_cx, s_cy)) OnKey(VK_RETURN); }
+                s_dragKind = DRAG_NONE; s_dragTarget = -1; s_dragMoved = 0; s_dirty = 1;
+            }
+            s_ptrWas = ptr;
+        }
+        // GWES WM-tap click path (DInPostClick) - independent of the held-button drag model.
+        if (DInTookClick())
             HandleClick(s_cx, s_cy);
-        if (DInTookActivate())          // controller A: click the cursor target, else
-            if (!HandleClick(s_cx, s_cy)) OnKey(VK_RETURN);   // activate the selection
 
         FixupFocus();                   // auto-focus new windows, drop closed ones
         if (s_shared && s_shared->execSeq != s_lastExec)   // a window asked to launch an app
@@ -682,6 +849,7 @@ int WINAPI WinMain(HINSTANCE hInst, HINSTANCE hPrev, LPWSTR lpCmd, int nShow)
             {
                 DWORD g = s_shared->win[i].inUse ? s_shared->win[i].gen : 0;
                 if (g != s_lastGen[i]) { s_dirty = 1; s_lastGen[i] = g; }
+                if (!s_shared->win[i].inUse) { s_winMax[i] = 0; s_winMin[i] = 0; }   // freed slot -> normal
             }
         // The scene is a PVR2 quad list that GfxPresent consumes + clears, so we MUST
         // Render() (rebuild quads) before every present - a bare present would submit

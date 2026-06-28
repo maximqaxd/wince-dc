@@ -31,13 +31,15 @@ static void HandleKey(DWORD key)
 
 static void Draw(DCWin *w)
 {
+    int cw = CW, ch = CH;
+    DCWinClientSize(w, &cw, &ch);
     DCWinBeginFrame(w);
-    DCWinFill(w, 0, 0, CW, CH, RGB(192, 192, 192));
-    DCWinFill(w, 8, 8, CW - 16, 26, RGB(255, 255, 255));
+    DCWinFillBg(w, RGB(192, 192, 192));             // background fills the window
+    DCWinFill(w, 8, 8, cw - 16, 26, RGB(255, 255, 255));   // display spans the width
     DCWinText(w, 12, 13, RGB(0, 0, 0), RGB(255, 255, 255), g_disp);
     DCWinText(w, 10, 48, RGB(0, 0, 0), RGB(192, 192, 192), L"0-9 enter digits");
     DCWinText(w, 10, 64, RGB(0, 0, 0), RGB(192, 192, 192), L"C clears, Esc closes");
-    DCWinIcon(w, CW - 24, 48, ICON_APP);            // client-drawn icon (DCOP_ICON)
+    DCWinIcon(w, cw - 24, 48, ICON_APP);            // client-drawn icon (DCOP_ICON)
     DCWinEndFrame(w);
 }
 
@@ -54,6 +56,7 @@ int WINAPI WinMain(HINSTANCE hInst, HINSTANCE hPrev, LPWSTR lpCmd, int nShow)
     {
         int changed = 0;
         while (DCWinPollKey(w, &key)) { HandleKey(key); changed = 1; }
+        if (DCWinResized(w)) changed = 1;               // shell resized us -> redraw to fit
         if (changed) Draw(w);
         if (DCWinShouldClose(w)) break;
         Sleep(20);
