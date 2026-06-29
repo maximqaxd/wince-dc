@@ -129,6 +129,14 @@ add_sh_module(dcwboot TYPE exe ENTRY WinMainCRTStartup OUT dcwboot.exe
   SOURCES ${REPO}/shell/dcwboot.c ${REPO}/shell/dcgfx.c ${REPO}/shell/dcboot.c
   LIBS coredll.lib corelibc.lib ddraw.lib d3dim.lib dxguid.lib winsock.lib)
 
+# ---- music player: WAV + MP3 (minimp3), DirectSound, spectrum viz, clickable UI ----
+# Built but NOT baked into the ROM (no platform.bib entry) - keep it compiling without bloating
+# the networking image; re-add the dcwplay.exe line to platform.bib to ship it.
+add_sh_module(dcwplay TYPE exe ENTRY WinMainCRTStartup OUT dcwplay.exe
+  SOURCES ${REPO}/shell/dcwplay.c ${REPO}/shell/dcwlib.c ${REPO}/shell/mp3impl.cpp
+  INCLUDES ${REPO}/vendor/minimp3 ${REPO}/shell
+  LIBS coredll.lib corelibc.lib dsound.lib)
+
 # ====================================================================================
 # Bootable image pipeline (opt-in: `cmake --build build --target gdi`).
 #   modules -> deploy into image/OS -> makeimg -> NK.bin -> wrap -> 0winceos.bin -> disc
