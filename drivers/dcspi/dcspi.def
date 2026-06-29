@@ -5,3 +5,5 @@ EXPORTS
     SpiSetCS
     SpiRwByte
     SpiRwData
+    DcspiHwType
+    SpiSetSettle

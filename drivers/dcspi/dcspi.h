@@ -23,7 +23,22 @@ extern "C" {
 
 // CS source for the chosen bus.
 #define DCSPI_CS_RTS     0      // CS on SCIF RTS line (SCSPTR2 bit6) - default for SCIF bus
-#define DCSPI_CS_GPIO    1      // CS on PA7 GPIO (PCTRA/PDTRA)       - default for SCI bus (retail DC)
+#define DCSPI_CS_GPIO    1      // CS on PA7 GPIO (PCTRA/PDTRA)       - SCI bus on retail Dreamcast
+#define DCSPI_CS_AUTO    2      // pick GPIO (retail DC) or RTS (Naomi/Set5) by hardware type:
+                                // the Naomi CN1 connector exposes no PA7 GPIO, so SCI-SPI must
+                                // take CS from the SCIF RTS pin there (matches KOS sci_init).
+
+// SH-4 hardware type, from the system-mode register (DcspiHwType). Same source KOS reads.
+#define DCSPI_HW_RETAIL  0x0    // retail Dreamcast
+#define DCSPI_HW_SET5    0x9    // Set5.xx devkit
+#define DCSPI_HW_NAOMI   0xA    // NAOMI arcade board
+
+// Hardware type nibble read from 0xA05F74B0 (>>4 & 0xF): 0=retail DC, 9=Set5, 0xA=Naomi.
+int  DcspiHwType(void);
+
+// Set the SCIF bit-bang inter-edge settle (clock period). Larger = slower. SD init needs a slow
+// clock (<=400 kHz); call with a large value before SD bring-up and a small one for block I/O.
+void SpiSetSettle(int n);
 
 // Bring a bus up for SPI. csmode selects the chip-select source. Returns 0 on success.
 // SetKMode-wrapped internally (touches P4 control registers).

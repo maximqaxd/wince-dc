@@ -21,6 +21,9 @@ DWORD SetKMode(DWORD fMode);            // coredll export (P4 control regs need 
 #define SCFCR2  R16(0xFFE80018)
 #define SCSPTR2 R16(0xFFE80020)
 #define SCLSR2  R16(0xFFE80024)
+#define SCFCR_MCE 0x08          // SCFCR2 modem-control-enable: HW auto-drives RTS. Clear it to use
+                                // RTS as a plain GPIO chip-select (required on Naomi SCI-SPI).
+#define SYSMODE R32(0xA05F74B0) // SH-4 system-mode reg: type=(v>>4)&0xF (0=retail DC,9=Set5,0xA=Naomi)
 #define P2_RTSIO  0x80
 #define P2_RTSDT  0x40
 #define P2_CTSIO  0x20
@@ -106,6 +109,20 @@ static void scif_setcs_raw(int active)      // CS active-low: assert -> RTSDT 0
     else        s_scsptr2 |=  P2_RTSDT;
     SCSPTR2 = s_scsptr2;
 }
+// Inter-edge settle for the SCIF bit-bang. KOS ships scif_spi_slow_rw_byte (1.5us/edge)
+// because back-to-back SCSPTR2 stores clock the bus faster than some W5500 wiring can meet
+// MISO setup/hold: a short VERSIONR read survives but a long MACRAW burst sporadically
+// samples MISO before the W5500 has driven the new bit -> garbled frames. s_spiSettle is the
+// per-half-bit spin count (volatile so the empty loop isn't optimized away); tune on HW,
+// 0 restores the old zero-delay fast path.
+volatile int s_spiSettle = 32;
+static void spi_settle(void) { volatile int n = s_spiSettle; while (n-- > 0) { } }
+
+// Tune the bit-bang clock period. SD cards require <=400 kHz during init (CMD0..ACMD41) then
+// tolerate fast clocks; the SD driver calls this to run init slow (large n) and block I/O fast.
+// Applies to the SCIF bit-bang path (W5500/SD); the SCI hardware path uses SCBRR instead.
+void SpiSetSettle(int n) { s_spiSettle = (n < 0) ? 0 : n; }
+
 static BYTE scif_rw_raw(BYTE b)
 {
     WORD tmp = (WORD)(s_scsptr2 & ~P2_CTSDT & ~P2_SPB2DT);
@@ -115,7 +132,9 @@ static BYTE scif_rw_raw(BYTE b)
     {
         bit = (BYTE)((b >> i) & 1);
         SCSPTR2 = (WORD)(tmp | bit);                 // data out, clock low
+        spi_settle();                                // MOSI setup before the rising edge
         SCSPTR2 = (WORD)(tmp | bit | P2_CTSDT);      // clock high (rising edge)
+        spi_settle();                                // let the W5500 drive MISO before we sample
         rv = (BYTE)((rv << 1) | (SCSPTR2 & P2_SPB2DT));
     }
     SCSPTR2 = tmp;                                   // leave SCK idle LOW (SPI mode 0) so the
@@ -144,15 +163,19 @@ static int sci_init_raw(int csmode)
     if (STBCR & STBCR_SCI) { STBCR &= ~STBCR_SCI; Sleep(1); }   // wake the SCI module
     SCSCR1 = 0;
     SCSPTR1 = 0;
+    if (csmode == DCSPI_CS_AUTO)                     // resolve CS source by board (KOS parity):
+        csmode = (((SYSMODE >> 4) & 0x0F) == DCSPI_HW_RETAIL)  // retail DC has PA7; Naomi/Set5 don't
+                 ? DCSPI_CS_GPIO : DCSPI_CS_RTS;
     s_sciCs = csmode;
-    if (csmode == DCSPI_CS_GPIO)                     // PA7 as output, CS idle high
+    if (csmode == DCSPI_CS_GPIO)                     // PA7 as output, CS idle high (retail Dreamcast)
     {
         PCTRA = (PCTRA & ~(3u << (PA7_BIT * 2))) | (1u << (PA7_BIT * 2));
         PDTRA |= (1 << PA7_BIT);
     }
-    else                                             // RTS as output, idle high
+    else                                             // CS on SCIF RTS (Naomi: CN1 exposes no GPIO)
     {
-        SCSPTR2 |= (P2_RTSIO | P2_RTSDT);
+        SCFCR2 &= ~SCFCR_MCE;                        // RTS as GPIO output, not HW modem control
+        SCSPTR2 |= (P2_RTSIO | P2_RTSDT);            // RTS output, idle high
     }
     SCSMR1 = SC_CA;                                  // 8-bit synchronous, CKS=0 (n=0)
     SCBRR1 = SCI_BRR;
@@ -178,6 +201,18 @@ static BYTE sci_rw_raw(BYTE b)
 }
 
 // ---- public API (SetKMode-wrapped) ---------------------------------------------
+// Hardware type from the SH-4 system-mode register (0xA05F74B0), same source KOS reads:
+// returns the type nibble - 0=retail Dreamcast, 9=Set5 devkit, 0xA=Naomi. Used to pick the
+// SCI-SPI chip-select source (PA7 GPIO on DC, SCIF RTS on Naomi/Set5).
+int DcspiHwType(void)
+{
+    DWORD prev = SetKMode(TRUE);
+    int   ty = DCSPI_HW_RETAIL;
+    __try { ty = (int)((SYSMODE >> 4) & 0x0F); } __except (EXCEPTION_EXECUTE_HANDLER) { ty = DCSPI_HW_RETAIL; }
+    SetKMode(prev);
+    return ty;
+}
+
 int SpiInit(int bus, int csmode)
 {
     DWORD prev = SetKMode(TRUE);
