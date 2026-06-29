@@ -10,6 +10,9 @@
 #include <windows.h>
 #include <ras.h>
 
+// netif.c: re-apply DnsServers (picks up the user's Primary/Secondary DNS from this entry).
+extern void NetifApplyDns(void);
+
 // Ordinal 14: PPP FCS-16 table. Unused on the ethernet path; exported (DATA) as a
 // zeroed table so any importer resolves.
 WORD FCSTable[256];
@@ -25,6 +28,7 @@ DWORD AfdRasDial(void *ext, const WCHAR *phonebook, void *params,
 {
     (void)ext; (void)phonebook; (void)params;
     g_dialed = 1;
+    NetifApplyDns();                                      // honor the entry's Primary/Secondary DNS
     if (phConn) *phConn = (HRASCONN)1;
     if (notifierType == 0xFFFFFFFF && notifier)           // notifier is a window handle
         PostMessageW((HWND)notifier, WM_RASDIALEVENT, RASCS_Connected, 0);

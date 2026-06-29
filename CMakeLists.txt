@@ -100,7 +100,8 @@ add_dependencies(sdcard dcspi)
 # ---- universal microstk link shim (mppp.dll) --------------------------------------
 add_sh_module(mppp TYPE dll ENTRY dllentry DEF ${REPO}/net/netif/netif.def OUT mppp.dll
   SOURCES ${REPO}/net/netif/netif.c ${REPO}/net/netif/bba_hw.c ${REPO}/net/netif/ras.c
-          ${REPO}/net/netif/w5500.c ${REPO}/net/netif/flashrom.c ${REPO}/shell/syslog.c
+          ${REPO}/net/netif/w5500.c ${REPO}/net/netif/flashrom.c
+          ${REPO}/shell/syslog.c ${REPO}/shell/dcboot.c
   ASM     ${REPO}/net/netif/g2lock.src
   INCLUDES ${REPO}/drivers/dcspi ${REPO}/shell
   LIBS coredll.lib corelibc.lib)

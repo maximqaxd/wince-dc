@@ -202,44 +202,63 @@ static void rtl_read_mac(void)
     s_mac[0]=(BYTE)lo; s_mac[1]=(BYTE)(lo>>8); s_mac[2]=(BYTE)(lo>>16); s_mac[3]=(BYTE)(lo>>24);
     s_mac[4]=(BYTE)hi; s_mac[5]=(BYTE)(hi>>8);
 }
+// Faithful port of KOS bba_hw_init. The critical real-HW fix vs the old order: program RBSTART
+// (RX buffer base) + TX descriptor bases FIRST, then issue a SECOND rtl_reset - the RTL8139
+// soft-reset preserves RBSTART but re-inits the RX DMA state machine, so the receiver actually
+// latches the buffer pointer. The old code set RBSTART after the (single) reset and enabled RX
+// immediately, leaving the RX engine un-latched on real silicon: receiver "on", MAC reads fine,
+// but accepted frames DMA nowhere -> no DHCP OFFER ever delivered (idealized models latch on
+// every touch, hiding it). Also include KOS's two magic readback dances and the final
+// enable-then-auto-negotiate ordering.
 static void rtl_start(void)
 {
     int i;
-    // RX buffer + 4 TX descriptor base addresses (chip-side DMA addresses).
-    g2_write_32(NIC(RT_RXBUF), RTL_DMA);
+    g2_write_32(NIC(RT_RXBUF), RTL_DMA);                                   // RBSTART (RX disabled)
     for (i = 0; i < TX_N; i++) g2_write_32(NIC(RT_TXADDR0 + i * 4), RTL_DMA + i * TX_LEN + TX_OFF);
+    rtl_reset();                                                           // KOS: re-init engine to latch RBSTART
 
-    g2_write_16(NIC(RT_INTRMASK), 0);          // we POLL; never enable the RTL/G2 IRQ path
+    g2_write_8(NIC(RT_CHIPCMD), RT_CMD_RX_ENABLE);                         // magic enable/disable dance
+    if (g2_read_8(NIC(RT_CHIPCMD)) == RT_CMD_RX_ENABLE)
+    {
+        g2_write_8(NIC(RT_CHIPCMD), RT_CMD_TX_ENABLE);
+        if (g2_read_8(NIC(RT_CHIPCMD)) == RT_CMD_TX_ENABLE) g2_write_8(NIC(RT_CHIPCMD), 0);
+    }
+    g2_write_32(NIC(RT_MAR0), 0x55aaff00);                                 // magic MAR readback dance
+    g2_write_32(NIC(RT_MAR4), 0xaa5500ff);
+    if (g2_read_32(NIC(RT_MAR0)) == 0x55aaff00 && g2_read_32(NIC(RT_MAR4)) == 0xaa5500ff)
+    {
+        g2_write_8 (NIC(RT_CHIPCMD), RT_CMD_RX_ENABLE | RT_CMD_TX_ENABLE);
+        g2_write_32(NIC(RT_MAR0), 0xffffffff);
+        g2_write_32(NIC(RT_MAR4), 0xffffffff);
+    }
+
+    g2_write_16(NIC(RT_INTRMASK), 0);                                      // we POLL; no RTL/G2 IRQ
     g2_write_8 (NIC(RT_CHIPCMD), RT_CMD_RX_ENABLE | RT_CMD_TX_ENABLE);
     g2_write_32(NIC(RT_RXCONFIG), RX_CONFIG);
     g2_write_32(NIC(RT_TXCONFIG), TX_CONFIG);
 
-    // Bring-up the stock driver skips but real silicon needs. Unlock the config
-    // regs (CFG9346=0xC0), then: CONFIG1 DVRLOAD; CONFIG4 RX-FIFO auto-clear (so an RX
-    // overrun self-recovers instead of wedging); CONFIG5 LDPS = disable link-down power
-    // save (keep the PHY powered so it can negotiate). Relock after.
+    // Config-register dance (CFG9346 unlock 0xC0): CONFIG1 DVRLOAD, CONFIG4 RX-FIFO auto-clear,
+    // CONFIG5 LDPS off (keep the PHY powered to negotiate). Relock after.
     g2_write_8(NIC(RT_CFG9346), RT_CFG_UNLOCK);
     g2_write_8(NIC(RT_CONFIG1), (BYTE)((g2_read_8(NIC(RT_CONFIG1)) & ~(RT_CONFIG1_LWACT | RT_CONFIG1_LED0)) | RT_CONFIG1_DVRLOAD | RT_CONFIG1_LED1));
     g2_write_8(NIC(RT_CONFIG4), (BYTE)(g2_read_8(NIC(RT_CONFIG4)) | RT_CONFIG4_RXFIFOAC));
     g2_write_8(NIC(RT_CONFIG5), (BYTE)(g2_read_8(NIC(RT_CONFIG5)) | RT_CONFIG5_LDPS));
     g2_write_8(NIC(RT_CFG9346), 0);
 
-    g2_write_32(NIC(RT_MAR0), 0xffffffff);     // accept all multicast (broadcast via RXC_AB)
+    g2_write_32(NIC(RT_MAR0), 0xffffffff);                                 // accept all multicast (bcast via AB)
     g2_write_32(NIC(RT_MAR4), 0xffffffff);
     g2_write_16(NIC(RT_MULTIINTR), 0);
-    g2_write_16(NIC(RT_INTRSTATUS), 0xffff);   // ack pending
-    g2_write_32(NIC(RT_RXMISSED), 0);          // clear missed-packet counter
-    g2_write_8 (NIC(RT_CHIPCMD), RT_CMD_RX_ENABLE | RT_CMD_TX_ENABLE);
+    g2_write_16(NIC(RT_INTRSTATUS), 0xffff);                              // ack pending
+    g2_write_32(NIC(RT_RXMISSED), 0);
+    g2_write_8 (NIC(RT_CHIPCMD), RT_CMD_RX_ENABLE | RT_CMD_TX_ENABLE);     // final enable (KOS:388)
 
-    // KICK AUTO-NEGOTIATION - the real-HW fix. On a live cable the PHY must negotiate
-    // before there's carrier; without it no frames flow -> no DHCP -> no DNS. An idealized model
-    // fakes instant link, hiding this. We do NOT block boot waiting for link: the netif
-    // DHCP worker retries every 1.5s, so the lease lands once link is up (~2-3s).
+    // Kick auto-negotiation LAST. The netif DHCP worker retries every 1.5s, so the lease lands
+    // once link comes up (~2-3s); we don't block boot on it.
     g2_write_16(NIC(RT_MII_BMCR), RT_MII_RESET | RT_MII_AN_ENABLE | RT_MII_AN_START);
 
-    g2_write_32(NIC(RT_RXCONFIG), g2_read_32(NIC(RT_RXCONFIG)) | RXC_APM | RXC_AB);
     g_curtx = 0; g_currx = 0;
-    g2_write_16(NIC(RT_RXBUFTAIL), (WORD)((0 - 16) & (RX_BUF_LEN - 1)));   // CAPR inside the ring
+    g2_write_32(NIC(RT_RXCONFIG), g2_read_32(NIC(RT_RXCONFIG)) | RXC_APM | RXC_AB);   // accept phys-match + bcast
+    g2_write_16(NIC(RT_RXBUFTAIL), (WORD)((0 - 16) & (RX_BUF_LEN - 1)));              // CAPR = -16 (empty ring)
 }
 
 // PHY link state (BMSR link bit). Exposed so the shim/app can show link-up before DHCP.

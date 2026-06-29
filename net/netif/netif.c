@@ -19,6 +19,8 @@
 //
 #include "microstk_if.h"
 #include "syslog.h"
+#include "dcboot.h"
+#include <ras.h>            // RASENTRY (the dial-config DNS the user set lives in ipaddrDns)
 
 // ---- link backend abstraction --------------------------------------------------
 typedef struct {
@@ -106,6 +108,96 @@ static void ArpRequest(ulong ip)
     EthSend(bcast, 0x0806, a, 28);
 }
 
+// Skip one DNS name (labels until a 0 length byte, or a 0xC0 compression pointer).
+static const unsigned char *DnsSkipName(const unsigned char *p, const unsigned char *end)
+{
+    while (p < end)
+    {
+        if ((*p & 0xC0) == 0xC0) return p + 2;       // compression pointer (2 bytes)
+        if (*p == 0)             return p + 1;       // root label = end of name
+        p += *p + 1;                                 // ordinary label
+    }
+    return end;
+}
+
+// 16-bit ones-complement checksum over a network-order byte range (folded), with a running seed.
+static unsigned short Csum16(const unsigned char *p, int n, unsigned long seed)
+{
+    unsigned long sum = seed;
+    int i;
+    for (i = 0; i + 1 < n; i += 2) sum += (unsigned long)((p[i] << 8) | p[i + 1]);
+    if (n & 1) sum += (unsigned long)(p[n - 1] << 8);
+    while (sum >> 16) sum = (sum & 0xFFFF) + (sum >> 16);
+    return (unsigned short)(~sum & 0xFFFF);
+}
+
+// Flatten a DNS reply so coredll's broken DnsQueryAddress (which takes answer[0].RDATA without
+// checking TYPE) returns the right address. We do exactly what KOS's getaddrinfo RR-walk does -
+// scan every answer RR, pick the TYPE==A record, skip CNAME(5)/others - then rebuild the packet
+// with a SINGLE A answer named via a compression pointer to the question. This mirrors what
+// Flycast achieves by handing the guest a flattening DNS server (dns.flyca.st), done in-flight.
+// Returns the new IP-datagram length in `out` (>0) when it rewrote, else 0 (deliver original).
+// Only rewrites CNAME-bearing replies that DO carry an A - plain A-only replies pass through.
+static int DnsFlatten(const unsigned char *ip, int iplen, unsigned char *out)
+{
+    int ihl = (ip[0] & 0x0f) * 4;
+    const unsigned char *udp = ip + ihl, *dns = udp + 8, *end = ip + iplen, *p;
+    int qd, an, i, qlen, dnslen, udplen, total, haveA = 0, cname = 0;
+    unsigned char aip[4] = { 0, 0, 0, 0 };
+    unsigned char *od, *a;
+    if (dns + 12 > end) return 0;
+    qd = (dns[4] << 8) | dns[5];                      // QDCOUNT
+    an = (dns[6] << 8) | dns[7];                      // ANCOUNT
+    p  = dns + 12;
+    for (i = 0; i < qd && p < end; i++) { p = DnsSkipName(p, end); p += 4; }   // skip questions
+    qlen = (int)(p - (dns + 12));                     // question-section length (to copy verbatim)
+    for (i = 0; i < an && p < end; i++)               // KOS-style answer walk
+    {
+        int ty, rdl;
+        p = DnsSkipName(p, end);
+        if (p + 10 > end) break;
+        ty  = (p[0] << 8) | p[1];                     // TYPE (1=A, 5=CNAME, 28=AAAA, ...)
+        rdl = (p[8] << 8) | p[9];                     // RDLENGTH
+        if (ty == 5) cname = 1;
+        if (ty == 1 && rdl == 4 && p + 14 <= end && !haveA) { memcpy(aip, p + 10, 4); haveA = 1; }
+        p += 10 + rdl;
+    }
+    SysLog(L"dns: an=%d cname=%d haveA=%d ip=%u.%u.%u.%u", an, cname, haveA, aip[0], aip[1], aip[2], aip[3]);
+    if (!cname || !haveA) return 0;                   // only fix CNAME-confused replies that carry an A
+
+    memcpy(out, ip, ihl);                             // IP header (length+csum fixed below)
+    memcpy(out + ihl, udp, 8);                        // UDP header (length+csum fixed below)
+    od = out + ihl + 8;
+    memcpy(od, dns, 12);                              // DNS header
+    od[6] = 0; od[7] = 1;                             // ANCOUNT = 1
+    od[8] = od[9] = od[10] = od[11] = 0;              // NSCOUNT = ARCOUNT = 0
+    memcpy(od + 12, dns + 12, qlen);                  // copy question verbatim
+    a = od + 12 + qlen;
+    a[0] = 0xC0; a[1] = 0x0C;                         // NAME -> pointer to question name (offset 12)
+    a[2] = 0x00; a[3] = 0x01;                         // TYPE  = A
+    a[4] = 0x00; a[5] = 0x01;                         // CLASS = IN
+    a[6] = a[7] = a[8] = 0; a[9] = 60;                // TTL   = 60s
+    a[10] = 0x00; a[11] = 0x04;                       // RDLENGTH = 4
+    memcpy(a + 12, aip, 4);                           // RDATA = the A address
+    dnslen = 12 + qlen + 16;
+    udplen = 8 + dnslen;
+    out[ihl + 4] = (unsigned char)(udplen >> 8); out[ihl + 5] = (unsigned char)udplen;
+    out[ihl + 6] = out[ihl + 7] = 0;                  // zero UDP checksum before recompute
+    total = ihl + udplen;
+    out[2] = (unsigned char)(total >> 8); out[3] = (unsigned char)total;       // IP total length
+    out[10] = out[11] = 0;                            // zero IP header checksum before recompute
+    { unsigned short c = Csum16(out, ihl, 0); out[10] = (unsigned char)(c >> 8); out[11] = (unsigned char)c; }
+    {   // UDP checksum over the pseudo-header (src+dst IP, proto=17, udplen) + UDP segment
+        unsigned long seed = 17 + udplen;
+        unsigned short c;
+        for (i = 12; i < 20; i += 2) seed += (out[i] << 8) | out[i + 1];       // src + dst IP
+        c = Csum16(out + ihl, udplen, seed);
+        if (c == 0) c = 0xFFFF;
+        out[ihl + 6] = (unsigned char)(c >> 8); out[ihl + 7] = (unsigned char)c;
+    }
+    return total;
+}
+
 // Build an NDIS packet for an inbound IP datagram and hand it to microstk (the exact
 // sequence from mppp's Receive @ 1000ab5c).
 static void DeliverIP(const unsigned char *ip, int len)
@@ -155,7 +247,10 @@ static void RxFrame(const unsigned char *f, int len)
     else if (type == 0x0800)                    // IPv4
     {
         const unsigned char *ip = f + 14;
-        if (ip[9] == 17 && f[36] == 0 && f[37] == 68)   // UDP -> port 68 = DHCP reply
+        int ihl = (ip[0] & 0x0f) * 4;                   // IP header length (IHL*4); NOT always 20
+        const unsigned char *udp = ip + ihl;            // UDP starts after the (variable) IP header
+        if (ip[9] == 17 && len >= 14 + ihl + 8 &&
+            udp[2] == 0 && udp[3] == 68)                // UDP dest port 68 = DHCP reply
             DhcpRx(f, len);
         else
         {
@@ -166,9 +261,41 @@ static void RxFrame(const unsigned char *f, int len)
                           ip[12], ip[13], ip[14], ip[15], ip[9], len - 14);
                 OutputDebugStringW(w); s_rxLog++;
             }
+            if (ip[9] == 6)                     // TCP: log every inbound handshake/control segment
+            {
+                const unsigned char *tcp = ip + ihl; BYTE fl = tcp[13];
+                if (fl & 0x07)                  // SYN(-ACK=0x12) / FIN / RST(0x04)
+                    SysLog(L"tcp RX %u.%u.%u.%u:%u fl=%02x", ip[12], ip[13], ip[14], ip[15],
+                           (tcp[0] << 8) | tcp[1], fl);
+            }
+            // DNS reply (UDP src port 53)? Flatten CNAME chains so coredll's resolver returns the
+            // real A record (see DnsFlatten). Otherwise hand the datagram up unchanged.
+            if (ip[9] == 17 && len >= 14 + ihl + 8 && udp[0] == 0 && udp[1] == 53)
+            {
+                unsigned char flat[600];
+                int nl = DnsFlatten(ip, len - 14, flat);
+                if (nl > 0) { DeliverIP(flat, nl); return; }
+            }
             DeliverIP(ip, len - 14);            // everything else -> microstk
         }
     }
+}
+
+// Recompute the TCP checksum over the pseudo-header (src/dst IP, proto 6, TCP length) + segment,
+// after we normalize a SYN's flags. Reuses Csum16 (the same routine the DNS-flatten path uses).
+static void TcpFixChecksum(unsigned char *ip)
+{
+    int ihl = (ip[0] & 0x0f) * 4;
+    int tcplen = ((ip[2] << 8) | ip[3]) - ihl;
+    unsigned char *tcp = ip + ihl;
+    unsigned long seed = 6 + (unsigned long)tcplen;
+    unsigned short c;
+    int i;
+    if (tcplen < 20) return;
+    tcp[16] = tcp[17] = 0;
+    for (i = 12; i < 20; i += 2) seed += (unsigned long)((ip[i] << 8) | ip[i + 1]);   // src + dst IP
+    c = Csum16(tcp, tcplen, seed);
+    tcp[16] = (unsigned char)(c >> 8); tcp[17] = (unsigned char)c;
 }
 
 // ---- microstk TX/Ioctl (the ifnet vtable) --------------------------------------
@@ -198,6 +325,19 @@ static ulong OurTransmit(ifnet *ifn, NDIS_PACKET *pkt, ulong nextHop)
         OutputDebugStringW(w); s_txLog++;
     }
 
+    if (ipbuf[9] == 6)                          // TCP
+    {
+        int ih = (ipbuf[0] & 0x0f) * 4; unsigned char *tcp = ipbuf + ih; BYTE fl = tcp[13];
+        // microstk sets PSH on its SYNs (fl=0x0a). Cloudflare/Google tolerate it, but a stricter
+        // firewall (Akamai-fronted hosts, the game master) can drop a SYN+PSH as malformed -> the
+        // handshake never starts. Normalize a PURE SYN (SYN set, ACK clear) to a clean 0x02 and
+        // recompute the checksum so it's a well-formed SYN every stack accepts.
+        if ((fl & 0x02) && !(fl & 0x10) && (fl & 0x08))
+        { tcp[13] = (BYTE)(fl & ~0x08); TcpFixChecksum(ipbuf); fl = tcp[13]; }
+        if (fl & 0x07)                          // SYN / FIN / RST
+            SysLog(L"tcp TX %u.%u.%u.%u:%u fl=%02x %s", ipbuf[16], ipbuf[17], ipbuf[18], ipbuf[19],
+                   (tcp[2] << 8) | tcp[3], fl, hit ? L"sent" : L"DROP(arp)");
+    }
     if (hit) EthSend(mac, 0x0800, ipbuf, off);
     else ArpRequest(dst);                       // drop this one; ARP for next time (TCP retransmits)
 
@@ -221,12 +361,60 @@ static ulong dns_ip(BYTE a, BYTE b, BYTE c, BYTE d)
 // config -> public resolver last resort (the reference hardcodes 8.8.4.4). This guarantees
 // gethostbyname always has a server, so name resolution never silently dies when the
 // network routes but advertised no DNS server.
+// Read the user-configured Primary/Secondary DNS from the RAS dial entry (the game's "Configure
+// Internet Connection" UI). ras.c persists the whole RASENTRY blob as "Entry" under
+// HKLM\Comm\RasBook\<name>; the DNS the player typed lives in RASENTRY.ipaddrDns/ipaddrDnsAlt.
+// Players set these to point a dead master server's hostname at a revival server, so they take
+// priority over the DHCP-advertised DNS. Returns the count (0..2) found, in our network-order
+// rep (RASIPADDR is {a,b,c,d}, same byte order as a wire DNS address). First entry with a
+// primary DNS wins. This is what stock mppp does via IPCP; we apply it directly to DnsServers.
+static int ReadRasDns(ulong dns[2])
+{
+    HKEY  book, e;
+    DWORD i = 0;
+    int   n = 0;
+    if (RegOpenKeyExW(HKEY_LOCAL_MACHINE, L"Comm\\RasBook", 0, KEY_READ, &book) != ERROR_SUCCESS)
+        return 0;
+    for (;;)
+    {
+        WCHAR    nm[64], path[128];
+        DWORD    nl = 64, t, cb;
+        RASENTRY re;
+        if (RegEnumKeyExW(book, i++, nm, &nl, 0, 0, 0, 0) != ERROR_SUCCESS) break;
+        lstrcpyW(path, L"Comm\\RasBook\\"); lstrcatW(path, nm);
+        if (RegOpenKeyExW(HKEY_LOCAL_MACHINE, path, 0, KEY_READ, &e) != ERROR_SUCCESS) continue;
+        cb = sizeof(re);
+        if (RegQueryValueExW(e, L"Entry", 0, &t, (BYTE *)&re, &cb) == ERROR_SUCCESS &&
+            cb >= (DWORD)((BYTE *)&re.ipaddrDnsAlt - (BYTE *)&re) + sizeof(re.ipaddrDnsAlt))
+        {
+            ulong d1 = 0, d2 = 0;
+            memcpy(&d1, &re.ipaddrDns, 4);
+            memcpy(&d2, &re.ipaddrDnsAlt, 4);
+            if (d1) { dns[n++] = d1; if (d2 && n < 2) dns[n++] = d2; }
+        }
+        RegCloseKey(e);
+        if (n > 0) break;
+    }
+    RegCloseKey(book);
+    return n;
+}
+
 static void WriteDnsServers(void)
 {
     HKEY  h;
     ulong buf[6];
     int   i;
     LONG  rc1, rc2 = -1;
+    ulong rasdns[2];
+    int   rn = ReadRasDns(rasdns);
+    if (rn > 0)                                         // user's dial-config DNS overrides DHCP/flash
+    {
+        for (i = 0; i < rn; i++) g_offDns[i] = rasdns[i];
+        g_offDnsN = rn;
+        OutputDebugStringW(L"netif: DNS: using RAS-entry (user-configured) DNS\r\n");
+        SysLog(L"netif: DNS = RAS entry %u.%u.%u.%u", ((BYTE*)&rasdns[0])[0], ((BYTE*)&rasdns[0])[1],
+               ((BYTE*)&rasdns[0])[2], ((BYTE*)&rasdns[0])[3]);
+    }
     if (g_offDnsN <= 0)
     {
         unsigned long fdns[2] = { 0, 0 };
@@ -260,6 +448,15 @@ static void WriteDnsServers(void)
         g_offDnsN, (int)rc1, (int)rc2); OutputDebugStringW(b); }
 }
 
+// Re-apply DNS to the registry. ras.c calls this when a title dials (AfdRasDial): the player may
+// have just set a custom Primary/Secondary DNS in the dial config AFTER the boot-time DHCP bind
+// already wrote DnsServers, so re-run to pick it up. Safe to call repeatedly (WriteDnsServers
+// overwrites, never appends).
+void NetifApplyDns(void)
+{
+    WriteDnsServers();
+}
+
 // Called by the DHCP client on lease: configure microstk + go UP. Returns 1 once bound;
 // returns 0 if microstk hasn't back-filled ifn_IPInterfaceConfigure yet (DHCP raced
 // ahead) so the caller keeps DHCP alive and retries.
@@ -276,6 +473,11 @@ static int NetifOnLease(ulong ip, ulong mask, ulong gw)
     g_ifn->ifn_dwFlags |= IFF_UP;
     WriteDnsServers();
     g_haveIP = 1;
+    {   // publish the bound address to the boot screen (dcwboot reads DCBOOT)
+        WCHAR ips[DCB_RESLEN]; const BYTE *b = (const BYTE *)&ip;
+        wsprintfW(ips, L"%u.%u.%u.%u", b[0], b[1], b[2], b[3]);
+        DcBootSet(DCB_ADDR, DCB_OK, ips);
+    }
     // Eagerly resolve the GATEWAY MAC now. Off-link TCP routes via g_gw; if its ARP isn't
     // cached when the first off-link SYN goes out, OurTransmit drops that SYN and waits for a
     // TCP retransmit (~3s) - which can exceed a connect() timeout and look like "off-link
@@ -339,21 +541,29 @@ static void DhcpStep(void)
 
 static void DhcpRx(const unsigned char *f, int n)
 {
-    const unsigned char *bp = f + 42, *o, *end;
-    int msgType = 0;
-    if (n < 240 + 6 || bp[0] != 2) return;                  // BOOTREPLY
+    const unsigned char *ip = f + 14, *bp, *o, *end;
+    int ihl = (ip[0] & 0x0f) * 4;                           // honor IP options (IHL>5)
+    int msgType = 0, dnsN = 0, k;
+    ulong dns[5];
+    bp = f + 14 + ihl + 8;                                  // BOOTP = after Eth(14)+IP(ihl)+UDP(8)
+    if (n < (int)(bp - f) + 240 + 6 || bp[0] != 2) return;  // BOOTREPLY
     memcpy(&g_offIP, bp + 16, 4);                           // yiaddr
-    g_offMask = 0; g_offGw = 0; g_offSrv = 0; g_offDnsN = 0;
+    g_offMask = 0; g_offGw = 0; g_offSrv = 0;               // (DNS parsed into a local; see commit below)
     for (o = bp + 240, end = f + n; o < end && *o != 255; ) {
         int op = *o++, ln; if (op == 0) continue; ln = *o++;
         if      (op == 53 && ln == 1) msgType = o[0];
         else if (op == 1  && ln == 4) memcpy(&g_offMask, o, 4);
         else if (op == 3  && ln >= 4) memcpy(&g_offGw, o, 4);
         else if (op == 54 && ln == 4) memcpy(&g_offSrv, o, 4);
-        else if (op == 6  && ln >= 4) { int k;                      // DNS servers
-            for (k = 0; k + 4 <= ln && g_offDnsN < 5; k += 4) memcpy(&g_offDns[g_offDnsN++], o + k, 4); }
+        else if (op == 6  && ln >= 4)                                // DNS servers (option 6)
+            for (k = 0; k + 4 <= ln && dnsN < 5; k += 4) memcpy(&dns[dnsN++], o + k, 4);
         o += ln;
     }
+    // Commit DNS only when this reply actually carried option 6 - a later reply WITHOUT it
+    // (renew, relayed dup) must not wipe a previously-parsed good set (agent B2).
+    if (dnsN > 0) { for (k = 0; k < dnsN; k++) g_offDns[k] = dns[k]; g_offDnsN = dnsN; }
+    SysLog(L"dhcp: reply type=%d ihl=%d yi=%u.%u.%u.%u dnsN=%d", msgType, ihl,
+           ((BYTE*)&g_offIP)[0], ((BYTE*)&g_offIP)[1], ((BYTE*)&g_offIP)[2], ((BYTE*)&g_offIP)[3], g_offDnsN);
     if (!g_offMask) g_offMask = 0x00ffffff;                 // /24 (network bytes 255.255.255.0)
     if (!g_offGw)   g_offGw = (g_offIP & g_offMask) | (1u << 24);  // guess .1
     if (msgType == 2 && g_dhcpState == 0) { g_dhcpState = 1; DhcpStep(); }      // OFFER -> REQUEST

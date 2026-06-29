@@ -13,20 +13,35 @@
 #include <windows.h>
 #include "dcspi.h"               // DCSPI_BUS_* / DCSPI_CS_* constants only
 #include "syslog.h"
+#include "dcboot.h"
 
 // dcspi.dll entry points, bound on demand (no static import).
 typedef int           (*PFN_Init)(int, int);
 typedef void          (*PFN_Shutdown)(int);
 typedef void          (*PFN_SetCS)(int, int);
 typedef void          (*PFN_RwData)(int, const unsigned char *, unsigned char *, int);
+typedef int           (*PFN_HwType)(void);
 static PFN_Init     pInit;
 static PFN_Shutdown pShutdown;
 static PFN_SetCS    pSetCS;
 static PFN_RwData   pRw;
+static PFN_HwType   pHwType;
+
+// Serialize every W5500 SPI transaction: the NetWorker RX-poll thread and microstk's TX path
+// (connect/send -> OurTransmit -> W5500Tx) hit the chip from DIFFERENT threads. Without this
+// their SCIF bit-bang interleaves at the CS/clock level and corrupts frames - a probabilistic
+// race that lets DNS + the fast/close 1.1.1.1 survive but drops slower multi-round-trip
+// connects. Mirrors KOS's w5500_spi_mutex and our own BBA s_g2cs. (CE critical sections are
+// recursive, so nested w5_* calls are safe.)
+static CRITICAL_SECTION s_w5cs;
+static int              s_w5csInit;
+#define W5LOCK()   EnterCriticalSection(&s_w5cs)
+#define W5UNLOCK() LeaveCriticalSection(&s_w5cs)
 
 static int load_dcspi(void)
 {
     HMODULE h;
+    if (!s_w5csInit) { InitializeCriticalSection(&s_w5cs); s_w5csInit = 1; }   // before any w5_* access
     if (pInit) return 1;
     h = LoadLibraryW(L"dcspi.dll");
     if (!h) return 0;
@@ -34,6 +49,7 @@ static int load_dcspi(void)
     pShutdown = (PFN_Shutdown)GetProcAddress(h, L"SpiShutdown");
     pSetCS    = (PFN_SetCS)   GetProcAddress(h, L"SpiSetCS");
     pRw       = (PFN_RwData)  GetProcAddress(h, L"SpiRwData");
+    pHwType   = (PFN_HwType)  GetProcAddress(h, L"DcspiHwType");   // optional (Naomi vs DC)
     return (pInit && pSetCS && pRw) ? 1 : 0;
 }
 
@@ -73,19 +89,23 @@ static void w5_write(BYTE bsb, WORD addr, const BYTE *data, int len)
 {
     BYTE hdr[3];
     hdr[0] = (BYTE)(addr >> 8); hdr[1] = (BYTE)addr; hdr[2] = CTRL(bsb, 1);
+    W5LOCK();
     pSetCS(g_bus, 1);
     pRw(g_bus, hdr, 0, 3);
     if (len) pRw(g_bus, data, 0, len);
     pSetCS(g_bus, 0);
+    W5UNLOCK();
 }
 static void w5_read(BYTE bsb, WORD addr, BYTE *data, int len)
 {
     BYTE hdr[3];
     hdr[0] = (BYTE)(addr >> 8); hdr[1] = (BYTE)addr; hdr[2] = CTRL(bsb, 0);
+    W5LOCK();
     pSetCS(g_bus, 1);
     pRw(g_bus, hdr, 0, 3);
     if (len) pRw(g_bus, 0, data, len);
     pSetCS(g_bus, 0);
+    W5UNLOCK();
 }
 static void w5_w1(BYTE bsb, WORD a, BYTE v)  { w5_write(bsb, a, &v, 1); }
 static BYTE w5_r1(BYTE bsb, WORD a)          { BYTE v = 0; w5_read(bsb, a, &v, 1); return v; }
@@ -108,11 +128,18 @@ static WORD w5_r16s(BYTE bsb, WORD a)
 // ---- LinkOps ---------------------------------------------------------------------
 static int w5_try(int bus, int cs)
 {
-    SysLog(L"w5500: SpiInit bus=%d", bus);               // (SCI init drives Port A; SCIF reconfigs SCIF)
-    if (pInit(bus, cs) != 0) return 0;
-    SysLog(L"w5500: reading VERSIONR");
+    BYTE ver;
+    SysLog(L"w5500: probe bus=%d cs=%d", bus, cs);        // (SCI init drives Port A; SCIF reconfigs SCIF)
+    if (pInit(bus, cs) != 0) { SysLog(L"w5500: SpiInit FAILED bus=%d", bus); return 0; }
     g_bus = bus; g_cs = cs;
-    if (w5_r1(BSB_COMMON, VERSIONR) == 0x04) { SysLog(L"w5500: detected (bus %d)", bus); return 1; }
+    ver = w5_r1(BSB_COMMON, VERSIONR);
+    SysLog(L"w5500: VERSIONR=0x%02x bus=%d (expect 0x04)", ver, bus);
+    if (ver == 0x04)
+    {
+        SysLog(L"w5500: DETECTED on bus %d", bus);
+        DcBootSet(DCB_NET, DCB_OK, bus == DCSPI_BUS_SCIF ? L"W5500 (SCIF)" : L"W5500 (SCI)");
+        return 1;
+    }
     if (pShutdown) pShutdown(bus);
     g_bus = -1;
     return 0;
@@ -138,20 +165,25 @@ static DWORD cfg_bus(void)
 int W5500Probe(void)
 {
     DWORD bus = cfg_bus();
+    SysLog(L"w5500: W5500Bus=%d (0=off 1=SCI 2=SCIF 3=auto)", bus);
     if (bus == 0) return 0;                               // not configured -> skip (safe default)
-    if (!load_dcspi()) { OutputDebugStringW(L"w5500: dcspi.dll load failed\r\n"); return 0; }
-    if (bus == 1) return w5_try(DCSPI_BUS_SCI,  DCSPI_CS_GPIO);
+    if (!load_dcspi()) { SysLog(L"w5500: dcspi.dll load FAILED"); return 0; }
+    if (pHwType) { int ty = pHwType();                    // log board: Naomi uses SCIF-RTS CS on SCI
+        SysLog(L"w5500: hw=%s type=0x%x", ty == 0xA ? L"NAOMI" : ty == 0x9 ? L"Set5" : L"Dreamcast", ty); }
+    // SCI CS source is AUTO: PA7 GPIO on retail DC, SCIF RTS on Naomi/Set5 (resolved in dcspi).
+    if (bus == 1) return w5_try(DCSPI_BUS_SCI,  DCSPI_CS_AUTO);
     if (bus == 2) return w5_try(DCSPI_BUS_SCIF, DCSPI_CS_RTS);
     if (bus == 3)                                         // AUTO-detect which bus the chip is on
     {
-        // SCI FIRST: probing SCI only touches the SCI + PA7, never the SCIF, so the
+        // SCI FIRST: probing SCI only touches the SCI + PA7/RTS, never the SCIF data pins, so the
         // nkscifkd debug console (which lives on the SCIF) survives if the chip is on SCI.
-        OutputDebugStringW(L"w5500: auto-probe SCI...\r\n");
-        if (w5_try(DCSPI_BUS_SCI, DCSPI_CS_GPIO)) return 1;
+        SysLog(L"w5500: auto-probe SCI first...");
+        if (w5_try(DCSPI_BUS_SCI, DCSPI_CS_AUTO)) return 1;
         // SCIF LAST: scif_init_raw reconfigures the SCIF to GPIO/SPI, which TAKES OVER the
         // SCIF and kills the kernel text console. Only do this if SCI had no chip.
-        OutputDebugStringW(L"w5500: auto-probe SCIF (note: this takes over the SCIF debug console)...\r\n");
+        SysLog(L"w5500: auto-probe SCIF (takes over SCIF console)...");
         if (w5_try(DCSPI_BUS_SCIF, DCSPI_CS_RTS)) return 1;
+        SysLog(L"w5500: not found on SCI or SCIF");
     }
     return 0;
 }
