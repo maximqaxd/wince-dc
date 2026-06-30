@@ -27,7 +27,7 @@ extern void DcIrqRestore(unsigned long); // SR<-old
 
 // Drain until both the SH4->G2 store FIFO and the G2 FIFO are empty (mask G2|SH4;
 // the old code wrongly waited on AICA|G2 and missed the SH4 store FIFO).
-static void g2_fifo_wait(void)
+static void G2FifoWait(void)
 {
 	int i;
 	for (i = 0; i < 0x1800; i++)
@@ -45,87 +45,87 @@ static void g2_fifo_wait(void)
 // is kept TINY - the block copies re-lock every 32 bytes (the G2 FIFO size) and run UNLOCKED
 // between chunks, letting Maple + the AICA ISR be serviced ~once per 32 bytes. Short windows
 // are both sound-safe and Maple-safe; the bug was locking once around a whole ~1.5KB packet.
-static unsigned long g2_lock(void)
+static unsigned long G2Lock(void)
 {
-	unsigned long sr = DcIrqDisable();
+	unsigned long dwSr = DcIrqDisable();
 	G2_DMA_SUSP_SPU = 1;
 	G2_DMA_SUSP_BBA = 1;
 	G2_DMA_SUSP_CH2 = 1;
-	g2_fifo_wait();
-	return sr;
+	G2FifoWait();
+	return dwSr;
 }
-static void g2_unlock(unsigned long sr)
+static void G2Unlock(unsigned long dwSr)
 {
 	G2_DMA_SUSP_SPU = 0;
 	G2_DMA_SUSP_BBA = 0;
 	G2_DMA_SUSP_CH2 = 0;
-	DcIrqRestore(sr);
+	DcIrqRestore(dwSr);
 }
 
-static BYTE g2_read_8(DWORD a)
+static BYTE G2Read8(DWORD dwAddr)
 {
-	unsigned long lk = g2_lock();
-	BYTE v = *(volatile BYTE *)a;
-	g2_unlock(lk);
-	return v;
+	unsigned long dwLk = G2Lock();
+	BYTE bVal = *(volatile BYTE *)dwAddr;
+	G2Unlock(dwLk);
+	return bVal;
 }
-static WORD g2_read_16(DWORD a)
+static WORD G2Read16(DWORD dwAddr)
 {
-	unsigned long lk = g2_lock();
-	WORD v = *(volatile WORD *)a;
-	g2_unlock(lk);
-	return v;
+	unsigned long dwLk = G2Lock();
+	WORD wVal = *(volatile WORD *)dwAddr;
+	G2Unlock(dwLk);
+	return wVal;
 }
-static DWORD g2_read_32(DWORD a)
+static DWORD G2Read32(DWORD dwAddr)
 {
-	unsigned long lk = g2_lock();
-	DWORD v = *(volatile DWORD *)a;
-	g2_unlock(lk);
-	return v;
+	unsigned long dwLk = G2Lock();
+	DWORD dwVal = *(volatile DWORD *)dwAddr;
+	G2Unlock(dwLk);
+	return dwVal;
 }
-static void g2_write_8(DWORD a, BYTE v)
+static void G2Write8(DWORD dwAddr, BYTE bVal)
 {
-	unsigned long lk = g2_lock();
-	*(volatile BYTE *)a = v;
-	g2_unlock(lk);
+	unsigned long dwLk = G2Lock();
+	*(volatile BYTE *)dwAddr = bVal;
+	G2Unlock(dwLk);
 }
-static void g2_write_16(DWORD a, WORD v)
+static void G2Write16(DWORD dwAddr, WORD wVal)
 {
-	unsigned long lk = g2_lock();
-	*(volatile WORD *)a = v;
-	g2_unlock(lk);
+	unsigned long dwLk = G2Lock();
+	*(volatile WORD *)dwAddr = wVal;
+	G2Unlock(dwLk);
 }
-static void g2_write_32(DWORD a, DWORD v)
+static void G2Write32(DWORD dwAddr, DWORD dwVal)
 {
-	unsigned long lk = g2_lock();
-	*(volatile DWORD *)a = v;
-	g2_unlock(lk);
+	unsigned long dwLk = G2Lock();
+	*(volatile DWORD *)dwAddr = dwVal;
+	G2Unlock(dwLk);
 }
 // Block ops lock ONCE around the whole loop (as the reference g2_*_block ops do), draining the FIFO
 // every 32 bytes within the held lock.
-static void g2_read_block(BYTE *d, DWORD a, int n)
+static void G2ReadBlock(BYTE *pbDst, DWORD dwAddr, int n)
 {
-	unsigned long lk = g2_lock();
+	unsigned long dwLk = G2Lock();
 	int i;
 	for (i = 0; i < n; i++)
 	{
 		if (i && !(i & 31))
-			g2_fifo_wait();
-		d[i] = *(volatile BYTE *)(a + i);
+			G2FifoWait();
+		pbDst[i] = *(volatile BYTE *)(dwAddr + i);
 	}
-	g2_unlock(lk);
+	G2Unlock(dwLk);
 }
-static void g2_write_block(DWORD a, const BYTE *s, int n)
+static void G2WriteBlock(DWORD dwAddr, const BYTE *pbSrc, int n)
 {
-	unsigned long lk = g2_lock();
+	unsigned long dwLk = G2Lock();
 	int i;
 	for (i = 0; i < n; i++)
 	{
 		if (i && !(i & 31))
-			g2_fifo_wait();
-		*(volatile BYTE *)(a + i) = s[i];
+			G2FifoWait();
+		*(volatile BYTE *)(dwAddr + i) = pbSrc[i];
 	}
-	g2_unlock(lk);
+	G2Unlock(dwLk);
 }
 // 32-bit block copies for the RTL8139 DMA window (the GAPS-mapped RX/TX frame buffers).
 // The GAPS bridge + G2 bus latch 32-bit; sub-word (byte) access to the DMA window returns
@@ -137,36 +137,36 @@ static void g2_write_block(DWORD a, const BYTE *s, int n)
 // Lock per 8-dword (32-byte = one G2 FIFO) chunk, NOT once around the whole packet: each
 // chunk is IRQ-masked + atomic, but IRQs (Maple poll, AICA ISR) run between chunks. A 1.5KB
 // frame is ~47 chunks, so Maple is serviced ~47x per packet instead of being starved for it.
-static void g2_read_block32(BYTE *d, DWORD a, int n)
+static void G2ReadBlock32(BYTE *pbDst, DWORD dwAddr, int n)
 {
 	int dw = (n + 3) >> 2, i = 0;
-	DWORD *p = (DWORD *)d;
+	DWORD *pdw = (DWORD *)pbDst;
 	while (i < dw)
 	{
 		int e = i + 8;
-		unsigned long lk;
+		unsigned long dwLk;
 		if (e > dw)
 			e = dw;
-		lk = g2_lock();
+		dwLk = G2Lock();
 		for (; i < e; i++)
-			p[i] = *(volatile DWORD *)(a + (DWORD)i * 4);
-		g2_unlock(lk);
+			pdw[i] = *(volatile DWORD *)(dwAddr + (DWORD)i * 4);
+		G2Unlock(dwLk);
 	}
 }
-static void g2_write_block32(DWORD a, const BYTE *s, int n)
+static void G2WriteBlock32(DWORD dwAddr, const BYTE *pbSrc, int n)
 {
 	int dw = (n + 3) >> 2, i = 0;
-	const DWORD *p = (const DWORD *)s;
+	const DWORD *pdw = (const DWORD *)pbSrc;
 	while (i < dw)
 	{
 		int e = i + 8;
-		unsigned long lk;
+		unsigned long dwLk;
 		if (e > dw)
 			e = dw;
-		lk = g2_lock();
+		dwLk = G2Lock();
 		for (; i < e; i++)
-			*(volatile DWORD *)(a + (DWORD)i * 4) = p[i];
-		g2_unlock(lk);
+			*(volatile DWORD *)(dwAddr + (DWORD)i * 4) = pdw[i];
+		G2Unlock(dwLk);
 	}
 }
 
@@ -222,50 +222,50 @@ static void g2_write_block32(DWORD a, const BYTE *s, int n)
 #define TX_LEN              0x800
 #define TX_N                4
 
-static BYTE s_mac[6];
-static DWORD g_curtx, g_currx;
+static BYTE s_abMac[6];
+static DWORD s_dwCurtx, s_dwCurrx;
 static CRITICAL_SECTION s_g2cs; // serialize G2 + ring state (TX thread vs RX worker)
-static int s_g2csInit;
+static int s_nG2csInit;
 
-static int gaps_init(void)
+static int GapsInit(void)
 {
-	char str[16];
+	char achStr[16];
 	int i;
-	g2_read_block((BYTE *)str, GAPS_BASE + 0x1400, 16);
-	if (memcmp(str, "GAPSPCI_BRIDGE_2", 16) != 0)
+	G2ReadBlock((BYTE *)achStr, GAPS_BASE + 0x1400, 16);
+	if (memcmp(achStr, "GAPSPCI_BRIDGE_2", 16) != 0)
 		return -1;
-	g2_write_32(GAPS_BASE + 0x1418, 0x5a14a501);
-	for (i = 10000; i > 0 && !(g2_read_32(GAPS_BASE + 0x1418) & 1); i--)
+	G2Write32(GAPS_BASE + 0x1418, 0x5a14a501);
+	for (i = 10000; i > 0 && !(G2Read32(GAPS_BASE + 0x1418) & 1); i--)
 		;
-	if (!(g2_read_32(GAPS_BASE + 0x1418) & 1))
+	if (!(G2Read32(GAPS_BASE + 0x1418) & 1))
 		return -2;
-	g2_write_32(GAPS_BASE + 0x1420, 0x01000000);
-	g2_write_32(GAPS_BASE + 0x1424, 0x01000000);
-	g2_write_32(GAPS_BASE + 0x1428, RTL_DMA);
-	g2_write_32(GAPS_BASE + 0x142c, RTL_DMA + 32 * 1024);
-	g2_write_32(GAPS_BASE + 0x1414, 0x00000001);
-	g2_write_32(GAPS_BASE + 0x1434, 0x00000001);
-	g2_write_16(GAPS_BASE + 0x1606, 0xf900);
-	g2_write_32(GAPS_BASE + 0x1630, 0x00000000);
-	g2_write_8(GAPS_BASE + 0x163c, 0x00);
-	g2_write_8(GAPS_BASE + 0x160d, 0xf0);
-	g2_write_16(GAPS_BASE + 0x1604, g2_read_16(GAPS_BASE + 0x1604) | 0x6);
-	g2_write_32(GAPS_BASE + 0x1614, 0x01000000);
-	if (g2_read_8(GAPS_BASE + 0x1650) & 0x1)
-		g2_write_16(GAPS_BASE + 0x1654, (g2_read_16(GAPS_BASE + 0x1654) & 0xfffc) | 0x8000);
-	g2_write_32(GAPS_BASE + 0x1414, 0x00000001);
+	G2Write32(GAPS_BASE + 0x1420, 0x01000000);
+	G2Write32(GAPS_BASE + 0x1424, 0x01000000);
+	G2Write32(GAPS_BASE + 0x1428, RTL_DMA);
+	G2Write32(GAPS_BASE + 0x142c, RTL_DMA + 32 * 1024);
+	G2Write32(GAPS_BASE + 0x1414, 0x00000001);
+	G2Write32(GAPS_BASE + 0x1434, 0x00000001);
+	G2Write16(GAPS_BASE + 0x1606, 0xf900);
+	G2Write32(GAPS_BASE + 0x1630, 0x00000000);
+	G2Write8(GAPS_BASE + 0x163c, 0x00);
+	G2Write8(GAPS_BASE + 0x160d, 0xf0);
+	G2Write16(GAPS_BASE + 0x1604, G2Read16(GAPS_BASE + 0x1604) | 0x6);
+	G2Write32(GAPS_BASE + 0x1614, 0x01000000);
+	if (G2Read8(GAPS_BASE + 0x1650) & 0x1)
+		G2Write16(GAPS_BASE + 0x1654, (G2Read16(GAPS_BASE + 0x1654) & 0xfffc) | 0x8000);
+	G2Write32(GAPS_BASE + 0x1414, 0x00000001);
 	// GAPS 0x141c "SEGA" magic handshake: write the 3-step sequence and restore
 	// 'SEGA'. The final write makes GAPS pull RSTB low ~120ns, which autoloads the
 	// RTL8139 registers from its EEPROM - notably the MAC. Without this, IDR0 reads
 	// can come back zero on real silicon (idealized models pre-populate them, hiding it).
-	if (g2_read_32(GAPS_BASE + 0x141c) == 0x41474553)
+	if (G2Read32(GAPS_BASE + 0x141c) == 0x41474553)
 	{ // 'SEGA' LE
-		g2_write_32(GAPS_BASE + 0x141c, 0x55aaff00);
-		if (g2_read_32(GAPS_BASE + 0x141c) == 0x55aaff00)
+		G2Write32(GAPS_BASE + 0x141c, 0x55aaff00);
+		if (G2Read32(GAPS_BASE + 0x141c) == 0x55aaff00)
 		{
-			g2_write_32(GAPS_BASE + 0x141c, 0xaa5500ff);
-			if (g2_read_32(GAPS_BASE + 0x141c) == 0xaa5500ff)
-				g2_write_32(GAPS_BASE + 0x141c, 0x41474553); // restore -> RSTB/EEPROM autoload
+			G2Write32(GAPS_BASE + 0x141c, 0xaa5500ff);
+			if (G2Read32(GAPS_BASE + 0x141c) == 0xaa5500ff)
+				G2Write32(GAPS_BASE + 0x141c, 0x41474553); // restore -> RSTB/EEPROM autoload
 		}
 	}
 	return 0;
@@ -274,213 +274,213 @@ static int gaps_init(void)
 // wall-clock timeout (yielding); the old iteration-count spin completes "instantly" in the
 // an idealized model but on a cold chip can run out before reset finishes -> we'd then program a
 // chip mid-reset (writes silently lost / wedge). Yield 1ms per poll, up to ~100ms.
-static void rtl_reset(void)
+static void RtlReset(void)
 {
 	int i;
-	g2_write_8(NIC(RT_CHIPCMD), RT_CMD_RESET);
-	for (i = 0; i < 100 && (g2_read_8(NIC(RT_CHIPCMD)) & RT_CMD_RESET); i++)
+	G2Write8(NIC(RT_CHIPCMD), RT_CMD_RESET);
+	for (i = 0; i < 100 && (G2Read8(NIC(RT_CHIPCMD)) & RT_CMD_RESET); i++)
 		Sleep(1);
 }
-static void rtl_read_mac(void)
+static void RtlReadMac(void)
 {
-	DWORD lo = g2_read_32(NIC(RT_IDR0)), hi = g2_read_32(NIC(RT_IDR0 + 4));
-	s_mac[0] = (BYTE)lo;
-	s_mac[1] = (BYTE)(lo >> 8);
-	s_mac[2] = (BYTE)(lo >> 16);
-	s_mac[3] = (BYTE)(lo >> 24);
-	s_mac[4] = (BYTE)hi;
-	s_mac[5] = (BYTE)(hi >> 8);
+	DWORD dwLo = G2Read32(NIC(RT_IDR0)), dwHi = G2Read32(NIC(RT_IDR0 + 4));
+	s_abMac[0] = (BYTE)dwLo;
+	s_abMac[1] = (BYTE)(dwLo >> 8);
+	s_abMac[2] = (BYTE)(dwLo >> 16);
+	s_abMac[3] = (BYTE)(dwLo >> 24);
+	s_abMac[4] = (BYTE)dwHi;
+	s_abMac[5] = (BYTE)(dwHi >> 8);
 }
 // Faithful port of KOS bba_hw_init. The critical real-HW fix vs the old order: program RBSTART
-// (RX buffer base) + TX descriptor bases FIRST, then issue a SECOND rtl_reset - the RTL8139
+// (RX buffer base) + TX descriptor bases FIRST, then issue a SECOND RtlReset - the RTL8139
 // soft-reset preserves RBSTART but re-inits the RX DMA state machine, so the receiver actually
 // latches the buffer pointer. The old code set RBSTART after the (single) reset and enabled RX
 // immediately, leaving the RX engine un-latched on real silicon: receiver "on", MAC reads fine,
 // but accepted frames DMA nowhere -> no DHCP OFFER ever delivered (idealized models latch on
 // every touch, hiding it). Also include KOS's two magic readback dances and the final
 // enable-then-auto-negotiate ordering.
-static void rtl_start(void)
+static void RtlStart(void)
 {
 	int i;
-	g2_write_32(NIC(RT_RXBUF), RTL_DMA); // RBSTART (RX disabled)
+	G2Write32(NIC(RT_RXBUF), RTL_DMA); // RBSTART (RX disabled)
 	for (i = 0; i < TX_N; i++)
-		g2_write_32(NIC(RT_TXADDR0 + i * 4), RTL_DMA + i * TX_LEN + TX_OFF);
-	rtl_reset(); // KOS: re-init engine to latch RBSTART
+		G2Write32(NIC(RT_TXADDR0 + i * 4), RTL_DMA + i * TX_LEN + TX_OFF);
+	RtlReset(); // KOS: re-init engine to latch RBSTART
 
-	g2_write_8(NIC(RT_CHIPCMD), RT_CMD_RX_ENABLE); // magic enable/disable dance
-	if (g2_read_8(NIC(RT_CHIPCMD)) == RT_CMD_RX_ENABLE)
+	G2Write8(NIC(RT_CHIPCMD), RT_CMD_RX_ENABLE); // magic enable/disable dance
+	if (G2Read8(NIC(RT_CHIPCMD)) == RT_CMD_RX_ENABLE)
 	{
-		g2_write_8(NIC(RT_CHIPCMD), RT_CMD_TX_ENABLE);
-		if (g2_read_8(NIC(RT_CHIPCMD)) == RT_CMD_TX_ENABLE)
-			g2_write_8(NIC(RT_CHIPCMD), 0);
+		G2Write8(NIC(RT_CHIPCMD), RT_CMD_TX_ENABLE);
+		if (G2Read8(NIC(RT_CHIPCMD)) == RT_CMD_TX_ENABLE)
+			G2Write8(NIC(RT_CHIPCMD), 0);
 	}
-	g2_write_32(NIC(RT_MAR0), 0x55aaff00); // magic MAR readback dance
-	g2_write_32(NIC(RT_MAR4), 0xaa5500ff);
-	if (g2_read_32(NIC(RT_MAR0)) == 0x55aaff00 && g2_read_32(NIC(RT_MAR4)) == 0xaa5500ff)
+	G2Write32(NIC(RT_MAR0), 0x55aaff00); // magic MAR readback dance
+	G2Write32(NIC(RT_MAR4), 0xaa5500ff);
+	if (G2Read32(NIC(RT_MAR0)) == 0x55aaff00 && G2Read32(NIC(RT_MAR4)) == 0xaa5500ff)
 	{
-		g2_write_8(NIC(RT_CHIPCMD), RT_CMD_RX_ENABLE | RT_CMD_TX_ENABLE);
-		g2_write_32(NIC(RT_MAR0), 0xffffffff);
-		g2_write_32(NIC(RT_MAR4), 0xffffffff);
+		G2Write8(NIC(RT_CHIPCMD), RT_CMD_RX_ENABLE | RT_CMD_TX_ENABLE);
+		G2Write32(NIC(RT_MAR0), 0xffffffff);
+		G2Write32(NIC(RT_MAR4), 0xffffffff);
 	}
 
-	g2_write_16(NIC(RT_INTRMASK), 0); // we POLL; no RTL/G2 IRQ
-	g2_write_8(NIC(RT_CHIPCMD), RT_CMD_RX_ENABLE | RT_CMD_TX_ENABLE);
-	g2_write_32(NIC(RT_RXCONFIG), RX_CONFIG);
-	g2_write_32(NIC(RT_TXCONFIG), TX_CONFIG);
+	G2Write16(NIC(RT_INTRMASK), 0); // we POLL; no RTL/G2 IRQ
+	G2Write8(NIC(RT_CHIPCMD), RT_CMD_RX_ENABLE | RT_CMD_TX_ENABLE);
+	G2Write32(NIC(RT_RXCONFIG), RX_CONFIG);
+	G2Write32(NIC(RT_TXCONFIG), TX_CONFIG);
 
 	// Config-register dance (CFG9346 unlock 0xC0): CONFIG1 DVRLOAD, CONFIG4 RX-FIFO auto-clear,
 	// CONFIG5 LDPS off (keep the PHY powered to negotiate). Relock after.
-	g2_write_8(NIC(RT_CFG9346), RT_CFG_UNLOCK);
-	g2_write_8(NIC(RT_CONFIG1),
-	           (BYTE)((g2_read_8(NIC(RT_CONFIG1)) & ~(RT_CONFIG1_LWACT | RT_CONFIG1_LED0)) |
-	                  RT_CONFIG1_DVRLOAD | RT_CONFIG1_LED1));
-	g2_write_8(NIC(RT_CONFIG4), (BYTE)(g2_read_8(NIC(RT_CONFIG4)) | RT_CONFIG4_RXFIFOAC));
-	g2_write_8(NIC(RT_CONFIG5), (BYTE)(g2_read_8(NIC(RT_CONFIG5)) | RT_CONFIG5_LDPS));
-	g2_write_8(NIC(RT_CFG9346), 0);
+	G2Write8(NIC(RT_CFG9346), RT_CFG_UNLOCK);
+	G2Write8(NIC(RT_CONFIG1),
+	         (BYTE)((G2Read8(NIC(RT_CONFIG1)) & ~(RT_CONFIG1_LWACT | RT_CONFIG1_LED0)) |
+	                RT_CONFIG1_DVRLOAD | RT_CONFIG1_LED1));
+	G2Write8(NIC(RT_CONFIG4), (BYTE)(G2Read8(NIC(RT_CONFIG4)) | RT_CONFIG4_RXFIFOAC));
+	G2Write8(NIC(RT_CONFIG5), (BYTE)(G2Read8(NIC(RT_CONFIG5)) | RT_CONFIG5_LDPS));
+	G2Write8(NIC(RT_CFG9346), 0);
 
-	g2_write_32(NIC(RT_MAR0), 0xffffffff); // accept all multicast (bcast via AB)
-	g2_write_32(NIC(RT_MAR4), 0xffffffff);
-	g2_write_16(NIC(RT_MULTIINTR), 0);
-	g2_write_16(NIC(RT_INTRSTATUS), 0xffff); // ack pending
-	g2_write_32(NIC(RT_RXMISSED), 0);
-	g2_write_8(NIC(RT_CHIPCMD), RT_CMD_RX_ENABLE | RT_CMD_TX_ENABLE); // final enable (KOS:388)
+	G2Write32(NIC(RT_MAR0), 0xffffffff); // accept all multicast (bcast via AB)
+	G2Write32(NIC(RT_MAR4), 0xffffffff);
+	G2Write16(NIC(RT_MULTIINTR), 0);
+	G2Write16(NIC(RT_INTRSTATUS), 0xffff); // ack pending
+	G2Write32(NIC(RT_RXMISSED), 0);
+	G2Write8(NIC(RT_CHIPCMD), RT_CMD_RX_ENABLE | RT_CMD_TX_ENABLE); // final enable (KOS:388)
 
 	// Kick auto-negotiation LAST. The netif DHCP worker retries every 1.5s, so the lease lands
 	// once link comes up (~2-3s); we don't block boot on it.
-	g2_write_16(NIC(RT_MII_BMCR), RT_MII_RESET | RT_MII_AN_ENABLE | RT_MII_AN_START);
+	G2Write16(NIC(RT_MII_BMCR), RT_MII_RESET | RT_MII_AN_ENABLE | RT_MII_AN_START);
 
-	g_curtx = 0;
-	g_currx = 0;
-	g2_write_32(NIC(RT_RXCONFIG),
-	            g2_read_32(NIC(RT_RXCONFIG)) | RXC_APM | RXC_AB); // accept phys-match + bcast
-	g2_write_16(NIC(RT_RXBUFTAIL), (WORD)((0 - 16) & (RX_BUF_LEN - 1))); // CAPR = -16 (empty ring)
+	s_dwCurtx = 0;
+	s_dwCurrx = 0;
+	G2Write32(NIC(RT_RXCONFIG),
+	          G2Read32(NIC(RT_RXCONFIG)) | RXC_APM | RXC_AB);          // accept phys-match + bcast
+	G2Write16(NIC(RT_RXBUFTAIL), (WORD)((0 - 16) & (RX_BUF_LEN - 1))); // CAPR = -16 (empty ring)
 }
 
 // PHY link state (BMSR link bit). Exposed so the shim/app can show link-up before DHCP.
 int BbaLinkUp(void)
 {
-	DWORD prev = SetKMode(TRUE);
-	int up = 0;
+	DWORD dwPrev = SetKMode(TRUE);
+	int nUp = 0;
 	__try
 	{
-		up = (g2_read_16(NIC(RT_MII_BMSR)) & RT_MII_LINK) ? 1 : 0;
+		nUp = (G2Read16(NIC(RT_MII_BMSR)) & RT_MII_LINK) ? 1 : 0;
 	}
 	__except (EXCEPTION_EXECUTE_HANDLER)
 	{
-		up = 0;
+		nUp = 0;
 	}
-	SetKMode(prev);
-	return up;
+	SetKMode(dwPrev);
+	return nUp;
 }
-static BOOL tx(const BYTE *pkt, int len)
+static BOOL Tx(const BYTE *pbPkt, int nLen)
 {
-	DWORD tsd = NIC(RT_TXSTATUS0 + 4 * g_curtx), buf = RTL_CPU + g_curtx * TX_LEN + TX_OFF;
+	DWORD dwTsd = NIC(RT_TXSTATUS0 + 4 * s_dwCurtx), dwBuf = RTL_CPU + s_dwCurtx * TX_LEN + TX_OFF;
 	int i;
-	if (len <= 0 || len > 1514)
+	if (nLen <= 0 || nLen > 1514)
 		return FALSE;
-	g2_write_block32(buf, pkt, len); // 32-bit PIO to the TX DMA window (G2 width rule)
-	if (len < 60)
+	G2WriteBlock32(dwBuf, pbPkt, nLen); // 32-bit PIO to the TX DMA window (G2 width rule)
+	if (nLen < 60)
 	{
-		for (i = len; i < 60; i++)
-			g2_write_8(buf + i, 0);
-		len = 60;
+		for (i = nLen; i < 60; i++)
+			G2Write8(dwBuf + i, 0);
+		nLen = 60;
 	}
-	g2_write_32(tsd, (DWORD)len);
-	g_curtx = (g_curtx + 1) & (TX_N - 1);
+	G2Write32(dwTsd, (DWORD)nLen);
+	s_dwCurtx = (s_dwCurtx + 1) & (TX_N - 1);
 	return TRUE;
 }
-static int rx(BYTE *buf, int maxlen)
+static int Rx(BYTE *pbBuf, int nMaxlen)
 {
-	DWORD status, off;
-	int size, pkt;
-	if (g2_read_8(NIC(RT_CHIPCMD)) & RT_CMD_RX_BUF_EMPTY)
+	DWORD dwStatus, dwOff;
+	int nSize, nPkt;
+	if (G2Read8(NIC(RT_CHIPCMD)) & RT_CMD_RX_BUF_EMPTY)
 		return 0;
-	off = g_currx % RX_BUF_LEN;
-	status = g2_read_32(RTL_CPU + off);
-	size = (int)((status >> 16) & 0xffff);
-	if (size == 0xfff0)
+	dwOff = s_dwCurrx % RX_BUF_LEN;
+	dwStatus = G2Read32(RTL_CPU + dwOff);
+	nSize = (int)((dwStatus >> 16) & 0xffff);
+	if (nSize == 0xfff0)
 		return 0;
-	pkt = size - 4;
-	if (!(status & 1) || pkt < 14 || pkt > 1514)
+	nPkt = nSize - 4;
+	if (!(dwStatus & 1) || nPkt < 14 || nPkt > 1514)
 	{
-		rtl_reset();
-		rtl_start();
+		RtlReset();
+		RtlStart();
 		return -1;
 	}
-	if (pkt > maxlen)
-		pkt = maxlen;
-	g2_read_block32(buf, RTL_CPU + off + 4,
-	                pkt); // 32-bit PIO from the RX DMA window (G2 width rule)
-	g_currx = (g_currx + size + 4 + 3) & ~3;
-	g2_write_16(NIC(RT_RXBUFTAIL), (WORD)((g_currx - 16) & (RX_BUF_LEN - 1)));
-	return pkt;
+	if (nPkt > nMaxlen)
+		nPkt = nMaxlen;
+	G2ReadBlock32(pbBuf, RTL_CPU + dwOff + 4,
+	              nPkt); // 32-bit PIO from the RX DMA window (G2 width rule)
+	s_dwCurrx = (s_dwCurrx + nSize + 4 + 3) & ~3;
+	G2Write16(NIC(RT_RXBUFTAIL), (WORD)((s_dwCurrx - 16) & (RX_BUF_LEN - 1)));
+	return nPkt;
 }
 
 // ---- LinkOps hooks (SetKMode-wrapped) ------------------------------------------
 int BbaProbe(void)
 {
-	DWORD prev = SetKMode(TRUE);
-	char str[16];
-	int ok = 0;
+	DWORD dwPrev = SetKMode(TRUE);
+	char achStr[16];
+	int nOk = 0;
 	__try
 	{
-		g2_read_block((BYTE *)str, GAPS_BASE + 0x1400, 16);
-		ok = (memcmp(str, "GAPSPCI_BRIDGE_2", 16) == 0);
+		G2ReadBlock((BYTE *)achStr, GAPS_BASE + 0x1400, 16);
+		nOk = (memcmp(achStr, "GAPSPCI_BRIDGE_2", 16) == 0);
 	}
 	__except (EXCEPTION_EXECUTE_HANDLER)
 	{
-		ok = 0;
+		nOk = 0;
 	}
-	SetKMode(prev);
-	return ok;
+	SetKMode(dwPrev);
+	return nOk;
 }
 int BbaInit(unsigned char mac[6])
 {
-	DWORD prev;
-	int ok = 0;
-	if (!s_g2csInit)
+	DWORD dwPrev;
+	int nOk = 0;
+	if (!s_nG2csInit)
 	{
 		InitializeCriticalSection(&s_g2cs);
-		s_g2csInit = 1;
+		s_nG2csInit = 1;
 	} // before any TX/RX
-	prev = SetKMode(TRUE);
+	dwPrev = SetKMode(TRUE);
 	__try
 	{
-		if (gaps_init() == 0)
+		if (GapsInit() == 0)
 		{
-			rtl_reset();
-			rtl_read_mac();
-			rtl_start();
-			memcpy(mac, s_mac, 6);
-			ok = 1;
+			RtlReset();
+			RtlReadMac();
+			RtlStart();
+			memcpy(mac, s_abMac, 6);
+			nOk = 1;
 		}
 	}
 	__except (EXCEPTION_EXECUTE_HANDLER)
 	{
-		ok = 0;
+		nOk = 0;
 	}
-	SetKMode(prev);
-	return ok;
+	SetKMode(dwPrev);
+	return nOk;
 }
 int BbaTx(const unsigned char *frame, int len)
 {
-	DWORD prev;
-	int ok;
+	DWORD dwPrev;
+	int nOk;
 	EnterCriticalSection(&s_g2cs);
-	prev = SetKMode(TRUE);
-	ok = tx((const BYTE *)frame, len);
-	SetKMode(prev);
+	dwPrev = SetKMode(TRUE);
+	nOk = Tx((const BYTE *)frame, len);
+	SetKMode(dwPrev);
 	LeaveCriticalSection(&s_g2cs);
-	return ok;
+	return nOk;
 }
 int BbaRxPoll(unsigned char *buf, int max)
 {
-	DWORD prev;
+	DWORD dwPrev;
 	int n;
 	EnterCriticalSection(&s_g2cs);
-	prev = SetKMode(TRUE);
-	n = rx((BYTE *)buf, max);
-	SetKMode(prev);
+	dwPrev = SetKMode(TRUE);
+	n = Rx((BYTE *)buf, max);
+	SetKMode(dwPrev);
 	LeaveCriticalSection(&s_g2cs);
 	return n;
 }

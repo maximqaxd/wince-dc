@@ -21,42 +21,42 @@ typedef void (*PFN_Shutdown)(int);
 typedef void (*PFN_SetCS)(int, int);
 typedef void (*PFN_RwData)(int, const unsigned char *, unsigned char *, int);
 typedef int (*PFN_HwType)(void);
-static PFN_Init pInit;
-static PFN_Shutdown pShutdown;
-static PFN_SetCS pSetCS;
-static PFN_RwData pRw;
-static PFN_HwType pHwType;
+static PFN_Init s_pInit;
+static PFN_Shutdown s_pShutdown;
+static PFN_SetCS s_pSetCS;
+static PFN_RwData s_pRw;
+static PFN_HwType s_pHwType;
 
 // Serialize every W5500 SPI transaction: the NetWorker RX-poll thread and microstk's TX path
 // (connect/send -> OurTransmit -> W5500Tx) hit the chip from DIFFERENT threads. Without this
 // their SCIF bit-bang interleaves at the CS/clock level and corrupts frames - a probabilistic
 // race that lets DNS + the fast/close 1.1.1.1 survive but drops slower multi-round-trip
 // connects. Mirrors KOS's w5500_spi_mutex and our own BBA s_g2cs. (CE critical sections are
-// recursive, so nested w5_* calls are safe.)
+// recursive, so nested W5* calls are safe.)
 static CRITICAL_SECTION s_w5cs;
-static int s_w5csInit;
+static int s_nW5csInit;
 #define W5LOCK()   EnterCriticalSection(&s_w5cs)
 #define W5UNLOCK() LeaveCriticalSection(&s_w5cs)
 
-static int load_dcspi(void)
+static int LoadDcspi(void)
 {
-	HMODULE h;
-	if (!s_w5csInit)
+	HMODULE hMod;
+	if (!s_nW5csInit)
 	{
 		InitializeCriticalSection(&s_w5cs);
-		s_w5csInit = 1;
-	} // before any w5_* access
-	if (pInit)
+		s_nW5csInit = 1;
+	} // before any W5* access
+	if (s_pInit)
 		return 1;
-	h = LoadLibraryW(L"dcspi.dll");
-	if (!h)
+	hMod = LoadLibraryW(L"dcspi.dll");
+	if (!hMod)
 		return 0;
-	pInit = (PFN_Init)GetProcAddress(h, L"SpiInit");
-	pShutdown = (PFN_Shutdown)GetProcAddress(h, L"SpiShutdown");
-	pSetCS = (PFN_SetCS)GetProcAddress(h, L"SpiSetCS");
-	pRw = (PFN_RwData)GetProcAddress(h, L"SpiRwData");
-	pHwType = (PFN_HwType)GetProcAddress(h, L"DcspiHwType"); // optional (Naomi vs DC)
-	return (pInit && pSetCS && pRw) ? 1 : 0;
+	s_pInit = (PFN_Init)GetProcAddress(hMod, L"SpiInit");
+	s_pShutdown = (PFN_Shutdown)GetProcAddress(hMod, L"SpiShutdown");
+	s_pSetCS = (PFN_SetCS)GetProcAddress(hMod, L"SpiSetCS");
+	s_pRw = (PFN_RwData)GetProcAddress(hMod, L"SpiRwData");
+	s_pHwType = (PFN_HwType)GetProcAddress(hMod, L"DcspiHwType"); // optional (Naomi vs DC)
+	return (s_pInit && s_pSetCS && s_pRw) ? 1 : 0;
 }
 
 // ---- W5500 block-select (BSB) + control byte -----------------------------------
@@ -87,60 +87,60 @@ static int load_dcspi(void)
 #define SOCK_MACRAW   0x42
 #define MR_MACRAW_MF  0x84
 
-static unsigned char g_w5mac[6] = {0x02, 0xDC, 0x00, 0x00, 0x00, 0x01};
-static int g_bus = -1, g_cs;
+static unsigned char s_abW5mac[6] = {0x02, 0xDC, 0x00, 0x00, 0x00, 0x01};
+static int s_nBus = -1, s_nCs;
 
 // ---- raw register access via dcspi ----------------------------------------------
-static void w5_write(BYTE bsb, WORD addr, const BYTE *data, int len)
+static void W5Write(BYTE bsb, WORD addr, const BYTE *pbData, int nLen)
 {
-	BYTE hdr[3];
-	hdr[0] = (BYTE)(addr >> 8);
-	hdr[1] = (BYTE)addr;
-	hdr[2] = CTRL(bsb, 1);
+	BYTE abHdr[3];
+	abHdr[0] = (BYTE)(addr >> 8);
+	abHdr[1] = (BYTE)addr;
+	abHdr[2] = CTRL(bsb, 1);
 	W5LOCK();
-	pSetCS(g_bus, 1);
-	pRw(g_bus, hdr, 0, 3);
-	if (len)
-		pRw(g_bus, data, 0, len);
-	pSetCS(g_bus, 0);
+	s_pSetCS(s_nBus, 1);
+	s_pRw(s_nBus, abHdr, 0, 3);
+	if (nLen)
+		s_pRw(s_nBus, pbData, 0, nLen);
+	s_pSetCS(s_nBus, 0);
 	W5UNLOCK();
 }
-static void w5_read(BYTE bsb, WORD addr, BYTE *data, int len)
+static void W5Read(BYTE bsb, WORD addr, BYTE *pbData, int nLen)
 {
-	BYTE hdr[3];
-	hdr[0] = (BYTE)(addr >> 8);
-	hdr[1] = (BYTE)addr;
-	hdr[2] = CTRL(bsb, 0);
+	BYTE abHdr[3];
+	abHdr[0] = (BYTE)(addr >> 8);
+	abHdr[1] = (BYTE)addr;
+	abHdr[2] = CTRL(bsb, 0);
 	W5LOCK();
-	pSetCS(g_bus, 1);
-	pRw(g_bus, hdr, 0, 3);
-	if (len)
-		pRw(g_bus, 0, data, len);
-	pSetCS(g_bus, 0);
+	s_pSetCS(s_nBus, 1);
+	s_pRw(s_nBus, abHdr, 0, 3);
+	if (nLen)
+		s_pRw(s_nBus, 0, pbData, nLen);
+	s_pSetCS(s_nBus, 0);
 	W5UNLOCK();
 }
-static void w5_w1(BYTE bsb, WORD a, BYTE v)
+static void W5W1(BYTE bsb, WORD a, BYTE bVal)
 {
-	w5_write(bsb, a, &v, 1);
+	W5Write(bsb, a, &bVal, 1);
 }
-static BYTE w5_r1(BYTE bsb, WORD a)
+static BYTE W5R1(BYTE bsb, WORD a)
 {
-	BYTE v = 0;
-	w5_read(bsb, a, &v, 1);
-	return v;
+	BYTE bVal = 0;
+	W5Read(bsb, a, &bVal, 1);
+	return bVal;
 }
-static void w5_w16(BYTE bsb, WORD a, WORD v)
+static void W5W16(BYTE bsb, WORD a, WORD wVal)
 {
-	BYTE b[2];
-	b[0] = (BYTE)(v >> 8);
-	b[1] = (BYTE)v;
-	w5_write(bsb, a, b, 2);
+	BYTE ab[2];
+	ab[0] = (BYTE)(wVal >> 8);
+	ab[1] = (BYTE)wVal;
+	W5Write(bsb, a, ab, 2);
 }
-static WORD w5_r16(BYTE bsb, WORD a)
+static WORD W5R16(BYTE bsb, WORD a)
 {
-	BYTE b[2];
-	w5_read(bsb, a, b, 2);
-	return (WORD)((b[0] << 8) | b[1]);
+	BYTE ab[2];
+	W5Read(bsb, a, ab, 2);
+	return (WORD)((ab[0] << 8) | ab[1]);
 }
 // Stable 16-bit read for the chip-updated pointers (Sn_TX_FSR / Sn_RX_RSR): the W5500's
 // MAC engine updates these asynchronously, so a single SPI read can latch a high byte from
@@ -148,43 +148,44 @@ static WORD w5_r16(BYTE bsb, WORD a)
 // reads agree (a safe 16-bit register read). The old code gave up after 4 tries and returned
 // a possibly-unstable value -> bogus FSR/RSR -> TX ring overrun / RX ring desync on real HW
 // (idealized models update atomically, so it never bit there). Bounded at 16 to never hang.
-static WORD w5_r16s(BYTE bsb, WORD a)
+static WORD W5R16s(BYTE bsb, WORD a)
 {
-	WORD x, y = w5_r16(bsb, a);
+	WORD wX, wY = W5R16(bsb, a);
 	int i;
 	for (i = 0; i < 16; i++)
 	{
-		x = y;
-		y = w5_r16(bsb, a);
-		if (x == y)
-			return y;
+		wX = wY;
+		wY = W5R16(bsb, a);
+		if (wX == wY)
+			return wY;
 	}
-	return y;
+	return wY;
 }
 
 // ---- LinkOps ---------------------------------------------------------------------
-static int w5_try(int bus, int cs)
+static int W5Try(int nBus, int nCs)
 {
-	BYTE ver;
-	SysLog(L"w5500: probe bus=%d cs=%d", bus, cs); // (SCI init drives Port A; SCIF reconfigs SCIF)
-	if (pInit(bus, cs) != 0)
+	BYTE bVer;
+	SysLog(L"w5500: probe bus=%d cs=%d", nBus,
+	       nCs); // (SCI init drives Port A; SCIF reconfigs SCIF)
+	if (s_pInit(nBus, nCs) != 0)
 	{
-		SysLog(L"w5500: SpiInit FAILED bus=%d", bus);
+		SysLog(L"w5500: SpiInit FAILED bus=%d", nBus);
 		return 0;
 	}
-	g_bus = bus;
-	g_cs = cs;
-	ver = w5_r1(BSB_COMMON, VERSIONR);
-	SysLog(L"w5500: VERSIONR=0x%02x bus=%d (expect 0x04)", ver, bus);
-	if (ver == 0x04)
+	s_nBus = nBus;
+	s_nCs = nCs;
+	bVer = W5R1(BSB_COMMON, VERSIONR);
+	SysLog(L"w5500: VERSIONR=0x%02x bus=%d (expect 0x04)", bVer, nBus);
+	if (bVer == 0x04)
 	{
-		SysLog(L"w5500: DETECTED on bus %d", bus);
-		DcBootSet(DCB_NET, DCB_OK, bus == DCSPI_BUS_SCIF ? L"W5500 (SCIF)" : L"W5500 (SCI)");
+		SysLog(L"w5500: DETECTED on bus %d", nBus);
+		DcBootSet(DCB_NET, DCB_OK, nBus == DCSPI_BUS_SCIF ? L"W5500 (SCIF)" : L"W5500 (SCI)");
 		return 1;
 	}
-	if (pShutdown)
-		pShutdown(bus);
-	g_bus = -1;
+	if (s_pShutdown)
+		s_pShutdown(nBus);
+	s_nBus = -1;
 	return 0;
 }
 
@@ -193,55 +194,56 @@ static int w5_try(int bus, int cs)
 //   1 = SCI  (bus 1, hardware sync-SPI, CS on PA7 GPIO)
 //   2 = SCIF (bus 2, bit-bang SPI on SCSPTR2, CS on RTS)
 //   3 = AUTO (probe SCI first, then SCIF)
-static DWORD cfg_bus(void)
+static DWORD CfgBus(void)
 {
-	HKEY h;
-	DWORD v = 0, type, sz = sizeof(v);
-	if (RegOpenKeyExW(HKEY_LOCAL_MACHINE, L"Comm\\Netif", 0, KEY_QUERY_VALUE, &h) == ERROR_SUCCESS)
+	HKEY hKey;
+	DWORD dwVal = 0, dwType, dwSz = sizeof(dwVal);
+	if (RegOpenKeyExW(HKEY_LOCAL_MACHINE, L"Comm\\Netif", 0, KEY_QUERY_VALUE, &hKey) ==
+	    ERROR_SUCCESS)
 	{
-		if (RegQueryValueExW(h, L"W5500Bus", 0, &type, (BYTE *)&v, &sz) != ERROR_SUCCESS)
-			v = 0;
-		RegCloseKey(h);
+		if (RegQueryValueExW(hKey, L"W5500Bus", 0, &dwType, (BYTE *)&dwVal, &dwSz) != ERROR_SUCCESS)
+			dwVal = 0;
+		RegCloseKey(hKey);
 	}
-	return v;
+	return dwVal;
 }
 
 int W5500Probe(void)
 {
-	DWORD bus = cfg_bus();
-	SysLog(L"w5500: W5500Bus=%d (0=off 1=SCI 2=SCIF 3=auto)", bus);
-	if (bus == 0)
+	DWORD dwBus = CfgBus();
+	SysLog(L"w5500: W5500Bus=%d (0=off 1=SCI 2=SCIF 3=auto)", dwBus);
+	if (dwBus == 0)
 		return 0; // not configured -> skip (safe default)
-	if (!load_dcspi())
+	if (!LoadDcspi())
 	{
 		SysLog(L"w5500: dcspi.dll load FAILED");
 		return 0;
 	}
-	if (pHwType)
+	if (s_pHwType)
 	{
-		int ty = pHwType(); // log board: Naomi uses SCIF-RTS CS on SCI
+		int nTy = s_pHwType(); // log board: Naomi uses SCIF-RTS CS on SCI
 		SysLog(L"w5500: hw=%s type=0x%x",
-		       ty == 0xA   ? L"NAOMI"
-		       : ty == 0x9 ? L"Set5"
-		                   : L"Dreamcast",
-		       ty);
+		       nTy == 0xA   ? L"NAOMI"
+		       : nTy == 0x9 ? L"Set5"
+		                    : L"Dreamcast",
+		       nTy);
 	}
 	// SCI CS source is AUTO: PA7 GPIO on retail DC, SCIF RTS on Naomi/Set5 (resolved in dcspi).
-	if (bus == 1)
-		return w5_try(DCSPI_BUS_SCI, DCSPI_CS_AUTO);
-	if (bus == 2)
-		return w5_try(DCSPI_BUS_SCIF, DCSPI_CS_RTS);
-	if (bus == 3) // AUTO-detect which bus the chip is on
+	if (dwBus == 1)
+		return W5Try(DCSPI_BUS_SCI, DCSPI_CS_AUTO);
+	if (dwBus == 2)
+		return W5Try(DCSPI_BUS_SCIF, DCSPI_CS_RTS);
+	if (dwBus == 3) // AUTO-detect which bus the chip is on
 	{
 		// SCI FIRST: probing SCI only touches the SCI + PA7/RTS, never the SCIF data pins, so the
 		// nkscifkd debug console (which lives on the SCIF) survives if the chip is on SCI.
 		SysLog(L"w5500: auto-probe SCI first...");
-		if (w5_try(DCSPI_BUS_SCI, DCSPI_CS_AUTO))
+		if (W5Try(DCSPI_BUS_SCI, DCSPI_CS_AUTO))
 			return 1;
 		// SCIF LAST: scif_init_raw reconfigures the SCIF to GPIO/SPI, which TAKES OVER the
 		// SCIF and kills the kernel text console. Only do this if SCI had no chip.
 		SysLog(L"w5500: auto-probe SCIF (takes over SCIF console)...");
-		if (w5_try(DCSPI_BUS_SCIF, DCSPI_CS_RTS))
+		if (W5Try(DCSPI_BUS_SCIF, DCSPI_CS_RTS))
 			return 1;
 		SysLog(L"w5500: not found on SCI or SCIF");
 	}
@@ -251,28 +253,28 @@ int W5500Probe(void)
 int W5500Init(unsigned char mac[6])
 {
 	int t, i;
-	if (g_bus < 0)
+	if (s_nBus < 0)
 		return 0;
 
 	// Soft reset, then WAIT for MR.RST to clear with a real delay (PLL/PHY settle). The old
 	// tight 1000-spin (no delay) could fall through before reset finished on real silicon and
 	// then configure a chip mid-reset (writes lost). Bail if it never clears.
-	w5_w1(BSB_COMMON, MR, 0x80);
-	for (t = 0; t < 100 && (w5_r1(BSB_COMMON, MR) & 0x80); t++)
+	W5W1(BSB_COMMON, MR, 0x80);
+	for (t = 0; t < 100 && (W5R1(BSB_COMMON, MR) & 0x80); t++)
 		Sleep(1);
-	if (w5_r1(BSB_COMMON, MR) & 0x80)
+	if (W5R1(BSB_COMMON, MR) & 0x80)
 	{
 		OutputDebugStringW(L"w5500: soft-reset stuck\r\n");
 		return 0;
 	}
 
-	w5_write(BSB_COMMON, SHAR, g_w5mac, 6); // our MAC
+	W5Write(BSB_COMMON, SHAR, s_abW5mac, 6); // our MAC
 
 	// Force the PHY to software-override auto-negotiation. On real boards the PHY power-up
 	// mode is pin-strapped; without this it may never link. (0x00 then 0xB8 per datasheet.)
-	w5_w1(BSB_COMMON, PHYCFGR, 0x00);
+	W5W1(BSB_COMMON, PHYCFGR, 0x00);
 	Sleep(1);
-	w5_w1(BSB_COMMON, PHYCFGR, PHYCFG_RST_AN);
+	W5W1(BSB_COMMON, PHYCFGR, PHYCFG_RST_AN);
 
 	// Zero ALL 8 sockets' RX/TX buffer sizes (power-on default is 2K each = 16K used) BEFORE
 	// giving socket 0 the full 16K. Setting S0=16 without zeroing the rest requests 16+7*2=30K
@@ -280,99 +282,100 @@ int W5500Init(unsigned char mac[6])
 	// this; masked by an idealized buffer model). Block N reg-block = 1 + 4*N.
 	for (i = 0; i < 8; i++)
 	{
-		BYTE blk = (BYTE)(1 + 4 * i);
-		w5_w1(blk, Sn_RXBUF, 0);
-		w5_w1(blk, Sn_TXBUF, 0);
+		BYTE bBlk = (BYTE)(1 + 4 * i);
+		W5W1(bBlk, Sn_RXBUF, 0);
+		W5W1(bBlk, Sn_TXBUF, 0);
 	}
-	w5_w1(BSB_S0_REG, Sn_RXBUF, 16);
-	w5_w1(BSB_S0_REG, Sn_TXBUF, 16);
+	W5W1(BSB_S0_REG, Sn_RXBUF, 16);
+	W5W1(BSB_S0_REG, Sn_TXBUF, 16);
 
-	w5_w1(BSB_S0_REG, Sn_MR, MR_MACRAW_MF); // MACRAW + MAC filter
-	w5_w1(BSB_S0_REG, Sn_CR, CMD_OPEN);
-	for (t = 0; t < 1000 && w5_r1(BSB_S0_REG, Sn_CR); t++)
+	W5W1(BSB_S0_REG, Sn_MR, MR_MACRAW_MF); // MACRAW + MAC filter
+	W5W1(BSB_S0_REG, Sn_CR, CMD_OPEN);
+	for (t = 0; t < 1000 && W5R1(BSB_S0_REG, Sn_CR); t++)
 		;
-	if (w5_r1(BSB_S0_REG, Sn_SR) != SOCK_MACRAW)
+	if (W5R1(BSB_S0_REG, Sn_SR) != SOCK_MACRAW)
 	{
 		OutputDebugStringW(L"w5500: MACRAW open failed\r\n");
 		return 0;
 	}
-	memcpy(mac, g_w5mac, 6);
+	memcpy(mac, s_abW5mac, 6);
 
 	// Best-effort: note the PHY link bit (don't block boot on it - the netif DHCP worker
 	// retries, so the lease lands once the link comes up).
 	{
-		WCHAR b[80];
-		int up = (w5_r1(BSB_COMMON, PHYCFGR) & PHY_LINK_UP) ? 1 : 0;
-		wsprintfW(b, L"w5500: up on bus %d link=%d MAC=%02x:%02x:%02x:%02x:%02x:%02x\r\n", g_bus,
-		          up, g_w5mac[0], g_w5mac[1], g_w5mac[2], g_w5mac[3], g_w5mac[4], g_w5mac[5]);
-		OutputDebugStringW(b);
+		WCHAR ab[80];
+		int nUp = (W5R1(BSB_COMMON, PHYCFGR) & PHY_LINK_UP) ? 1 : 0;
+		wsprintfW(ab, L"w5500: up on bus %d link=%d MAC=%02x:%02x:%02x:%02x:%02x:%02x\r\n", s_nBus,
+		          nUp, s_abW5mac[0], s_abW5mac[1], s_abW5mac[2], s_abW5mac[3], s_abW5mac[4],
+		          s_abW5mac[5]);
+		OutputDebugStringW(ab);
 	}
 	return 1;
 }
 
 int W5500Tx(const unsigned char *frame, int len)
 {
-	WORD fsr, wr;
+	WORD wFsr, wWr;
 	int t = 0;
 	if (len <= 0 || len > 1514)
 		return 0;
 	do
 	{
-		fsr = w5_r16s(BSB_S0_REG, Sn_TX_FSR);
-	} while (fsr < (WORD)len && ++t < 20000);
-	if (fsr < (WORD)len)
+		wFsr = W5R16s(BSB_S0_REG, Sn_TX_FSR);
+	} while (wFsr < (WORD)len && ++t < 20000);
+	if (wFsr < (WORD)len)
 		return 0;
-	wr = w5_r16(BSB_S0_REG, Sn_TX_WR);
-	w5_write(BSB_S0_TX, wr, frame, len); // chip wraps the ring internally
-	w5_w16(BSB_S0_REG, Sn_TX_WR, (WORD)(wr + len));
-	w5_w1(BSB_S0_REG, Sn_CR, CMD_SEND);
-	for (t = 0; t < 100000 && w5_r1(BSB_S0_REG, Sn_CR); t++)
+	wWr = W5R16(BSB_S0_REG, Sn_TX_WR);
+	W5Write(BSB_S0_TX, wWr, frame, len); // chip wraps the ring internally
+	W5W16(BSB_S0_REG, Sn_TX_WR, (WORD)(wWr + len));
+	W5W1(BSB_S0_REG, Sn_CR, CMD_SEND);
+	for (t = 0; t < 100000 && W5R1(BSB_S0_REG, Sn_CR); t++)
 		;
-	if (w5_r1(BSB_S0_REG, Sn_CR))
+	if (W5R1(BSB_S0_REG, Sn_CR))
 		return 0; // SEND never accepted -> report failure
 	return 1;
 }
 
 int W5500RxPoll(unsigned char *buf, int max)
 {
-	WORD rsr, rd, plen;
-	int flen;
-	BYTE hdr[2];
-	rsr = w5_r16s(BSB_S0_REG, Sn_RX_RSR);
-	if (rsr < 2)
+	WORD wRsr, wRd, wPlen;
+	int nFlen;
+	BYTE abHdr[2];
+	wRsr = W5R16s(BSB_S0_REG, Sn_RX_RSR);
+	if (wRsr < 2)
 		return 0;
-	if (rsr > 12288) // >3/4 of the 16K RX buffer: we're draining too
-	{                // slowly (SCIF bit-bang SPI is the bottleneck)
-		static int s_full;
-		if ((++s_full & 0x1f) == 1)
-			SysLog(L"w5500: RX backlog rsr=%u (SPI too slow to drain)", rsr);
+	if (wRsr > 12288) // >3/4 of the 16K RX buffer: we're draining too
+	{                 // slowly (SCIF bit-bang SPI is the bottleneck)
+		static int s_nFull;
+		if ((++s_nFull & 0x1f) == 1)
+			SysLog(L"w5500: RX backlog rsr=%u (SPI too slow to drain)", wRsr);
 	}
-	rd = w5_r16(BSB_S0_REG, Sn_RX_RD);
-	w5_read(BSB_S0_RX, rd, hdr, 2); // MACRAW per-packet 2-byte length (incl header)
-	plen = (WORD)((hdr[0] << 8) | hdr[1]);
-	if (plen < 3 || plen > rsr) // bad length - on SCIF this is usually a TORN
-	{                           // read of the 2-byte header, not a real desync
-		BYTE h2[2];
-		WORD p2; // so re-read it once before discarding the ring
-		w5_read(BSB_S0_RX, rd, h2, 2);
-		p2 = (WORD)((h2[0] << 8) | h2[1]);
-		if (p2 >= 3 && p2 <= rsr)
-			plen = p2; // re-read agrees + valid -> recovered, no data lost
-		else           // genuine desync -> resync to write ptr (lose ring)
+	wRd = W5R16(BSB_S0_REG, Sn_RX_RD);
+	W5Read(BSB_S0_RX, wRd, abHdr, 2); // MACRAW per-packet 2-byte length (incl header)
+	wPlen = (WORD)((abHdr[0] << 8) | abHdr[1]);
+	if (wPlen < 3 || wPlen > wRsr) // bad length - on SCIF this is usually a TORN
+	{                              // read of the 2-byte header, not a real desync
+		BYTE abH2[2];
+		WORD wP2; // so re-read it once before discarding the ring
+		W5Read(BSB_S0_RX, wRd, abH2, 2);
+		wP2 = (WORD)((abH2[0] << 8) | abH2[1]);
+		if (wP2 >= 3 && wP2 <= wRsr)
+			wPlen = wP2; // re-read agrees + valid -> recovered, no data lost
+		else             // genuine desync -> resync to write ptr (lose ring)
 		{
-			static int s_desync;
-			if ((++s_desync & 0x1f) == 1)
-				SysLog(L"w5500: RX desync #%d plen=%u rsr=%u", s_desync, plen, rsr);
-			w5_w16(BSB_S0_REG, Sn_RX_RD, (WORD)(rd + rsr));
-			w5_w1(BSB_S0_REG, Sn_CR, CMD_RECV);
+			static int s_nDesync;
+			if ((++s_nDesync & 0x1f) == 1)
+				SysLog(L"w5500: RX desync #%d plen=%u rsr=%u", s_nDesync, wPlen, wRsr);
+			W5W16(BSB_S0_REG, Sn_RX_RD, (WORD)(wRd + wRsr));
+			W5W1(BSB_S0_REG, Sn_CR, CMD_RECV);
 			return -1;
 		}
 	}
-	flen = plen - 2;
-	if (flen > max)
-		flen = max;
-	w5_read(BSB_S0_RX, (WORD)(rd + 2), buf, flen);
-	w5_w16(BSB_S0_REG, Sn_RX_RD, (WORD)(rd + plen)); // advance past the whole packet
-	w5_w1(BSB_S0_REG, Sn_CR, CMD_RECV);
-	return flen;
+	nFlen = wPlen - 2;
+	if (nFlen > max)
+		nFlen = max;
+	W5Read(BSB_S0_RX, (WORD)(wRd + 2), buf, nFlen);
+	W5W16(BSB_S0_REG, Sn_RX_RD, (WORD)(wRd + wPlen)); // advance past the whole packet
+	W5W1(BSB_S0_REG, Sn_CR, CMD_RECV);
+	return nFlen;
 }

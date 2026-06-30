@@ -27,121 +27,122 @@ DWORD SetKMode(DWORD fMode); // coredll export
 #define FR_B1_PW_DNS  0xC2 // PlanetWeb DNS block
 #define FR_OFFSET_CRC 62   // CRC is the last 2 bytes of every 64-byte block
 
-typedef int (*FR_FN)(int a, void *b, int c, int d);
-static FR_FN fr_fn(void)
+typedef int(*PFN_FR)(int nArg0, void *pArg1, int nArg2, int nFunc);
+
+static PFN_FR FrVector(void)
 {
-	return (FR_FN)(*(volatile DWORD *)FR_VEC_ADDR);
+	return (PFN_FR)(*(volatile DWORD *)FR_VEC_ADDR);
 }
-static int fr_info(int part, int *ptrs)
+static int FrInfo(int nPart, int *pnPtrs)
 {
-	return fr_fn()(part, ptrs, 0, FR_FUNC_INFO);
+	return FrVector()(nPart, pnPtrs, 0, FR_FUNC_INFO);
 }
-static int fr_read(int off, void *buf, int n)
+static int FrRead(int nOff, void *pvBuf, int nLen)
 {
-	return fr_fn()(off, buf, n, FR_FUNC_READ);
+	return FrVector()(nOff, pvBuf, nLen, FR_FUNC_READ);
 }
 
 // CRC-16/CCITT over bytes [0,62) (Marcus Comstedt's algorithm).
-static WORD fr_crc(const BYTE *b)
+static WORD FrCrc(const BYTE *pb)
 {
-	int i, c, n = 0xffff;
+	int i, iBit, nCrc = 0xffff;
 	for (i = 0; i < FR_OFFSET_CRC; i++)
 	{
-		n ^= (int)b[i] << 8;
-		for (c = 0; c < 8; c++)
-			n = (n & 0x8000) ? ((n << 1) ^ 4129) : (n << 1);
+		nCrc ^= (int)pb[i] << 8;
+		for (iBit = 0; iBit < 8; iBit++)
+			nCrc = (nCrc & 0x8000) ? ((nCrc << 1) ^ 4129) : (nCrc << 1);
 	}
-	return (WORD)((~n) & 0xffff);
+	return (WORD)((~nCrc) & 0xffff);
 }
 
-static WORD rd16(const BYTE *p)
+static WORD Rd16(const BYTE *pb)
 {
-	return (WORD)(p[0] | (p[1] << 8));
+	return (WORD)(pb[0] | (pb[1] << 8));
 } // LE, alignment-safe
 
-// Read the latest valid 64-byte logical block 'blockid' from partition 'partid' into
-// out64. Mirrors the reference flashrom_get_block: verify partition magic, scan the allocation
+// Read the latest valid 64-byte logical block 'nBlockId' from partition 'nPartId' into
+// pbOut. Mirrors the reference flashrom_get_block: verify partition magic, scan the allocation
 // bitmap (at the partition tail) for the newest used block, match the logical id, CRC.
-static int fr_get_block(int partid, int blockid, BYTE *out64)
+static int FrGetBlock(int nPartId, int nBlockId, BYTE *pbOut)
 {
-	int ptrs[2], start, size, bmcnt, i;
-	char magic[18];
-	BYTE bitmap[128];
+	int anPtrs[2], nStart, nSize, nBmCnt, i;
+	char achMagic[18];
+	BYTE abBitmap[128];
 
-	if (fr_info(partid, ptrs))
+	if (FrInfo(nPartId, anPtrs))
 		return -1;
-	start = ptrs[0];
-	size = ptrs[1];
-	if (size <= 64 || size > (1 << 20))
+	nStart = anPtrs[0];
+	nSize = anPtrs[1];
+	if (nSize <= 64 || nSize > (1 << 20))
 		return -1;
-	if (fr_read(start, (BYTE *)magic, 18) < 0)
+	if (FrRead(nStart, (BYTE *)achMagic, 18) < 0)
 		return -1;
-	if (memcmp(magic, "KATANA_FLASH____", 16) != 0)
+	if (memcmp(achMagic, "KATANA_FLASH____", 16) != 0)
 		return -1;
-	if (rd16((BYTE *)magic + 16) != partid)
-		return -1;
-
-	bmcnt = size / 64; // 1 bit per 64-byte block...
-	bmcnt = (bmcnt + (64 * 8) - 1) & ~(64 * 8 - 1);
-	bmcnt = bmcnt / 8; // ...bytes of bitmap at the partition tail
-	if (bmcnt <= 0 || bmcnt > (int)sizeof(bitmap))
-		return -1;
-	if (fr_read(start + size - bmcnt, bitmap, bmcnt) < 0)
+	if (Rd16((BYTE *)achMagic + 16) != nPartId)
 		return -1;
 
-	for (i = 0; i < bmcnt * 8; i++) // find first FREE block (set bit)
+	nBmCnt = nSize / 64; // 1 bit per 64-byte block...
+	nBmCnt = (nBmCnt + (64 * 8) - 1) & ~(64 * 8 - 1);
+	nBmCnt = nBmCnt / 8; // ...bytes of bitmap at the partition tail
+	if (nBmCnt <= 0 || nBmCnt > (int)sizeof(abBitmap))
+		return -1;
+	if (FrRead(nStart + nSize - nBmCnt, abBitmap, nBmCnt) < 0)
+		return -1;
+
+	for (i = 0; i < nBmCnt * 8; i++) // find first FREE block (set bit)
 	{
-		if (bitmap[i / 8] == 0)
+		if (abBitmap[i / 8] == 0)
 			i += 8;
-		if (bitmap[i / 8] & (0x80 >> (i % 8)))
+		if (abBitmap[i / 8] & (0x80 >> (i % 8)))
 			break;
 	}
 	if (i == 0)
 		return -1;
 	for (i--; i > 0; i--) // scan back for the matching, valid block
 	{
-		if (fr_read(start + (i + 1) * 64, out64, 64) < 0)
+		if (FrRead(nStart + (i + 1) * 64, pbOut, 64) < 0)
 			return -1;
-		if (rd16(out64) != blockid)
+		if (Rd16(pbOut) != nBlockId)
 			continue;
-		if (fr_crc(out64) == rd16(out64 + FR_OFFSET_CRC))
+		if (FrCrc(pbOut) == Rd16(pbOut + FR_OFFSET_CRC))
 			return 0;
 	}
 	return -1;
 }
 
-// Fill dns[0..1] (network-order bytes packed into ULONG, matching netif's wire rep) from
+// Fill adwDns[0..1] (network-order bytes packed into ULONG, matching netif's wire rep) from
 // the system flash. Returns the count found (0/1/2). Tries DreamPassport (0xC8, DNS at
 // block offsets 50/54) then PlanetWeb (0xC2, offsets 54/58). DNS bytes are stored
 // big-endian in flash = exactly the on-wire order we want, so copy verbatim.
-int FlashromGetDns(unsigned long dns[2])
+int FlashromGetDns(unsigned long adwDns[2])
 {
-	DWORD prev = SetKMode(TRUE);
-	int n = 0;
+	DWORD dwPrevMode = SetKMode(TRUE);
+	int cDns = 0;
 	__try
 	{
-		BYTE blk[64];
-		if (fr_get_block(FR_PT_BLOCK_1, FR_B1_DK_DNS, blk) == 0)
+		BYTE abBlk[64];
+		if (FrGetBlock(FR_PT_BLOCK_1, FR_B1_DK_DNS, abBlk) == 0)
 		{
-			memcpy(&dns[0], blk + 50, 4);
-			memcpy(&dns[1], blk + 54, 4);
-			n = 2;
+			memcpy(&adwDns[0], abBlk + 50, 4);
+			memcpy(&adwDns[1], abBlk + 54, 4);
+			cDns = 2;
 		}
-		else if (fr_get_block(FR_PT_BLOCK_1, FR_B1_PW_DNS, blk) == 0)
+		else if (FrGetBlock(FR_PT_BLOCK_1, FR_B1_PW_DNS, abBlk) == 0)
 		{
-			memcpy(&dns[0], blk + 54, 4);
-			memcpy(&dns[1], blk + 58, 4);
-			n = 2;
+			memcpy(&adwDns[0], abBlk + 54, 4);
+			memcpy(&adwDns[1], abBlk + 58, 4);
+			cDns = 2;
 		}
-		if (n == 2 && dns[1] == 0)
-			n = 1; // second server optional
-		if (n >= 1 && dns[0] == 0)
-			n = 0; // 0.0.0.0 = not configured
+		if (cDns == 2 && adwDns[1] == 0)
+			cDns = 1; // second server optional
+		if (cDns >= 1 && adwDns[0] == 0)
+			cDns = 0; // 0.0.0.0 = not configured
 	}
 	__except (EXCEPTION_EXECUTE_HANDLER)
 	{
-		n = 0;
+		cDns = 0;
 	}
-	SetKMode(prev);
-	return n;
+	SetKMode(dwPrevMode);
+	return cDns;
 }
