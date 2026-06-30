@@ -21,108 +21,108 @@ static const WCHAR *MON[12] = {L"January",   L"February", L"March",    L"April",
                                L"May",       L"June",     L"July",     L"August",
                                L"September", L"October",  L"November", L"December"};
 
-// Draw one 7-segment digit in a (dw x dh) cell at (x,y); only lit segments are filled.
-static void Draw7(DCWin *w, int x, int y, int dw, int dh, int digit, COLORREF on)
+// Draw one 7-segment digit in a (nDw x nDh) cell at (x,y); only lit segments are filled.
+static void Draw7(DCWin *pWin, int x, int y, int nDw, int nDh, int nDigit, COLORREF crOn)
 {
-	int t = dw / 6, vlen, m;
-	if (t < 3)
-		t = 3;
-	vlen = (dh - 3 * t) / 2;
-	if (vlen < 1)
-		vlen = 1;
-	m = (digit >= 0 && digit <= 9) ? SEG[digit] : 0;
-	if (m & 0x01)
-		DCWinFill(w, x + t, y, dw - 2 * t, t, on); // a
-	if (m & 0x20)
-		DCWinFill(w, x, y + t, t, vlen, on); // f
-	if (m & 0x02)
-		DCWinFill(w, x + dw - t, y + t, t, vlen, on); // b
-	if (m & 0x40)
-		DCWinFill(w, x + t, y + t + vlen, dw - 2 * t, t, on); // g
-	if (m & 0x10)
-		DCWinFill(w, x, y + 2 * t + vlen, t, vlen, on); // e
-	if (m & 0x04)
-		DCWinFill(w, x + dw - t, y + 2 * t + vlen, t, vlen, on); // c
-	if (m & 0x08)
-		DCWinFill(w, x + t, y + dh - t, dw - 2 * t, t, on); // d
+	int nT = nDw / 6, nVlen, nMask;
+	if (nT < 3)
+		nT = 3;
+	nVlen = (nDh - 3 * nT) / 2;
+	if (nVlen < 1)
+		nVlen = 1;
+	nMask = (nDigit >= 0 && nDigit <= 9) ? SEG[nDigit] : 0;
+	if (nMask & 0x01)
+		DCWinFill(pWin, x + nT, y, nDw - 2 * nT, nT, crOn); // a
+	if (nMask & 0x20)
+		DCWinFill(pWin, x, y + nT, nT, nVlen, crOn); // f
+	if (nMask & 0x02)
+		DCWinFill(pWin, x + nDw - nT, y + nT, nT, nVlen, crOn); // b
+	if (nMask & 0x40)
+		DCWinFill(pWin, x + nT, y + nT + nVlen, nDw - 2 * nT, nT, crOn); // g
+	if (nMask & 0x10)
+		DCWinFill(pWin, x, y + 2 * nT + nVlen, nT, nVlen, crOn); // e
+	if (nMask & 0x04)
+		DCWinFill(pWin, x + nDw - nT, y + 2 * nT + nVlen, nT, nVlen, crOn); // c
+	if (nMask & 0x08)
+		DCWinFill(pWin, x + nT, y + nDh - nT, nDw - 2 * nT, nT, crOn); // d
 }
 
-static void DrawClock(DCWin *w, SYSTEMTIME *t)
+static void DrawClock(DCWin *pWin, SYSTEMTIME *pst)
 {
 	const COLORREF BG = RGB(8, 10, 18), ON = RGB(0, 240, 140);
 	const COLORREF BARBG = RGB(24, 30, 44), BARFG = RGB(0, 180, 220), DATEFG = RGB(200, 210, 230);
-	int cw = CW, ch = CH, dh, dw, gap, colw, totw, x0, y0, x, by, bh, len, tx;
-	int hh = t->wHour, mm = t->wMinute, ss = t->wSecond;
-	WCHAR line[64];
+	int nCw = CW, nCh = CH, nDh, nDw, nGap, nColw, nTotw, nX0, nY0, x, nBy, nBh, nLen, nTx;
+	int nHh = pst->wHour, nMm = pst->wMinute, nSs = pst->wSecond;
+	WCHAR aszLine[64];
 
-	DCWinClientSize(w, &cw, &ch);
-	dh = (ch * 42) / 100;
-	if (dh < 24)
-		dh = 24;
-	dw = (dh * 60) / 100;
-	if (dw < 14)
-		dw = 14;
-	gap = dw / 5;
-	if (gap < 2)
-		gap = 2;
-	colw = dw / 2;
-	totw = 4 * dw + 3 * gap + colw + 2 * gap;
-	x0 = (cw - totw) / 2;
-	if (x0 < 4)
-		x0 = 4;
-	y0 = (ch > 120) ? 12 : 6;
+	DCWinClientSize(pWin, &nCw, &nCh);
+	nDh = (nCh * 42) / 100;
+	if (nDh < 24)
+		nDh = 24;
+	nDw = (nDh * 60) / 100;
+	if (nDw < 14)
+		nDw = 14;
+	nGap = nDw / 5;
+	if (nGap < 2)
+		nGap = 2;
+	nColw = nDw / 2;
+	nTotw = 4 * nDw + 3 * nGap + nColw + 2 * nGap;
+	nX0 = (nCw - nTotw) / 2;
+	if (nX0 < 4)
+		nX0 = 4;
+	nY0 = (nCh > 120) ? 12 : 6;
 
-	DCWinBeginFrame(w);
-	DCWinFillBg(w, BG);
+	DCWinBeginFrame(pWin);
+	DCWinFillBg(pWin, BG);
 
-	x = x0;
-	Draw7(w, x, y0, dw, dh, hh / 10, ON);
-	x += dw + gap;
-	Draw7(w, x, y0, dw, dh, hh % 10, ON);
-	x += dw + gap;
-	if (ss & 1) // blinking colon (on for odd seconds)
+	x = nX0;
+	Draw7(pWin, x, nY0, nDw, nDh, nHh / 10, ON);
+	x += nDw + nGap;
+	Draw7(pWin, x, nY0, nDw, nDh, nHh % 10, ON);
+	x += nDw + nGap;
+	if (nSs & 1) // blinking colon (on for odd seconds)
 	{
-		int d = dw / 6;
-		if (d < 3)
-			d = 3;
-		DCWinFill(w, x + (colw - d) / 2, y0 + dh / 3 - d / 2, d, d, ON);
-		DCWinFill(w, x + (colw - d) / 2, y0 + 2 * dh / 3 - d / 2, d, d, ON);
+		int nD = nDw / 6;
+		if (nD < 3)
+			nD = 3;
+		DCWinFill(pWin, x + (nColw - nD) / 2, nY0 + nDh / 3 - nD / 2, nD, nD, ON);
+		DCWinFill(pWin, x + (nColw - nD) / 2, nY0 + 2 * nDh / 3 - nD / 2, nD, nD, ON);
 	}
-	x += colw + 2 * gap;
-	Draw7(w, x, y0, dw, dh, mm / 10, ON);
-	x += dw + gap;
-	Draw7(w, x, y0, dw, dh, mm % 10, ON);
+	x += nColw + 2 * nGap;
+	Draw7(pWin, x, nY0, nDw, nDh, nMm / 10, ON);
+	x += nDw + nGap;
+	Draw7(pWin, x, nY0, nDw, nDh, nMm % 10, ON);
 
 	// seconds bar (0..59 -> 0..full)
-	by = y0 + dh + 10;
-	bh = 6;
-	if (by + bh < ch - 22)
+	nBy = nY0 + nDh + 10;
+	nBh = 6;
+	if (nBy + nBh < nCh - 22)
 	{
-		DCWinFill(w, x0, by, totw, bh, BARBG);
-		DCWinFill(w, x0, by, (totw * ss) / 59, bh, BARFG);
+		DCWinFill(pWin, nX0, nBy, nTotw, nBh, BARBG);
+		DCWinFill(pWin, nX0, nBy, (nTotw * nSs) / 59, nBh, BARFG);
 	}
 
 	// date line, centred
-	wsprintfW(line, L"%s, %s %d, %d", DOW[t->wDayOfWeek % 7], MON[(t->wMonth + 11) % 12], t->wDay,
-	          t->wYear);
-	len = lstrlenW(line);
-	tx = (cw - len * 6) / 2;
-	if (tx < 2)
-		tx = 2;
-	DCWinText(w, tx, ch - 18, DATEFG, BG, line);
+	wsprintfW(aszLine, L"%s, %s %d, %d", DOW[pst->wDayOfWeek % 7], MON[(pst->wMonth + 11) % 12],
+	          pst->wDay, pst->wYear);
+	nLen = lstrlenW(aszLine);
+	nTx = (nCw - nLen * 6) / 2;
+	if (nTx < 2)
+		nTx = 2;
+	DCWinText(pWin, nTx, nCh - 18, DATEFG, BG, aszLine);
 
-	DCWinEndFrame(w);
+	DCWinEndFrame(pWin);
 }
 
 int WINAPI WinMain(HINSTANCE hInst, HINSTANCE hPrev, LPWSTR lpCmd, int nShow)
 {
-	DCWin *w;
-	SYSTEMTIME t;
-	DWORD key;
-	int lastSec = -1;
+	DCWin *pWin;
+	SYSTEMTIME st;
+	DWORD dwKey;
+	int nLastSec = -1;
 
-	w = DCWinOpen(70, 300, CW, CH, L"Clock", ICON_CLOCK);
-	if (!w)
+	pWin = DCWinOpen(70, 300, CW, CH, L"Clock", ICON_CLOCK);
+	if (!pWin)
 	{
 		OutputDebugStringW(L"DCWCLOCK: DCWinOpen failed\r\n");
 		return 1;
@@ -130,26 +130,26 @@ int WINAPI WinMain(HINSTANCE hInst, HINSTANCE hPrev, LPWSTR lpCmd, int nShow)
 
 	for (;;)
 	{
-		int changed = 0;
-		GetLocalTime(&t);
-		if ((int)t.wSecond != lastSec)
+		int bChanged = 0;
+		GetLocalTime(&st);
+		if ((int)st.wSecond != nLastSec)
 		{
-			lastSec = (int)t.wSecond;
-			changed = 1;
+			nLastSec = (int)st.wSecond;
+			bChanged = 1;
 		}
-		if (DCWinResized(w))
-			changed = 1;
-		if (changed)
-			DrawClock(w, &t);
+		if (DCWinResized(pWin))
+			bChanged = 1;
+		if (bChanged)
+			DrawClock(pWin, &st);
 
-		while (DCWinPollKey(w, &key))
+		while (DCWinPollKey(pWin, &dwKey))
 		{ /* clock ignores keys */
 		}
-		if (DCWinShouldClose(w))
+		if (DCWinShouldClose(pWin))
 			break;
 		Sleep(100);
 	}
 
-	DCWinClose(w);
+	DCWinClose(pWin);
 	return 0;
 }

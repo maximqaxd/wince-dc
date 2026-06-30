@@ -20,88 +20,88 @@ typedef struct
 	DWORD size;
 } ENT;
 
-static ENT g_ent[MAXENT];
-static int g_count, g_sel, g_top;
-static WCHAR g_dir[MAX_PATH] = L"\\";
+static ENT g_aEnt[MAXENT];
+static int g_nCount, g_nSel, g_nTop;
+static WCHAR g_szDir[MAX_PATH] = L"\\";
 
-static void CopyN(WCHAR *d, const WCHAR *s, int n)
+static void CopyN(WCHAR *pszDst, const WCHAR *psz, int n)
 {
 	int i;
-	for (i = 0; i < n - 1 && s[i]; i++)
-		d[i] = s[i];
-	d[i] = 0;
+	for (i = 0; i < n - 1 && psz[i]; i++)
+		pszDst[i] = psz[i];
+	pszDst[i] = 0;
 }
 static int IsRoot(void)
 {
-	return g_dir[0] == L'\\' && g_dir[1] == 0;
+	return g_szDir[0] == L'\\' && g_szDir[1] == 0;
 }
-static int IsDir(ENT *e)
+static int IsDir(ENT *pEnt)
 {
-	return (e->attr & FILE_ATTRIBUTE_DIRECTORY) != 0;
+	return (pEnt->attr & FILE_ATTRIBUTE_DIRECTORY) != 0;
 }
-static int EndsWithExe(const WCHAR *s)
+static int EndsWithExe(const WCHAR *psz)
 {
-	int n = lstrlenW(s);
-	if (n < 4 || s[n - 4] != L'.')
+	int n = lstrlenW(psz);
+	if (n < 4 || psz[n - 4] != L'.')
 		return 0;
-	return (s[n - 3] | 32) == 'e' && (s[n - 2] | 32) == 'x' && (s[n - 1] | 32) == 'e';
+	return (psz[n - 3] | 32) == 'e' && (psz[n - 2] | 32) == 'x' && (psz[n - 1] | 32) == 'e';
 }
-static int EndsWithExt3(const WCHAR *s, WCHAR a, WCHAR b, WCHAR c)
+static int EndsWithExt3(const WCHAR *psz, WCHAR a, WCHAR b, WCHAR c)
 {
-	int n = lstrlenW(s);
-	if (n < 4 || s[n - 4] != L'.')
+	int n = lstrlenW(psz);
+	if (n < 4 || psz[n - 4] != L'.')
 		return 0;
-	return (s[n - 3] | 32) == a && (s[n - 2] | 32) == b && (s[n - 1] | 32) == c;
+	return (psz[n - 3] | 32) == a && (psz[n - 2] | 32) == b && (psz[n - 1] | 32) == c;
 }
-static int IsAudio(const WCHAR *s)
+static int IsAudio(const WCHAR *psz)
 {
-	return EndsWithExt3(s, 'm', 'p', '3') || EndsWithExt3(s, 'w', 'a', 'v');
+	return EndsWithExt3(psz, 'm', 'p', '3') || EndsWithExt3(psz, 'w', 'a', 'v');
 }
-static void JoinPath(WCHAR *o, const WCHAR *d, const WCHAR *nm)
+static void JoinPath(WCHAR *pszOut, const WCHAR *pszDir, const WCHAR *pszName)
 {
-	if (d[1] == 0)
-		wsprintfW(o, L"\\%s", nm);
+	if (pszDir[1] == 0)
+		wsprintfW(pszOut, L"\\%s", pszName);
 	else
-		wsprintfW(o, L"%s\\%s", d, nm);
+		wsprintfW(pszOut, L"%s\\%s", pszDir, pszName);
 }
-static int FileIcon(ENT *e)
+static int FileIcon(ENT *pEnt)
 {
-	return IsDir(e) ? ICON_FOLDER : (EndsWithExe(e->name) ? ICON_APP : ICON_FILE);
+	return IsDir(pEnt) ? ICON_FOLDER : (EndsWithExe(pEnt->name) ? ICON_APP : ICON_FILE);
 }
 
 static void ScanDir(void)
 {
-	WCHAR pat[MAX_PATH];
+	WCHAR aszPat[MAX_PATH];
 	WIN32_FIND_DATAW fd;
 	HANDLE h;
-	g_count = 0;
-	g_sel = 0;
-	g_top = 0;
+	g_nCount = 0;
+	g_nSel = 0;
+	g_nTop = 0;
 	if (!IsRoot())
 	{
-		lstrcpyW(g_ent[g_count].name, L"..");
-		g_ent[g_count].attr = FILE_ATTRIBUTE_DIRECTORY;
-		g_ent[g_count].size = 0;
-		g_count++;
+		lstrcpyW(g_aEnt[g_nCount].name, L"..");
+		g_aEnt[g_nCount].attr = FILE_ATTRIBUTE_DIRECTORY;
+		g_aEnt[g_nCount].size = 0;
+		g_nCount++;
 	}
 	if (IsRoot())
-		lstrcpyW(pat, L"\\*.*");
+		lstrcpyW(aszPat, L"\\*.*");
 	else
-		wsprintfW(pat, L"%s\\*.*", g_dir);
-	h = FindFirstFileW(pat, &fd);
+		wsprintfW(aszPat, L"%s\\*.*", g_szDir);
+	h = FindFirstFileW(aszPat, &fd);
 	if (h != INVALID_HANDLE_VALUE)
 	{
 		do
 		{
-			if (g_count >= MAXENT)
+			if (g_nCount >= MAXENT)
 				break;
 			if (fd.cFileName[0] == L'.' &&
 			    (fd.cFileName[1] == 0 || (fd.cFileName[1] == L'.' && fd.cFileName[2] == 0)))
 				continue;
-			CopyN(g_ent[g_count].name, fd.cFileName, 128);
-			g_ent[g_count].attr = fd.dwFileAttributes;
-			g_ent[g_count].size = fd.nFileSizeLow;
-			g_count++;
+			CopyN(g_aEnt[g_nCount].name, fd.cFileName, 128);
+			g_aEnt[g_nCount].attr = fd.dwFileAttributes;
+			g_aEnt[g_nCount].size = fd.nFileSizeLow;
+			g_nCount++;
 		} while (FindNextFileW(h, &fd));
 		FindClose(h);
 	}
@@ -109,140 +109,140 @@ static void ScanDir(void)
 
 static void GoParent(void)
 {
-	int i, last = -1;
+	int i, nLast = -1;
 	if (IsRoot())
 		return;
-	for (i = 0; g_dir[i]; i++)
-		if (g_dir[i] == L'\\')
-			last = i;
-	if (last <= 0)
-		lstrcpyW(g_dir, L"\\");
+	for (i = 0; g_szDir[i]; i++)
+		if (g_szDir[i] == L'\\')
+			nLast = i;
+	if (nLast <= 0)
+		lstrcpyW(g_szDir, L"\\");
 	else
-		g_dir[last] = 0;
+		g_szDir[nLast] = 0;
 	ScanDir();
 }
 
-static DCWin *g_w;
+static DCWin *g_pWin;
 
 static void EnterSel(void)
 {
-	ENT *e;
-	WCHAR full[MAX_PATH];
-	if (g_sel < 0 || g_sel >= g_count)
+	ENT *pEnt;
+	WCHAR aszFull[MAX_PATH];
+	if (g_nSel < 0 || g_nSel >= g_nCount)
 		return;
-	e = &g_ent[g_sel];
-	if (lstrcmpW(e->name, L"..") == 0)
+	pEnt = &g_aEnt[g_nSel];
+	if (lstrcmpW(pEnt->name, L"..") == 0)
 	{
 		GoParent();
 		return;
 	}
-	if (IsDir(e))
+	if (IsDir(pEnt))
 	{
-		JoinPath(full, g_dir, e->name);
-		lstrcpyW(g_dir, full);
+		JoinPath(aszFull, g_szDir, pEnt->name);
+		lstrcpyW(g_szDir, aszFull);
 		ScanDir();
 		return;
 	}
-	if (EndsWithExe(e->name))
+	if (EndsWithExe(pEnt->name))
 	{
-		JoinPath(full, g_dir, e->name);
-		DCWinExec(g_w, full); // shell launches it (windowed dcw* or fullscreen hand-off)
+		JoinPath(aszFull, g_szDir, pEnt->name);
+		DCWinExec(g_pWin, aszFull); // shell launches it (windowed dcw* or fullscreen hand-off)
 	}
-	else if (IsAudio(e->name)) // .mp3/.wav -> open in the music player with the path as its arg
+	else if (IsAudio(pEnt->name)) // .mp3/.wav -> open in the music player with the path as its arg
 	{
-		WCHAR cmd[MAX_PATH + 16];
-		JoinPath(full, g_dir, e->name);
-		lstrcpyW(cmd, L"dcwplay.exe ");
-		lstrcatW(cmd, full);
-		DCWinExec(g_w, cmd); // shell splits "dcwplay.exe <path>" into exe + arg
+		WCHAR aszCmd[MAX_PATH + 16];
+		JoinPath(aszFull, g_szDir, pEnt->name);
+		lstrcpyW(aszCmd, L"dcwplay.exe ");
+		lstrcatW(aszCmd, aszFull);
+		DCWinExec(g_pWin, aszCmd); // shell splits "dcwplay.exe <path>" into exe + arg
 	}
 }
 
-static void HandleKey(DWORD k)
+static void HandleKey(DWORD dwKey)
 {
-	if (k == VK_UP && g_sel > 0)
-		g_sel--;
-	if (k == VK_DOWN && g_sel < g_count - 1)
-		g_sel++;
-	if (k == VK_RETURN)
+	if (dwKey == VK_UP && g_nSel > 0)
+		g_nSel--;
+	if (dwKey == VK_DOWN && g_nSel < g_nCount - 1)
+		g_nSel++;
+	if (dwKey == VK_RETURN)
 		EnterSel();
-	if (k == VK_BACK)
+	if (dwKey == VK_BACK)
 		GoParent();
 }
 
-static void Draw(DCWin *w)
+static void Draw(DCWin *pWin)
 {
-	int i, y, cw = EW, ch = EH, vis;
-	DCWinClientSize(w, &cw, &ch); // current size (shell may have resized us)
-	vis = (ch - 18) / EROW;
-	if (vis < 1)
-		vis = 1; // rows that fit -> more files when taller
-	DCWinBeginFrame(w);
-	DCWinFillBg(w, RGB(255, 255, 255));             // list background fills the window
-	DCWinFill(w, 0, 0, cw, 16, RGB(192, 192, 192)); // path bar spans the width
-	DCWinText(w, 4, 1, RGB(0, 0, 0), RGB(192, 192, 192), g_dir);
+	int i, y, nCw = EW, nCh = EH, nVis;
+	DCWinClientSize(pWin, &nCw, &nCh); // current size (shell may have resized us)
+	nVis = (nCh - 18) / EROW;
+	if (nVis < 1)
+		nVis = 1; // rows that fit -> more files when taller
+	DCWinBeginFrame(pWin);
+	DCWinFillBg(pWin, RGB(255, 255, 255));              // list background fills the window
+	DCWinFill(pWin, 0, 0, nCw, 16, RGB(192, 192, 192)); // path bar spans the width
+	DCWinText(pWin, 4, 1, RGB(0, 0, 0), RGB(192, 192, 192), g_szDir);
 
-	if (g_sel < g_top)
-		g_top = g_sel;
-	if (g_sel >= g_top + vis)
-		g_top = g_sel - vis + 1;
+	if (g_nSel < g_nTop)
+		g_nTop = g_nSel;
+	if (g_nSel >= g_nTop + nVis)
+		g_nTop = g_nSel - nVis + 1;
 
-	for (i = g_top; i < g_count && i < g_top + vis; i++)
+	for (i = g_nTop; i < g_nCount && i < g_nTop + nVis; i++)
 	{
-		ENT *e = &g_ent[i];
-		int sel = (i == g_sel);
-		COLORREF bg = sel ? RGB(0, 0, 128) : RGB(255, 255, 255);
-		COLORREF fg = sel ? RGB(255, 255, 255) : RGB(0, 0, 0);
-		y = 18 + (i - g_top) * EROW;
-		if (sel)
-			DCWinFill(w, 2, y, cw - 4, EROW, RGB(0, 0, 128)); /* (x,y,WIDTH,HEIGHT) */
-		DCWinIcon(w, 4, y + 2, FileIcon(e));
-		DCWinText(w, 24, y + 3, fg, bg, e->name);
-		if (!IsDir(e))
+		ENT *pEnt = &g_aEnt[i];
+		int bSel = (i == g_nSel);
+		COLORREF bg = bSel ? RGB(0, 0, 128) : RGB(255, 255, 255);
+		COLORREF fg = bSel ? RGB(255, 255, 255) : RGB(0, 0, 0);
+		y = 18 + (i - g_nTop) * EROW;
+		if (bSel)
+			DCWinFill(pWin, 2, y, nCw - 4, EROW, RGB(0, 0, 128)); /* (x,y,WIDTH,HEIGHT) */
+		DCWinIcon(pWin, 4, y + 2, FileIcon(pEnt));
+		DCWinText(pWin, 24, y + 3, fg, bg, pEnt->name);
+		if (!IsDir(pEnt))
 		{
-			WCHAR sz[20];
-			wsprintfW(sz, L"%u", e->size);
-			DCWinText(w, cw - 70, y + 3, fg, bg, sz);
+			WCHAR aszSz[20];
+			wsprintfW(aszSz, L"%u", pEnt->size);
+			DCWinText(pWin, nCw - 70, y + 3, fg, bg, aszSz);
 		}
 	}
-	DCWinEndFrame(w);
+	DCWinEndFrame(pWin);
 }
 
 int WINAPI WinMain(HINSTANCE hInst, HINSTANCE hPrev, LPWSTR lpCmd, int nShow)
 {
-	DCWin *w;
-	DWORD key;
+	DCWin *pWin;
+	DWORD dwKey;
 
 	if (lpCmd && lpCmd[0])
-		CopyN(g_dir, lpCmd, MAX_PATH); // start path from the command line
+		CopyN(g_szDir, lpCmd, MAX_PATH); // start path from the command line
 
-	w = DCWinOpen(120, 70, EW, EH, L"Explorer", ICON_FOLDER);
-	if (!w)
+	pWin = DCWinOpen(120, 70, EW, EH, L"Explorer", ICON_FOLDER);
+	if (!pWin)
 	{
 		OutputDebugStringW(L"DCWEXP: DCWinOpen failed\r\n");
 		return 1;
 	}
-	g_w = w;
+	g_pWin = pWin;
 	ScanDir();
-	Draw(w);
+	Draw(pWin);
 
 	for (;;)
 	{
-		int changed = 0;
-		while (DCWinPollKey(w, &key))
+		int bChanged = 0;
+		while (DCWinPollKey(pWin, &dwKey))
 		{
-			HandleKey(key);
-			changed = 1;
+			HandleKey(dwKey);
+			bChanged = 1;
 		}
-		if (DCWinResized(w))
-			changed = 1; // shell resized us -> redraw to fit
-		if (changed)
-			Draw(w);
-		if (DCWinShouldClose(w))
+		if (DCWinResized(pWin))
+			bChanged = 1; // shell resized us -> redraw to fit
+		if (bChanged)
+			Draw(pWin);
+		if (DCWinShouldClose(pWin))
 			break;
 		Sleep(20);
 	}
 
-	DCWinClose(w);
+	DCWinClose(pWin);
 	return 0;
 }

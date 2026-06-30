@@ -33,7 +33,7 @@
 // ---- target host/IP (optionally host/path) being edited ----
 // Default to a known plain-HTTP test file (exactly 1,048,576 bytes, Content-Length set) so the
 // Get download test works out of the box - we have no TLS, so it must be http:// (port 80).
-static WCHAR g_target[80] = L"speedtest.tele2.net/1MB.zip";
+static WCHAR g_pszTarget[80] = L"speedtest.tele2.net/1MB.zip";
 
 // ---- connection state ----
 enum
@@ -43,11 +43,11 @@ enum
 	CN_UP,
 	CN_FAILED
 };
-static int g_conn = CN_IDLE;
+static int g_nConn = CN_IDLE;
 static HRASCONN g_hConn;
-static DWORD g_dialStart;
-static WCHAR g_ipStr[24] = L"-";
-static WCHAR g_dnsStr[24] = L"-";
+static DWORD g_dwDialStart;
+static WCHAR g_pszIpStr[24] = L"-";
+static WCHAR g_pszDnsStr[24] = L"-";
 
 // ---- colour-coded result log ----
 typedef struct
@@ -55,79 +55,80 @@ typedef struct
 	COLORREF c;
 	WCHAR s[58];
 } LogLine;
-static LogLine g_log[7];
+static LogLine g_aLog[7];
 static int g_nLog;
 
-static void LogC(COLORREF c, const WCHAR *s)
+static void LogC(COLORREF c, const WCHAR *psz)
 {
 	int i;
 	if (g_nLog >= 7)
 	{
 		for (i = 0; i < 6; i++)
-			g_log[i] = g_log[i + 1];
+			g_aLog[i] = g_aLog[i + 1];
 		g_nLog = 6;
 	} // scroll
-	g_log[g_nLog].c = c;
-	for (i = 0; i < 56 && s[i]; i++)
-		g_log[g_nLog].s[i] = s[i];
-	g_log[g_nLog].s[i] = 0;
+	g_aLog[g_nLog].c = c;
+	for (i = 0; i < 56 && psz[i]; i++)
+		g_aLog[g_nLog].s[i] = psz[i];
+	g_aLog[g_nLog].s[i] = 0;
 	g_nLog++;
 }
-static void LogF(COLORREF c, const WCHAR *fmt, DWORD a)
+static void LogF(COLORREF c, const WCHAR *pszFmt, DWORD dwArg)
 {
-	WCHAR b[58];
-	wsprintfW(b, fmt, a);
-	LogC(c, b);
+	WCHAR achBuf[58];
+	wsprintfW(achBuf, pszFmt, dwArg);
+	LogC(c, achBuf);
 }
 
 // ---- registry DNS (the shim writes HKLM\Comm "DnsServers" = [count][ip...] net order) ----
 static unsigned long ReadDns(void)
 {
 	HKEY h;
-	DWORD t, n;
-	unsigned long buf[6], ip = 0;
+	DWORD dwType, cb;
+	unsigned long aulBuf[6], ulIp = 0;
 	if (RegOpenKeyExW(HKEY_LOCAL_MACHINE, L"Comm", 0, KEY_QUERY_VALUE, &h) == ERROR_SUCCESS)
 	{
-		n = sizeof(buf);
-		if (RegQueryValueExW(h, L"DnsServers", 0, &t, (BYTE *)buf, &n) == ERROR_SUCCESS && n >= 8 &&
-		    buf[0] >= 1)
-			ip = buf[1];
+		cb = sizeof(aulBuf);
+		if (RegQueryValueExW(h, L"DnsServers", 0, &dwType, (BYTE *)aulBuf, &cb) == ERROR_SUCCESS &&
+		    cb >= 8 && aulBuf[0] >= 1)
+			ulIp = aulBuf[1];
 		RegCloseKey(h);
 	}
-	return ip;
+	return ulIp;
 }
 
-static void IpToStr(unsigned long ip, WCHAR *out)
+static void IpToStr(unsigned long ulIp, WCHAR *pszOut)
 {
-	unsigned char *p = (unsigned char *)&ip;
-	wsprintfW(out, L"%u.%u.%u.%u", p[0], p[1], p[2], p[3]);
+	unsigned char *pb = (unsigned char *)&ulIp;
+	wsprintfW(pszOut, L"%u.%u.%u.%u", pb[0], pb[1], pb[2], pb[3]);
 }
 
 // Local bound address: a UDP socket "connected" to the DNS server (no packets sent) lets
 // getsockname report the source IP the stack would use - works on ethernet and PPP alike.
 static void RefreshLocalIp(void)
 {
-	unsigned long dns = ReadDns();
-	SOCKET s;
+	unsigned long ulDns = ReadDns();
+	SOCKET sock;
 	SOCKADDR_IN sa, me;
-	int ml = sizeof(me);
-	if (dns)
-		IpToStr(dns, g_dnsStr);
+	int cbMe = sizeof(me);
+	if (ulDns)
+		IpToStr(ulDns, g_pszDnsStr);
 	else
-		lstrcpyW(g_dnsStr, L"(none)");
-	lstrcpyW(g_ipStr, L"-");
-	if (!dns)
+		lstrcpyW(g_pszDnsStr, L"(none)");
+	lstrcpyW(g_pszIpStr, L"-");
+	if (!ulDns)
 		return;
-	s = socket(AF_INET, SOCK_DGRAM, 0);
-	if (s == INVALID_SOCKET)
+	sock = socket(AF_INET, SOCK_DGRAM, 0);
+	if (sock == INVALID_SOCKET)
 		return;
 	memset(&sa, 0, sizeof(sa));
 	sa.sin_family = AF_INET;
 	sa.sin_port = htons(53);
-	sa.sin_addr.s_addr = dns;
-	if (connect(s, (SOCKADDR *)&sa, sizeof(sa)) == 0 && getsockname(s, (SOCKADDR *)&me, &ml) == 0)
-		IpToStr(me.sin_addr.s_addr, g_ipStr);
-	closesocket(s);
+	sa.sin_addr.s_addr = ulDns;
+	if (connect(sock, (SOCKADDR *)&sa, sizeof(sa)) == 0 &&
+	    getsockname(sock, (SOCKADDR *)&me, &cbMe) == 0)
+		IpToStr(me.sin_addr.s_addr, g_pszIpStr);
+	closesocket(sock);
 }
 
 // ---- dialing (RasDial -> our shim -> modem PPP / ethernet instant-connect) ----
@@ -149,59 +150,59 @@ static void EnsureEntry(void)
 
 static void DoDial(void)
 {
-	RASDIALPARAMS p;
-	DWORD rc;
-	if (g_conn == CN_DIALING || g_conn == CN_UP)
+	RASDIALPARAMS dp;
+	DWORD dwRc;
+	if (g_nConn == CN_DIALING || g_nConn == CN_UP)
 		return;
 	g_nLog = 0;
 	LogC(C_INFO, L"Dialing (RasDial)...");
 	EnsureEntry();
-	memset(&p, 0, sizeof(p));
-	p.dwSize = sizeof(p);
-	lstrcpyW(p.szEntryName, L"DC Modem");
+	memset(&dp, 0, sizeof(dp));
+	dp.dwSize = sizeof(dp);
+	lstrcpyW(dp.szEntryName, L"DC Modem");
 	g_hConn = 0;
-	rc = RasDial(NULL, NULL, &p, 0, NULL, &g_hConn);
-	if (rc != 0)
+	dwRc = RasDial(NULL, NULL, &dp, 0, NULL, &g_hConn);
+	if (dwRc != 0)
 	{
-		LogF(C_FAIL, L"RasDial err %u", rc);
-		g_conn = CN_FAILED;
+		LogF(C_FAIL, L"RasDial err %u", dwRc);
+		g_nConn = CN_FAILED;
 		return;
 	}
-	g_conn = CN_DIALING;
-	g_dialStart = GetTickCount();
+	g_nConn = CN_DIALING;
+	g_dwDialStart = GetTickCount();
 }
 
 // Non-blocking dial progress; called each frame while CN_DIALING. Returns 1 if state changed.
 static int PollDial(void)
 {
 	RASCONNSTATUS st;
-	if (g_conn != CN_DIALING)
+	if (g_nConn != CN_DIALING)
 		return 0;
 	memset(&st, 0, sizeof(st));
 	st.dwSize = sizeof(st);
 	RasGetConnectStatus(g_hConn, &st);
 	if (st.rasconnstate == RASCS_Connected)
 	{
-		WCHAR b[58];
-		g_conn = CN_UP;
+		WCHAR achBuf[58];
+		g_nConn = CN_UP;
 		RefreshLocalIp();
 		LogC(C_OK, L"Connected.");
-		wsprintfW(b, L"  IP  %s", g_ipStr);
-		LogC(C_INFO, b);
-		wsprintfW(b, L"  DNS %s", g_dnsStr);
-		LogC(C_INFO, b);
+		wsprintfW(achBuf, L"  IP  %s", g_pszIpStr);
+		LogC(C_INFO, achBuf);
+		wsprintfW(achBuf, L"  DNS %s", g_pszDnsStr);
+		LogC(C_INFO, achBuf);
 		return 1;
 	}
 	if (st.dwError != 0)
 	{
 		LogF(C_FAIL, L"Dial failed, err %u", st.dwError);
-		g_conn = CN_FAILED;
+		g_nConn = CN_FAILED;
 		return 1;
 	}
-	if (GetTickCount() - g_dialStart > 45000)
+	if (GetTickCount() - g_dwDialStart > 45000)
 	{
 		LogC(C_FAIL, L"Dial timeout (45s)");
-		g_conn = CN_FAILED;
+		g_nConn = CN_FAILED;
 		return 1;
 	}
 	return 0;
@@ -212,94 +213,94 @@ static void DoHangup(void)
 	if (g_hConn)
 		RasHangUp(g_hConn);
 	g_hConn = 0;
-	g_conn = CN_IDLE;
-	lstrcpyW(g_ipStr, L"-");
+	g_nConn = CN_IDLE;
+	lstrcpyW(g_pszIpStr, L"-");
 	LogC(C_MUTE, L"Hung up.");
 }
 
-// ---- the actual reachability test (DNS -> TCP -> HTTP), on g_target ----
-static int TryConnect(SOCKET s, SOCKADDR_IN *sa, int secs)
+// ---- the actual reachability test (DNS -> TCP -> HTTP), on g_pszTarget ----
+static int TryConnect(SOCKET sock, SOCKADDR_IN *psa, int nSecs)
 {
-	unsigned long nb = 1;
+	unsigned long ulNonBlock = 1;
 	struct timeval tv;
 	fd_set wf, ef;
-	int r;
-	ioctlsocket(s, FIONBIO, &nb);
-	if (connect(s, (SOCKADDR *)sa, sizeof(*sa)) == 0)
+	int nRet;
+	ioctlsocket(sock, FIONBIO, &ulNonBlock);
+	if (connect(sock, (SOCKADDR *)psa, sizeof(*psa)) == 0)
 		return 1;
 	if (WSAGetLastError() != WSAEWOULDBLOCK)
 		return 0;
 	FD_ZERO(&wf);
-	FD_SET(s, &wf);
+	FD_SET(sock, &wf);
 	FD_ZERO(&ef);
-	FD_SET(s, &ef);
-	tv.tv_sec = secs;
+	FD_SET(sock, &ef);
+	tv.tv_sec = nSecs;
 	tv.tv_usec = 0;
-	r = select(0, 0, &wf, &ef, &tv);
-	return (r > 0 && FD_ISSET(s, &wf)) ? 1 : 0;
+	nRet = select(0, 0, &wf, &ef, &tv);
+	return (nRet > 0 && FD_ISSET(sock, &wf)) ? 1 : 0;
 }
 
-// Split g_target ("host" or "host/path") into an ANSI host + path (path defaults to "/").
-static void SplitTarget(char *hostA, int hcap, char *pathA, int pcap)
+// Split g_pszTarget ("host" or "host/path") into an ANSI host + path (path defaults to "/").
+static void SplitTarget(char *pszHostA, int nHCap, char *pszPathA, int nPCap)
 {
-	WCHAR host[80];
-	const WCHAR *slash;
-	int i, hl = 0;
-	for (slash = g_target; *slash && *slash != L'/'; slash++)
+	WCHAR achHost[80];
+	const WCHAR *pszSlash;
+	int i, nHostLen = 0;
+	for (pszSlash = g_pszTarget; *pszSlash && *pszSlash != L'/'; pszSlash++)
 		;
-	for (i = 0; g_target + i < slash && hl < 78; i++)
-		host[hl++] = g_target[i];
-	host[hl] = 0;
-	WideCharToMultiByte(CP_ACP, 0, host, -1, hostA, hcap, 0, 0);
-	if (*slash)
-		WideCharToMultiByte(CP_ACP, 0, slash, -1, pathA, pcap, 0, 0);
+	for (i = 0; g_pszTarget + i < pszSlash && nHostLen < 78; i++)
+		achHost[nHostLen++] = g_pszTarget[i];
+	achHost[nHostLen] = 0;
+	WideCharToMultiByte(CP_ACP, 0, achHost, -1, pszHostA, nHCap, 0, 0);
+	if (*pszSlash)
+		WideCharToMultiByte(CP_ACP, 0, pszSlash, -1, pszPathA, nPCap, 0, 0);
 	else
 	{
-		pathA[0] = '/';
-		pathA[1] = 0;
+		pszPathA[0] = '/';
+		pszPathA[1] = 0;
 	}
 }
 
 static void DoTest(void)
 {
-	char hostA[80], pathA[96];
-	struct hostent *he;
-	unsigned long ip;
-	SOCKET s;
+	char achHostA[80], achPathA[96];
+	struct hostent *phe;
+	unsigned long ulIp;
+	SOCKET sock;
 	SOCKADDR_IN sa;
-	int isIp;
+	int bIsIp;
 
 	g_nLog = 0;
-	if (g_conn != CN_UP)
+	if (g_nConn != CN_UP)
 		LogC(C_MUTE, L"(not dialed - testing anyway)");
-	SplitTarget(hostA, sizeof(hostA), pathA, sizeof(pathA));
+	SplitTarget(achHostA, sizeof(achHostA), achPathA, sizeof(achPathA));
 
 	// numeric IP or hostname?
-	ip = inet_addr(hostA);
-	isIp = (ip != INADDR_NONE);
-	if (isIp)
+	ulIp = inet_addr(achHostA);
+	bIsIp = (ulIp != INADDR_NONE);
+	if (bIsIp)
 	{
-		WCHAR b[40];
-		wsprintfW(b, L"target is literal IP");
-		LogC(C_INFO, b);
+		WCHAR achBuf[40];
+		wsprintfW(achBuf, L"target is literal IP");
+		LogC(C_INFO, achBuf);
 	}
 	else
 	{
 		__try
 		{
-			he = gethostbyname(hostA);
+			phe = gethostbyname(achHostA);
 		}
 		__except (EXCEPTION_EXECUTE_HANDLER)
 		{
-			he = 0;
+			phe = 0;
 		}
-		if (he && he->h_addr_list[0])
+		if (phe && phe->h_addr_list[0])
 		{
-			WCHAR b[58], ips[24];
-			ip = *(unsigned long *)he->h_addr_list[0];
-			IpToStr(ip, ips);
-			wsprintfW(b, L"DNS OK -> %s", ips);
-			LogC(C_OK, b);
+			WCHAR achBuf[58], achIps[24];
+			ulIp = *(unsigned long *)phe->h_addr_list[0];
+			IpToStr(ulIp, achIps);
+			wsprintfW(achBuf, L"DNS OK -> %s", achIps);
+			LogC(C_OK, achBuf);
 		}
 		else
 		{
@@ -308,8 +309,8 @@ static void DoTest(void)
 		}
 	}
 
-	s = socket(AF_INET, SOCK_STREAM, 0);
-	if (s == INVALID_SOCKET)
+	sock = socket(AF_INET, SOCK_STREAM, 0);
+	if (sock == INVALID_SOCKET)
 	{
 		LogC(C_FAIL, L"socket() failed");
 		return;
@@ -317,71 +318,71 @@ static void DoTest(void)
 	memset(&sa, 0, sizeof(sa));
 	sa.sin_family = AF_INET;
 	sa.sin_port = htons(80);
-	sa.sin_addr.s_addr = ip;
-	if (!TryConnect(s, &sa, 6))
+	sa.sin_addr.s_addr = ulIp;
+	if (!TryConnect(sock, &sa, 6))
 	{
 		LogC(C_FAIL, L"TCP connect :80 FAILED");
-		closesocket(s);
+		closesocket(sock);
 		return;
 	}
 	LogC(C_OK, L"TCP connect :80 OK");
 
 	{ // minimal HTTP GET to prove data flows
-		char req[200], buf[512];
-		int rl = 0, n = -1;
+		char achReq[200], achBuf[512];
+		int nReqLen = 0, nRecv = -1;
 		fd_set rf;
 		struct timeval tv;
-		int r;
-		const char *g = "GET ";
-		while (*g)
-			req[rl++] = *g++;
+		int nRet;
+		const char *pszG = "GET ";
+		while (*pszG)
+			achReq[nReqLen++] = *pszG++;
 		{
 			int i;
-			for (i = 0; pathA[i] && rl < 150; i++)
-				req[rl++] = pathA[i];
+			for (i = 0; achPathA[i] && nReqLen < 150; i++)
+				achReq[nReqLen++] = achPathA[i];
 		}
 		{
-			const char *h = " HTTP/1.0\r\nHost: ";
-			while (*h)
-				req[rl++] = *h++;
+			const char *pszH = " HTTP/1.0\r\nHost: ";
+			while (*pszH)
+				achReq[nReqLen++] = *pszH++;
 		}
 		{
 			int i;
-			for (i = 0; hostA[i] && rl < 180; i++)
-				req[rl++] = hostA[i];
+			for (i = 0; achHostA[i] && nReqLen < 180; i++)
+				achReq[nReqLen++] = achHostA[i];
 		}
 		{
-			const char *e = "\r\nConnection: close\r\n\r\n";
-			while (*e)
-				req[rl++] = *e++;
+			const char *pszE = "\r\nConnection: close\r\n\r\n";
+			while (*pszE)
+				achReq[nReqLen++] = *pszE++;
 		}
-		send(s, req, rl, 0);
-		// s is still NON-BLOCKING (from TryConnect) - select() for readability before recv,
+		send(sock, achReq, nReqLen, 0);
+		// sock is still NON-BLOCKING (from TryConnect) - select() for readability before recv,
 		// else recv returns WSAEWOULDBLOCK instantly (looks like "no reply" but data's en route).
 		FD_ZERO(&rf);
-		FD_SET(s, &rf);
+		FD_SET(sock, &rf);
 		tv.tv_sec = 6;
 		tv.tv_usec = 0;
-		r = select(0, &rf, 0, 0, &tv);
-		if (r > 0 && FD_ISSET(s, &rf))
-			n = recv(s, buf, sizeof(buf) - 1, 0);
-		if (n > 0)
+		nRet = select(0, &rf, 0, 0, &tv);
+		if (nRet > 0 && FD_ISSET(sock, &rf))
+			nRecv = recv(sock, achBuf, sizeof(achBuf) - 1, 0);
+		if (nRecv > 0)
 		{
-			WCHAR line[58];
+			WCHAR achLine[58];
 			int i, j = 0;
-			buf[n] = 0; // show the HTTP status line
-			for (i = 0; i < n && j < 54 && buf[i] != '\r' && buf[i] != '\n'; i++)
-				line[j++] = (WCHAR)(unsigned char)buf[i];
-			line[j] = 0;
-			LogC(C_OK, line);
-			LogF(C_INFO, L"(%u bytes received)", (DWORD)n);
+			achBuf[nRecv] = 0; // show the HTTP status line
+			for (i = 0; i < nRecv && j < 54 && achBuf[i] != '\r' && achBuf[i] != '\n'; i++)
+				achLine[j++] = (WCHAR)(unsigned char)achBuf[i];
+			achLine[j] = 0;
+			LogC(C_OK, achLine);
+			LogF(C_INFO, L"(%u bytes received)", (DWORD)nRecv);
 		}
-		else if (n == 0)
+		else if (nRecv == 0)
 			LogC(C_FAIL, L"connected but server sent no data");
 		else
 			LogC(C_FAIL, L"no HTTP reply (6s timeout)");
 	}
-	closesocket(s);
+	closesocket(sock);
 }
 
 // ---- download-to-RAM test: GET the whole body into a RAM buffer, verify the byte count, show
@@ -394,99 +395,99 @@ enum
 	DL_DONE,
 	DL_FAIL
 };
-static int g_dl = DL_IDLE;
-static SOCKET g_dlSock = INVALID_SOCKET;
-static BYTE *g_dlBuf;    // RAM "file" (grown as data arrives, capped at DL_MAX)
-static DWORD g_dlCap;    // allocated bytes
-static DWORD g_dlStored; // bytes actually held in g_dlBuf (<= DL_MAX)
-static DWORD g_dlRaw;    // total bytes received (headers+body), even past the cap
-static int g_dlHdrDone;
-static DWORD g_dlBodyOff;        // offset of the body within the response stream
-static DWORD g_dlTotal;          // Content-Length (0 = unknown)
-static DWORD g_dlLastData;       // tick of last recv (stall timeout)
-static DWORD g_dlStart, g_dlEnd; // ticks: download begin / finish (for speed + elapsed)
+static int g_nDl = DL_IDLE;
+static SOCKET g_sockDl = INVALID_SOCKET;
+static BYTE *g_pbDlBuf;    // RAM "file" (grown as data arrives, capped at DL_MAX)
+static DWORD g_dwDlCap;    // allocated bytes
+static DWORD g_dwDlStored; // bytes actually held in g_pbDlBuf (<= DL_MAX)
+static DWORD g_dwDlRaw;    // total bytes received (headers+body), even past the cap
+static int g_bDlHdrDone;
+static DWORD g_dwDlBodyOff;          // offset of the body within the response stream
+static DWORD g_dwDlTotal;            // Content-Length (0 = unknown)
+static DWORD g_dwDlLastData;         // tick of last recv (stall timeout)
+static DWORD g_dwDlStart, g_dwDlEnd; // ticks: download begin / finish (for speed + elapsed)
 #define DL_INIT (64 * 1024)
 #define DL_MAX  (4 * 1024 * 1024)
 
 // Format a rate (in KB/s) as "123 KB/s" or "1.2 MB/s" (integer math, no float).
-static void SpeedStr(DWORD kbps, WCHAR *out)
+static void SpeedStr(DWORD dwKbps, WCHAR *pszOut)
 {
-	if (kbps >= 1024)
+	if (dwKbps >= 1024)
 	{
-		DWORD m10 = kbps * 10 / 1024;
-		wsprintfW(out, L"%u.%u MB/s", m10 / 10, m10 % 10);
+		DWORD dwM10 = dwKbps * 10 / 1024;
+		wsprintfW(pszOut, L"%u.%u MB/s", dwM10 / 10, dwM10 % 10);
 	}
 	else
-		wsprintfW(out, L"%u KB/s", kbps);
+		wsprintfW(pszOut, L"%u KB/s", dwKbps);
 }
 
 // Average rate so far, in KB/s (elapsed = now while active, else the finished span).
-static DWORD DownloadKbps(DWORD body)
+static DWORD DownloadKbps(DWORD dwBody)
 {
-	DWORD el = (g_dl == DL_ACTIVE) ? (GetTickCount() - g_dlStart)
-	                               : (g_dlEnd >= g_dlStart ? g_dlEnd - g_dlStart : 0);
-	return el ? (body / 1024) * 1000 / el : 0; // (KB) * 1000ms / ms = KB/s, overflow-safe
+	DWORD dwEl = (g_nDl == DL_ACTIVE) ? (GetTickCount() - g_dwDlStart)
+	                                  : (g_dwDlEnd >= g_dwDlStart ? g_dwDlEnd - g_dwDlStart : 0);
+	return dwEl ? (dwBody / 1024) * 1000 / dwEl : 0; // (KB) * 1000ms / ms = KB/s, overflow-safe
 }
 
 static void DownloadFree(void)
 {
-	if (g_dlSock != INVALID_SOCKET)
+	if (g_sockDl != INVALID_SOCKET)
 	{
-		closesocket(g_dlSock);
-		g_dlSock = INVALID_SOCKET;
+		closesocket(g_sockDl);
+		g_sockDl = INVALID_SOCKET;
 	}
-	if (g_dlBuf)
+	if (g_pbDlBuf)
 	{
-		LocalFree(g_dlBuf);
-		g_dlBuf = 0;
+		LocalFree(g_pbDlBuf);
+		g_pbDlBuf = 0;
 	}
-	g_dlCap = g_dlStored = g_dlRaw = g_dlBodyOff = g_dlTotal = 0;
-	g_dlStart = g_dlEnd = 0;
-	g_dlHdrDone = 0;
+	g_dwDlCap = g_dwDlStored = g_dwDlRaw = g_dwDlBodyOff = g_dwDlTotal = 0;
+	g_dwDlStart = g_dwDlEnd = 0;
+	g_bDlHdrDone = 0;
 }
 
 static DWORD DownloadBody(void)
 {
-	return (g_dlRaw >= g_dlBodyOff) ? g_dlRaw - g_dlBodyOff : 0;
+	return (g_dwDlRaw >= g_dwDlBodyOff) ? g_dwDlRaw - g_dwDlBodyOff : 0;
 }
 
 // Once the header block is buffered, find the body offset (\r\n\r\n) and Content-Length.
 static void DownloadParseHeaders(void)
 {
 	DWORD i;
-	if (g_dlHdrDone || g_dlStored < 4)
+	if (g_bDlHdrDone || g_dwDlStored < 4)
 		return;
-	for (i = 0; i + 3 < g_dlStored; i++)
-		if (g_dlBuf[i] == '\r' && g_dlBuf[i + 1] == '\n' && g_dlBuf[i + 2] == '\r' &&
-		    g_dlBuf[i + 3] == '\n')
+	for (i = 0; i + 3 < g_dwDlStored; i++)
+		if (g_pbDlBuf[i] == '\r' && g_pbDlBuf[i + 1] == '\n' && g_pbDlBuf[i + 2] == '\r' &&
+		    g_pbDlBuf[i + 3] == '\n')
 		{
-			g_dlBodyOff = i + 4;
-			g_dlHdrDone = 1;
+			g_dwDlBodyOff = i + 4;
+			g_bDlHdrDone = 1;
 			break;
 		}
-	if (!g_dlHdrDone)
+	if (!g_bDlHdrDone)
 		return;
-	for (i = 0; i + 16 < g_dlBodyOff; i++) // case-insensitive "content-length:"
+	for (i = 0; i + 16 < g_dwDlBodyOff; i++) // case-insensitive "content-length:"
 	{
-		static const char cl[] = "content-length:";
+		static const char szCl[] = "content-length:";
 		int j;
 		char ch;
-		for (j = 0; cl[j]; j++)
+		for (j = 0; szCl[j]; j++)
 		{
-			ch = (char)g_dlBuf[i + j];
+			ch = (char)g_pbDlBuf[i + j];
 			if (ch >= 'A' && ch <= 'Z')
 				ch = (char)(ch + 32);
-			if (ch != cl[j])
+			if (ch != szCl[j])
 				break;
 		}
-		if (!cl[j])
+		if (!szCl[j])
 		{
-			DWORD v = 0, k = i + 15;
-			while (k < g_dlBodyOff && (g_dlBuf[k] == ' ' || g_dlBuf[k] == '\t'))
+			DWORD dwVal = 0, k = i + 15;
+			while (k < g_dwDlBodyOff && (g_pbDlBuf[k] == ' ' || g_pbDlBuf[k] == '\t'))
 				k++;
-			while (k < g_dlBodyOff && g_dlBuf[k] >= '0' && g_dlBuf[k] <= '9')
-				v = v * 10 + (g_dlBuf[k++] - '0');
-			g_dlTotal = v;
+			while (k < g_dwDlBodyOff && g_pbDlBuf[k] >= '0' && g_pbDlBuf[k] <= '9')
+				dwVal = dwVal * 10 + (g_pbDlBuf[k++] - '0');
+			g_dwDlTotal = dwVal;
 			break;
 		}
 	}
@@ -494,185 +495,185 @@ static void DownloadParseHeaders(void)
 
 // Append a recv'd chunk: count it (always) and store it into the RAM buffer up to DL_MAX (manual
 // grow: alloc bigger + copy + free, avoiding LocalReAlloc handle semantics).
-static void DownloadAppend(const char *data, int n)
+static void DownloadAppend(const char *pData, int n)
 {
-	g_dlRaw += (DWORD)n;
-	if (g_dlStored < DL_MAX)
+	g_dwDlRaw += (DWORD)n;
+	if (g_dwDlStored < DL_MAX)
 	{
-		DWORD need = g_dlStored + (DWORD)n;
-		if (need > DL_MAX)
-			need = DL_MAX;
-		if (need > g_dlCap)
+		DWORD dwNeed = g_dwDlStored + (DWORD)n;
+		if (dwNeed > DL_MAX)
+			dwNeed = DL_MAX;
+		if (dwNeed > g_dwDlCap)
 		{
-			DWORD nc = g_dlCap ? g_dlCap : DL_INIT;
-			BYTE *nb;
-			while (nc < need)
-				nc *= 2;
-			if (nc > DL_MAX)
-				nc = DL_MAX;
-			nb = (BYTE *)LocalAlloc(LPTR, nc);
-			if (nb)
+			DWORD dwNewCap = g_dwDlCap ? g_dwDlCap : DL_INIT;
+			BYTE *pbNew;
+			while (dwNewCap < dwNeed)
+				dwNewCap *= 2;
+			if (dwNewCap > DL_MAX)
+				dwNewCap = DL_MAX;
+			pbNew = (BYTE *)LocalAlloc(LPTR, dwNewCap);
+			if (pbNew)
 			{
-				if (g_dlBuf)
+				if (g_pbDlBuf)
 				{
-					memcpy(nb, g_dlBuf, g_dlStored);
-					LocalFree(g_dlBuf);
+					memcpy(pbNew, g_pbDlBuf, g_dwDlStored);
+					LocalFree(g_pbDlBuf);
 				}
-				g_dlBuf = nb;
-				g_dlCap = nc;
+				g_pbDlBuf = pbNew;
+				g_dwDlCap = dwNewCap;
 			}
 		}
-		if (g_dlBuf)
+		if (g_pbDlBuf)
 		{
-			DWORD room = (g_dlCap > g_dlStored) ? g_dlCap - g_dlStored : 0;
-			DWORD cpy = ((DWORD)n < room) ? (DWORD)n : room;
-			memcpy(g_dlBuf + g_dlStored, data, cpy);
-			g_dlStored += cpy;
+			DWORD dwRoom = (g_dwDlCap > g_dwDlStored) ? g_dwDlCap - g_dwDlStored : 0;
+			DWORD dwCpy = ((DWORD)n < dwRoom) ? (DWORD)n : dwRoom;
+			memcpy(g_pbDlBuf + g_dwDlStored, pData, dwCpy);
+			g_dwDlStored += dwCpy;
 		}
 	}
-	if (!g_dlHdrDone)
+	if (!g_bDlHdrDone)
 		DownloadParseHeaders();
 }
 
 static void DownloadFinish(void)
 {
-	DWORD body = DownloadBody(), el, kbps;
-	if (g_dlSock != INVALID_SOCKET)
+	DWORD dwBody = DownloadBody(), dwEl, dwKbps;
+	if (g_sockDl != INVALID_SOCKET)
 	{
-		closesocket(g_dlSock);
-		g_dlSock = INVALID_SOCKET;
+		closesocket(g_sockDl);
+		g_sockDl = INVALID_SOCKET;
 	}
-	g_dlEnd = GetTickCount();
-	g_dl = DL_DONE;
-	LogF(C_INFO, L"received %u body bytes", body);
-	el = (g_dlEnd >= g_dlStart) ? g_dlEnd - g_dlStart : 0;
-	kbps = DownloadKbps(body);
+	g_dwDlEnd = GetTickCount();
+	g_nDl = DL_DONE;
+	LogF(C_INFO, L"received %u body bytes", dwBody);
+	dwEl = (g_dwDlEnd >= g_dwDlStart) ? g_dwDlEnd - g_dwDlStart : 0;
+	dwKbps = DownloadKbps(dwBody);
 	{
-		WCHAR sp[24], b[58];
-		SpeedStr(kbps, sp);
-		wsprintfW(b, L"%u.%us  avg %s", el / 1000, (el % 1000) / 100, sp);
-		LogC(C_INFO, b);
+		WCHAR achSp[24], achBuf[58];
+		SpeedStr(dwKbps, achSp);
+		wsprintfW(achBuf, L"%u.%us  avg %s", dwEl / 1000, (dwEl % 1000) / 100, achSp);
+		LogC(C_INFO, achBuf);
 	}
-	if (g_dlTotal)
+	if (g_dwDlTotal)
 	{
-		WCHAR b[58];
-		if (body == g_dlTotal)
+		WCHAR achBuf[58];
+		if (dwBody == g_dwDlTotal)
 		{
-			wsprintfW(b, L"COMPLETE: all %u bytes", g_dlTotal);
-			LogC(C_OK, b);
+			wsprintfW(achBuf, L"COMPLETE: all %u bytes", g_dwDlTotal);
+			LogC(C_OK, achBuf);
 		}
 		else
 		{
-			wsprintfW(b, L"INCOMPLETE %u / %u bytes", body, g_dlTotal);
-			LogC(C_FAIL, b);
+			wsprintfW(achBuf, L"INCOMPLETE %u / %u bytes", dwBody, g_dwDlTotal);
+			LogC(C_FAIL, achBuf);
 		}
 	}
 	else
 		LogC(C_OK, L"done (server sent no Content-Length)");
-	if (g_dlRaw > g_dlStored)
-		LogF(C_MUTE, L"(buffered first %u in RAM)", g_dlStored);
+	if (g_dwDlRaw > g_dwDlStored)
+		LogF(C_MUTE, L"(buffered first %u in RAM)", g_dwDlStored);
 }
 
-// Start a download of g_target (host or host/path) into RAM. Non-blocking; PollDownload finishes
+// Start a download of g_pszTarget (host or host/path) into RAM. Non-blocking; PollDownload finishes
 // it.
 static void DoDownloadStart(void)
 {
-	char hostA[80], pathA[96], req[220];
-	struct hostent *he;
-	unsigned long ip;
-	SOCKET s;
+	char achHostA[80], achPathA[96], achReq[220];
+	struct hostent *phe;
+	unsigned long ulIp;
+	SOCKET sock;
 	SOCKADDR_IN sa;
 	const char *p;
-	int rl = 0, i;
+	int nReqLen = 0, i;
 
-	if (g_dl == DL_ACTIVE)
+	if (g_nDl == DL_ACTIVE)
 		return;
 	DownloadFree(); // drop the previous RAM file
 	g_nLog = 0;
-	SplitTarget(hostA, sizeof(hostA), pathA, sizeof(pathA));
+	SplitTarget(achHostA, sizeof(achHostA), achPathA, sizeof(achPathA));
 
-	ip = inet_addr(hostA);
-	if (ip == INADDR_NONE)
+	ulIp = inet_addr(achHostA);
+	if (ulIp == INADDR_NONE)
 	{
 		__try
 		{
-			he = gethostbyname(hostA);
+			phe = gethostbyname(achHostA);
 		}
 		__except (EXCEPTION_EXECUTE_HANDLER)
 		{
-			he = 0;
+			phe = 0;
 		}
-		if (!he || !he->h_addr_list[0])
+		if (!phe || !phe->h_addr_list[0])
 		{
 			LogC(C_FAIL, L"DNS resolve FAILED");
-			g_dl = DL_FAIL;
+			g_nDl = DL_FAIL;
 			return;
 		}
-		ip = *(unsigned long *)he->h_addr_list[0];
+		ulIp = *(unsigned long *)phe->h_addr_list[0];
 	}
 	{
-		WCHAR b[58], ips[24];
-		IpToStr(ip, ips);
-		wsprintfW(b, L"GET from %s", ips);
-		LogC(C_INFO, b);
+		WCHAR achBuf[58], achIps[24];
+		IpToStr(ulIp, achIps);
+		wsprintfW(achBuf, L"GET from %s", achIps);
+		LogC(C_INFO, achBuf);
 	}
 
-	s = socket(AF_INET, SOCK_STREAM, 0);
-	if (s == INVALID_SOCKET)
+	sock = socket(AF_INET, SOCK_STREAM, 0);
+	if (sock == INVALID_SOCKET)
 	{
 		LogC(C_FAIL, L"socket() failed");
-		g_dl = DL_FAIL;
+		g_nDl = DL_FAIL;
 		return;
 	}
 	{
-		int rb = 32 * 1024;
-		setsockopt(s, SOL_SOCKET, SO_RCVBUF, (char *)&rb, sizeof(rb));
+		int nRcvBuf = 32 * 1024;
+		setsockopt(sock, SOL_SOCKET, SO_RCVBUF, (char *)&nRcvBuf, sizeof(nRcvBuf));
 	} // bigger RX window
 	memset(&sa, 0, sizeof(sa));
 	sa.sin_family = AF_INET;
 	sa.sin_port = htons(80);
-	sa.sin_addr.s_addr = ip;
-	if (!TryConnect(s, &sa, 6))
+	sa.sin_addr.s_addr = ulIp;
+	if (!TryConnect(sock, &sa, 6))
 	{
 		LogC(C_FAIL, L"TCP connect :80 FAILED");
-		closesocket(s);
-		g_dl = DL_FAIL;
+		closesocket(sock);
+		g_nDl = DL_FAIL;
 		return;
 	}
 	LogC(C_OK, L"connected - downloading...");
 
 	p = "GET ";
 	while (*p)
-		req[rl++] = *p++;
-	for (i = 0; pathA[i] && rl < 160; i++)
-		req[rl++] = pathA[i];
+		achReq[nReqLen++] = *p++;
+	for (i = 0; achPathA[i] && nReqLen < 160; i++)
+		achReq[nReqLen++] = achPathA[i];
 	p = " HTTP/1.0\r\nHost: ";
 	while (*p)
-		req[rl++] = *p++;
-	for (i = 0; hostA[i] && rl < 200; i++)
-		req[rl++] = hostA[i];
+		achReq[nReqLen++] = *p++;
+	for (i = 0; achHostA[i] && nReqLen < 200; i++)
+		achReq[nReqLen++] = achHostA[i];
 	p = "\r\nConnection: close\r\n\r\n";
 	while (*p)
-		req[rl++] = *p++;
-	send(s, req, rl, 0); // socket is non-blocking (TryConnect set FIONBIO)
+		achReq[nReqLen++] = *p++;
+	send(sock, achReq, nReqLen, 0); // socket is non-blocking (TryConnect set FIONBIO)
 
-	g_dlSock = s;
-	g_dl = DL_ACTIVE;
-	g_dlStart = g_dlLastData = GetTickCount();
+	g_sockDl = sock;
+	g_nDl = DL_ACTIVE;
+	g_dwDlStart = g_dwDlLastData = GetTickCount();
 }
 
 // Drive the active download: drain readable bytes (budgeted per frame so the UI stays live).
 // recv==0 means the server closed (Connection: close) = complete. Returns 1 to force a redraw.
 static int PollDownload(void)
 {
-	char tmp[8192];
+	char achTmp[8192];
 	int n;
-	DWORD budget = 0;
-	if (g_dl != DL_ACTIVE)
+	DWORD dwBudget = 0;
+	if (g_nDl != DL_ACTIVE)
 		return 0;
 	for (;;) // drain readable bytes; the socket is non-blocking
 	{
-		n = recv(g_dlSock, tmp, sizeof(tmp), 0); // recv directly (no select readability poll)
+		n = recv(g_sockDl, achTmp, sizeof(achTmp), 0); // recv directly (no select readability poll)
 		if (n == 0)
 		{
 			DownloadFinish();
@@ -683,32 +684,32 @@ static int PollDownload(void)
 			if (WSAGetLastError() == WSAEWOULDBLOCK)
 				break;
 			LogC(C_FAIL, L"recv error");
-			g_dl = DL_FAIL;
-			g_dlEnd = GetTickCount();
-			closesocket(g_dlSock);
-			g_dlSock = INVALID_SOCKET;
+			g_nDl = DL_FAIL;
+			g_dwDlEnd = GetTickCount();
+			closesocket(g_sockDl);
+			g_sockDl = INVALID_SOCKET;
 			return 1;
 		}
-		DownloadAppend(tmp, n);
-		g_dlLastData = GetTickCount();
-		if (g_dlTotal && DownloadBody() >= g_dlTotal)
+		DownloadAppend(achTmp, n);
+		g_dwDlLastData = GetTickCount();
+		if (g_dwDlTotal && DownloadBody() >= g_dwDlTotal)
 		{
 			DownloadFinish();
 			return 1;
 		} // got it all
-		budget += (DWORD)n;
-		if (budget >= 262144)
+		dwBudget += (DWORD)n;
+		if (dwBudget >= 262144)
 			break; // yield to the UI; resume next frame
 	}
-	if (GetTickCount() - g_dlLastData > 15000)
+	if (GetTickCount() - g_dwDlLastData > 15000)
 	{
 		LogC(C_FAIL, L"download stalled (15s)");
-		g_dl = DL_FAIL;
-		g_dlEnd = GetTickCount();
-		if (g_dlSock != INVALID_SOCKET)
+		g_nDl = DL_FAIL;
+		g_dwDlEnd = GetTickCount();
+		if (g_sockDl != INVALID_SOCKET)
 		{
-			closesocket(g_dlSock);
-			g_dlSock = INVALID_SOCKET;
+			closesocket(g_sockDl);
+			g_sockDl = INVALID_SOCKET;
 		}
 		return 1;
 	}
@@ -752,25 +753,25 @@ static const Btn s_btn[B_COUNT] = {
 
 static void EditAppendCh(WCHAR ch)
 {
-	int n = lstrlenW(g_target);
+	int n = lstrlenW(g_pszTarget);
 	if (n < 78)
 	{
-		g_target[n] = ch;
-		g_target[n + 1] = 0;
+		g_pszTarget[n] = ch;
+		g_pszTarget[n + 1] = 0;
 	}
 }
-static void EditAppendStr(const WCHAR *s)
+static void EditAppendStr(const WCHAR *psz)
 {
-	int n = lstrlenW(g_target), i;
-	for (i = 0; s[i] && n < 78; i++)
-		g_target[n++] = s[i];
-	g_target[n] = 0;
+	int n = lstrlenW(g_pszTarget), i;
+	for (i = 0; psz[i] && n < 78; i++)
+		g_pszTarget[n++] = psz[i];
+	g_pszTarget[n] = 0;
 }
 static void EditBksp(void)
 {
-	int n = lstrlenW(g_target);
+	int n = lstrlenW(g_pszTarget);
 	if (n)
-		g_target[n - 1] = 0;
+		g_pszTarget[n - 1] = 0;
 }
 
 // Hit-test a click at client (x,y). Returns 1 if it changed something needing a redraw.
@@ -803,7 +804,7 @@ static int HandleClick(int x, int y)
 					EditBksp();
 					break;
 				case B_CLEAR:
-					g_target[0] = 0;
+					g_pszTarget[0] = 0;
 					break;
 				case B_DIAL:
 					DoDial();
@@ -826,7 +827,7 @@ static int HandleClick(int x, int y)
 
 static const WCHAR *ConnText(void)
 {
-	switch (g_conn)
+	switch (g_nConn)
 	{
 		case CN_DIALING:
 			return L"dialing...";
@@ -842,21 +843,21 @@ static const WCHAR *ConnText(void)
 static void Draw(DCWin *w, int cw, int ch)
 {
 	int r, c, i, y;
-	WCHAR line[64];
+	WCHAR achLine[64];
 
 	DCWinFillBg(w, C_BG);
 	DCWinFill(w, 6, 4, cw - 12, 16, C_HDR);
 	DCWinText(w, 10, 5, C_WHITE, C_HDR, L"Network Diagnostics");
 
 	// status: connection / IP / DNS
-	wsprintfW(line, L"Conn: %s    IP: %s    DNS: %s", ConnText(), g_ipStr, g_dnsStr);
-	DCWinText(w, 8, 24, (g_conn == CN_UP) ? C_OK : (g_conn == CN_FAILED ? C_FAIL : C_BLACK), C_BG,
-	          line);
+	wsprintfW(achLine, L"Conn: %s    IP: %s    DNS: %s", ConnText(), g_pszIpStr, g_pszDnsStr);
+	DCWinText(w, 8, 24, (g_nConn == CN_UP) ? C_OK : (g_nConn == CN_FAILED ? C_FAIL : C_BLACK), C_BG,
+	          achLine);
 
 	// target field
 	DCWinText(w, 8, 44, C_BLACK, C_BG, L"Target:");
 	DCWinFill(w, 58, 42, cw - 66, 18, C_WHITE);
-	DCWinText(w, 62, 44, C_BLACK, C_WHITE, g_target[0] ? g_target : L"(type a host or IP)");
+	DCWinText(w, 62, 44, C_BLACK, C_WHITE, g_pszTarget[0] ? g_pszTarget : L"(type a host or IP)");
 
 	// OSK
 	for (r = 0; r < 4; r++)
@@ -878,25 +879,26 @@ static void Draw(DCWin *w, int cw, int ch)
 	}
 
 	// download progress bar (shown once a Get has run)
-	if (g_dl != DL_IDLE)
+	if (g_nDl != DL_IDLE)
 	{
-		DWORD body = DownloadBody();
-		DWORD pct = g_dlTotal ? (body / 1024 * 100) / (g_dlTotal / 1024 + 1) : 0;
+		DWORD dwBody = DownloadBody();
+		DWORD dwPct = g_dwDlTotal ? (dwBody / 1024 * 100) / (g_dwDlTotal / 1024 + 1) : 0;
 		int barw = cw - 16, fill;
-		COLORREF pc = (g_dl == DL_FAIL) ? C_FAIL : (g_dl == DL_DONE ? C_OK : C_HDR);
-		const WCHAR *st = (g_dl == DL_ACTIVE) ? L"Downloading"
-		                  : (g_dl == DL_DONE) ? L"Downloaded"
-		                                      : L"Download failed";
-		WCHAR pl[96], sp[24];
-		SpeedStr(DownloadKbps(body), sp);
-		if (g_dl == DL_DONE && g_dlTotal && body >= g_dlTotal)
-			pct = 100;
-		fill = g_dlTotal ? (int)((DWORD)barw * pct / 100) : (g_dl == DL_DONE ? barw : 0);
-		if (g_dlTotal)
-			wsprintfW(pl, L"%s  %u / %u bytes (%u%%)  %s", st, body, g_dlTotal, pct, sp);
+		COLORREF pc = (g_nDl == DL_FAIL) ? C_FAIL : (g_nDl == DL_DONE ? C_OK : C_HDR);
+		const WCHAR *pszSt = (g_nDl == DL_ACTIVE) ? L"Downloading"
+		                     : (g_nDl == DL_DONE) ? L"Downloaded"
+		                                          : L"Download failed";
+		WCHAR achProgLine[96], achSp[24];
+		SpeedStr(DownloadKbps(dwBody), achSp);
+		if (g_nDl == DL_DONE && g_dwDlTotal && dwBody >= g_dwDlTotal)
+			dwPct = 100;
+		fill = g_dwDlTotal ? (int)((DWORD)barw * dwPct / 100) : (g_nDl == DL_DONE ? barw : 0);
+		if (g_dwDlTotal)
+			wsprintfW(achProgLine, L"%s  %u / %u bytes (%u%%)  %s", pszSt, dwBody, g_dwDlTotal,
+			          dwPct, achSp);
 		else
-			wsprintfW(pl, L"%s  %u bytes  %s", st, body, sp);
-		DCWinText(w, 8, 224, C_BLACK, C_BG, pl);
+			wsprintfW(achProgLine, L"%s  %u bytes  %s", pszSt, dwBody, achSp);
+		DCWinText(w, 8, 224, C_BLACK, C_BG, achProgLine);
 		DCWinFill(w, 8, 238, barw, 12, C_WHITE); // track
 		if (fill > 0)
 			DCWinFill(w, 8, 238, fill, 12, pc); // fill
@@ -905,15 +907,15 @@ static void Draw(DCWin *w, int cw, int ch)
 	// result log
 	DCWinFill(w, 6, 256, cw - 12, 1, C_MUTE);
 	for (i = 0, y = 262; i < g_nLog; i++, y += 15)
-		DCWinText(w, 10, y, g_log[i].c, C_BG, g_log[i].s);
+		DCWinText(w, 10, y, g_aLog[i].c, C_BG, g_aLog[i].s);
 }
 
 int WINAPI WinMain(HINSTANCE hInst, HINSTANCE hPrev, LPWSTR lpCmd, int nShow)
 {
 	DCWin *w;
 	WSADATA wsa;
-	int cw = CW, ch = CH, dirty = 1, prevBtn = 0;
-	DWORD key;
+	int cw = CW, ch = CH, bDirty = 1, nPrevBtn = 0;
+	DWORD dwKey;
 
 	w = DCWinOpen(70, 40, CW, CH, L"Network Diagnostics", ICON_APP);
 	if (!w)
@@ -927,47 +929,47 @@ int WINAPI WinMain(HINSTANCE hInst, HINSTANCE hPrev, LPWSTR lpCmd, int nShow)
 
 	for (;;)
 	{
-		int px, py, btn;
+		int px, py, nBtn;
 		if (DCWinClientSize(w, &cw, &ch))
-			dirty = 1;
+			bDirty = 1;
 
-		while (DCWinPollKey(w, &key)) // keyboard edits (NOT Enter: the shell
-		{                             // synthesizes VK_RETURN on every body click,
-			if (key == VK_BACK)
+		while (DCWinPollKey(w, &dwKey)) // keyboard edits (NOT Enter: the shell
+		{                               // synthesizes VK_RETURN on every body click,
+			if (dwKey == VK_BACK)
 			{
 				EditBksp();
-				dirty = 1;
+				bDirty = 1;
 			} // so binding it to a connect made
 		} // every OSK keypress fire a blocking Test)
 
-		if (DCWinGetPointer(w, &px, &py, &btn)) // analog-stick cursor over our window
+		if (DCWinGetPointer(w, &px, &py, &nBtn)) // analog-stick cursor over our window
 		{
-			if (btn && !prevBtn)
+			if (nBtn && !nPrevBtn)
 			{
 				if (HandleClick(px, py))
-					dirty = 1;
+					bDirty = 1;
 			} // click edge
-			prevBtn = btn;
+			nPrevBtn = nBtn;
 		}
 		else
-			prevBtn = 0;
+			nPrevBtn = 0;
 
 		if (PollDial())
-			dirty = 1; // advance a modem dial in progress
+			bDirty = 1; // advance a modem dial in progress
 		if (PollDownload())
-			dirty = 1; // drain an in-progress download
+			bDirty = 1; // drain an in-progress download
 
-		if (dirty)
+		if (bDirty)
 		{
 			DCWinBeginFrame(w);
 			Draw(w, cw, ch);
 			DCWinEndFrame(w);
-			dirty = 0;
+			bDirty = 0;
 		}
-		if (g_conn == CN_DIALING)
-			dirty = 1; // keep polling/redrawing while dialing
-		if (g_dl == DL_ACTIVE)
-			dirty = 1; // keep draining/redrawing while downloading
+		if (g_nConn == CN_DIALING)
+			bDirty = 1; // keep polling/redrawing while dialing
+		if (g_nDl == DL_ACTIVE)
+			bDirty = 1; // keep draining/redrawing while downloading
 		if (DCWinShouldClose(w))
 			break;
 		Sleep(20);
