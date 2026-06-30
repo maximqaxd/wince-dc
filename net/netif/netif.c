@@ -91,6 +91,27 @@ static ulong g_offDns[5];                // DHCP option-6 DNS servers (network o
 static int   g_offDnsN;
 static int   s_txLog, s_rxLog;           // limit TX/RX diagnostics
 
+// ---- revival / game-server redirection (mirrors Flycast picoppp + DreamPi) ---------
+// Online DC games reach now-dead first-party master servers two ways, so we redirect both:
+//  (A) by HOSTNAME - hand the guest a revival DNS as PRIMARY so the game's master host resolves
+//      to a current revival IP. DreamPi (dnsmasq -> 46.101.91.123) and Flycast (config::DNS
+//      default 46.101.91.123 == dns.flyca.st) both do this; it covers most games.
+//  (B) by HARDCODED IP - a few games dial a literal dead IP (no DNS). We DNAT those on the way
+//      out and restore the original src on the way in (Flycast special-cases the same two).
+// Both configurable in HKLM\Comm\Netif ("RevivalDns"/"RevivalMaster", dotted strings; "0.0.0.0"
+// disables). RevivalDns defaults to dns.flyca.st (178.156.255.64), the current Flycast/DCNet
+// revival resolver - NOT the stale legacy 46.101.91.123, which fails to resolve live revival hosts.
+#define AFO_ORIG_IP  0x83f2fb3fUL         // 63.251.242.131  Alien Front Online  (wire bytes in mem)
+#define IGP_ORIG_IP  0xef2bd2ccUL         // 204.210.43.239  Internet Game Pack
+static ulong g_revivalDns;               // primary DNS to prepend (0 = off)
+static ulong g_revivalMaster;            // DNAT target for the hardcoded-IP games (0 = off)
+static ulong g_natOrig, g_natTarget;     // active 1-entry reverse-NAT (one online game at a time)
+static int   g_revivalRead;              // config read yet?
+static void  TcpFixChecksum(unsigned char *ip);   // used by both RxFrame (above) and OurTransmit
+static void  IpFixChecksum(unsigned char *ip);
+static void  UdpFixChecksum(unsigned char *ip);
+static ulong RedirectDest(ulong dst);
+
 static int ArpLookup(ulong ip, unsigned char mac[6])
 {
     int i;
@@ -266,7 +287,24 @@ static void RxFrame(const unsigned char *f, int len)
     {
         const unsigned char *ip = f + 14;
         int ihl = (ip[0] & 0x0f) * 4;                   // IP header length (IHL*4); NOT always 20
-        const unsigned char *udp = ip + ihl;            // UDP starts after the (variable) IP header
+        const unsigned char *udp;                       // UDP starts after the (variable) IP header
+        unsigned char natbuf[1600];
+        // (B) reverse the game-master DNAT: replies arrive FROM the revival IP, but the guest's
+        // stack expects them from the original (dead) IP it dialled. Restore src into a copy.
+        if (g_natTarget && len - 14 >= 20 && len - 14 <= (int)sizeof(natbuf))
+        {
+            ulong sip; memcpy(&sip, ip + 12, 4);
+            if (sip == g_natTarget)
+            {
+                memcpy(natbuf, ip, len - 14);
+                memcpy(natbuf + 12, &g_natOrig, 4);     // src: revival -> original
+                IpFixChecksum(natbuf);
+                if (natbuf[9] == 6)       TcpFixChecksum(natbuf);
+                else if (natbuf[9] == 17) UdpFixChecksum(natbuf);
+                ip = natbuf;
+            }
+        }
+        udp = ip + ihl;
         if (ip[9] == 17 && len >= 14 + ihl + 8 &&
             udp[2] == 0 && udp[3] == 68)                // UDP dest port 68 = DHCP reply
             DhcpRx(f, len);
@@ -330,6 +368,20 @@ static ulong OurTransmit(ifnet *ifn, NDIS_PACKET *pkt, ulong nextHop)
     { memcpy(ipbuf + off, b->VirtualAddress, b->BufferLength); off += (int)b->BufferLength; }
 
     memcpy(&dst, ipbuf + 16, 4);                // IP dest (network order = our g_* rep)
+    {                                           // (B) game-master DNAT: dead hardcoded IP -> revival
+        ulong nd = RedirectDest(dst);
+        if (nd != dst)
+        {
+            memcpy(ipbuf + 16, &nd, 4);
+            IpFixChecksum(ipbuf);
+            if (ipbuf[9] == 6)       TcpFixChecksum(ipbuf);
+            else if (ipbuf[9] == 17) UdpFixChecksum(ipbuf);
+            SysLog(L"netif: game master %u.%u.%u.%u -> revival %u.%u.%u.%u",
+                   ((BYTE*)&dst)[0],((BYTE*)&dst)[1],((BYTE*)&dst)[2],((BYTE*)&dst)[3],
+                   ((BYTE*)&nd)[0],((BYTE*)&nd)[1],((BYTE*)&nd)[2],((BYTE*)&nd)[3]);
+            dst = nd;
+        }
+    }
     if (g_mask && (dst & g_mask) != (g_myIP & g_mask)) dst = g_gw;   // off-link -> gateway
 
     hit = ArpLookup(dst, mac);
@@ -361,6 +413,42 @@ static ulong OurTransmit(ifnet *ifn, NDIS_PACKET *pkt, ulong nextHop)
 
     ifn->ifn_FreePacket(pkt);                   // contract: we own the packet
     return 0;
+}
+
+// Recompute the IPv4 header checksum after we rewrite an address (game-master DNAT).
+static void IpFixChecksum(unsigned char *ip)
+{
+    int ihl = (ip[0] & 0x0f) * 4; unsigned short c;
+    ip[10] = ip[11] = 0;
+    c = Csum16(ip, ihl, 0);
+    ip[10] = (unsigned char)(c >> 8); ip[11] = (unsigned char)c;
+}
+
+// Recompute the UDP checksum (pseudo-header src/dst/proto17/len + datagram) after a DNAT.
+static void UdpFixChecksum(unsigned char *ip)
+{
+    int ihl = (ip[0] & 0x0f) * 4; unsigned char *udp = ip + ihl;
+    int ulen = (udp[4] << 8) | udp[5];
+    unsigned long seed = 17 + (unsigned long)ulen;
+    unsigned short c; int i;
+    if (ulen < 8) return;
+    udp[6] = udp[7] = 0;
+    for (i = 12; i < 20; i += 2) seed += (unsigned long)((ip[i] << 8) | ip[i + 1]);  // src + dst
+    c = Csum16(udp, ulen, seed);
+    if (c == 0) c = 0xffff;                  // UDP: a 0 checksum means "none"; send 0xffff instead
+    udp[6] = (unsigned char)(c >> 8); udp[7] = (unsigned char)c;
+}
+
+// Map a dead hardcoded master-server IP to the configured revival master (game-master DNAT, TX).
+// Records the pair so RxFrame can restore the original src on replies (one online game at a time).
+static ulong RedirectDest(ulong dst)
+{
+    if (g_revivalMaster && (dst == AFO_ORIG_IP || dst == IGP_ORIG_IP))
+    {
+        g_natOrig = dst; g_natTarget = g_revivalMaster;
+        return g_revivalMaster;
+    }
+    return dst;
 }
 
 static int OurIoctl(ifnet *ifn, ulong cmd, void *arg) { (void)ifn; (void)cmd; (void)arg; return 0; }
@@ -417,6 +505,41 @@ static int ReadRasDns(ulong dns[2])
     return n;
 }
 
+// Parse a dotted "a.b.c.d" into our wire-bytes-in-memory rep (0 if malformed / "0.0.0.0").
+static ulong ParseIpStr(const WCHAR *s)
+{
+    ulong v = 0; int part = 0, n = 0, seen = 0;
+    for (;; s++)
+    {
+        if (*s >= L'0' && *s <= L'9') { n = n * 10 + (*s - L'0'); seen = 1; }
+        else
+        {
+            if (seen && part < 4) ((BYTE *)&v)[part++] = (BYTE)n;
+            n = 0; seen = 0;
+            if (!*s) break;
+        }
+    }
+    return part == 4 ? v : 0;
+}
+
+// Load the revival config (HKLM\Comm\Netif) once. Defaults to dns.flyca.st (178.156.255.64), the
+// CURRENT Flycast/DCNet revival resolver; the legacy 46.101.91.123 is stale (it fails to resolve
+// e.g. master*.4x4evolution.com, which public DNS resolves fine). IP-DNAT off unless configured.
+static void ReadRevivalConfig(void)
+{
+    HKEY h; WCHAR s[32]; DWORD t, cb;
+    if (g_revivalRead) return;
+    g_revivalRead   = 1;
+    g_revivalDns    = dns_ip(178, 156, 255, 64);   // dns.flyca.st (set RevivalDns to override)
+    g_revivalMaster = 0;
+    if (RegOpenKeyExW(HKEY_LOCAL_MACHINE, L"Comm\\Netif", 0, KEY_READ, &h) == ERROR_SUCCESS)
+    {
+        cb = sizeof(s); if (RegQueryValueExW(h, L"RevivalDns",    0, &t, (BYTE *)s, &cb) == ERROR_SUCCESS && t == REG_SZ) g_revivalDns    = ParseIpStr(s);
+        cb = sizeof(s); if (RegQueryValueExW(h, L"RevivalMaster", 0, &t, (BYTE *)s, &cb) == ERROR_SUCCESS && t == REG_SZ) g_revivalMaster = ParseIpStr(s);
+        RegCloseKey(h);
+    }
+}
+
 static void WriteDnsServers(void)
 {
     HKEY  h;
@@ -450,6 +573,19 @@ static void WriteDnsServers(void)
             g_offDnsN   = 2;
             OutputDebugStringW(L"netif: DNS: no option-6/flashrom - using public 8.8.4.4/8.8.8.8\r\n");
         }
+    }
+    ReadRevivalConfig();
+    // (A) Prepend the revival DNS as PRIMARY so game master-server hostnames resolve to revival
+    // IPs - UNLESS the user set an explicit per-game RAS-entry DNS (rn>0), which we honor as-is.
+    if (g_revivalDns && rn <= 0 && g_offDns[0] != g_revivalDns)
+    {
+        int j;
+        if (g_offDnsN > 4) g_offDnsN = 4;
+        for (j = g_offDnsN; j > 0; j--) g_offDns[j] = g_offDns[j - 1];   // shift the chain down
+        g_offDns[0] = g_revivalDns;
+        g_offDnsN++;
+        SysLog(L"netif: DNS = revival %u.%u.%u.%u (primary)", ((BYTE*)&g_revivalDns)[0],
+               ((BYTE*)&g_revivalDns)[1], ((BYTE*)&g_revivalDns)[2], ((BYTE*)&g_revivalDns)[3]);
     }
     buf[0] = (ulong)g_offDnsN;
     for (i = 0; i < g_offDnsN && i < 5; i++) buf[1 + i] = g_offDns[i];   // network order, as received
@@ -669,6 +805,7 @@ int InterfaceInitialize(unsigned short *name, ifnet **ppIf)
     if (!g_ifn)                                 // first interface = the live one
     {
         g_ifn = ifn;
+        ReadRevivalConfig();                    // revival DNS + game-master DNAT config
         if (s_link != &s_null)                  // no worker/DHCP when there's no real NIC
             CloseHandle(CreateThread(0, 0, NetWorker, 0, 0, 0));
     }
