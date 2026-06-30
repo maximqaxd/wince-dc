@@ -39,113 +39,113 @@ enum
 	ST_FAIL
 };
 
-static DWORD *g_blk;  // committed test block (NULL = none)
-static DWORD g_bytes; // block size in bytes
-static DWORD g_words; // block size in words
-static DWORD g_pos;   // cursor within the current phase (words)
-static int g_state = ST_IDLE;
-static DWORD g_failAddr, g_failGot, g_failExp;
-static WCHAR g_msg[48] = L"";
+static DWORD *g_pdwBlk; // committed test block (NULL = none)
+static DWORD g_dwBytes; // block size in bytes
+static DWORD g_dwWords; // block size in words
+static DWORD g_dwPos;   // cursor within the current phase (words)
+static int g_nState = ST_IDLE;
+static DWORD g_dwFailAddr, g_dwFailGot, g_dwFailExp;
+static WCHAR g_awchMsg[48] = L"";
 
 // Allocate the biggest block we reasonably can: aim for availPhys-MARGIN, capped,
 // and step down by 1MB until a commit succeeds (VA fragmentation can bite the top).
-static DWORD *AllocBig(DWORD *gotBytes)
+static DWORD *AllocBig(DWORD *pdwGotBytes)
 {
 	MEMORYSTATUS ms;
-	DWORD want, b;
-	void *p;
+	DWORD dwWant, dwB;
+	void *pv;
 	memset(&ms, 0, sizeof(ms));
 	ms.dwLength = sizeof(ms);
 	GlobalMemoryStatus(&ms);
-	want = (ms.dwAvailPhys > MARGIN) ? ms.dwAvailPhys - MARGIN : 0;
-	if (want > MAXTEST)
-		want = MAXTEST;
-	want &= ~0xFFFFu; // 64K align
-	for (b = want; b >= 0x100000; b -= 0x100000)
+	dwWant = (ms.dwAvailPhys > MARGIN) ? ms.dwAvailPhys - MARGIN : 0;
+	if (dwWant > MAXTEST)
+		dwWant = MAXTEST;
+	dwWant &= ~0xFFFFu; // 64K align
+	for (dwB = dwWant; dwB >= 0x100000; dwB -= 0x100000)
 	{
-		p = VirtualAlloc(NULL, b, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
-		if (p)
+		pv = VirtualAlloc(NULL, dwB, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
+		if (pv)
 		{
-			*gotBytes = b;
-			return (DWORD *)p;
+			*pdwGotBytes = dwB;
+			return (DWORD *)pv;
 		}
 	}
-	*gotBytes = 0;
+	*pdwGotBytes = 0;
 	return NULL;
 }
 
-static void Fail(DWORD i, DWORD got, DWORD exp)
+static void Fail(DWORD i, DWORD dwGot, DWORD dwExp)
 {
-	g_failAddr = (DWORD)(g_blk + i);
-	g_failGot = got;
-	g_failExp = exp;
-	g_state = ST_FAIL;
-	lstrcpyW(g_msg, L"FAIL - memory/MMU error");
+	g_dwFailAddr = (DWORD)(g_pdwBlk + i);
+	g_dwFailGot = dwGot;
+	g_dwFailExp = dwExp;
+	g_nState = ST_FAIL;
+	lstrcpyW(g_awchMsg, L"FAIL - memory/MMU error");
 }
 
 // Process one CHUNK of the current phase; advance phase at end of block.
 static void StepTest(void)
 {
-	DWORD end, i;
-	if (g_state < ST_FILLA || g_state > ST_CHKB)
+	DWORD dwEnd, i;
+	if (g_nState < ST_FILLA || g_nState > ST_CHKB)
 		return;
-	end = g_pos + CHUNK;
-	if (end > g_words)
-		end = g_words;
+	dwEnd = g_dwPos + CHUNK;
+	if (dwEnd > g_dwWords)
+		dwEnd = g_dwWords;
 
-	switch (g_state)
+	switch (g_nState)
 	{
 		case ST_FILLA: // cell = its own address
-			for (i = g_pos; i < end; i++)
-				g_blk[i] = (DWORD)(g_blk + i);
+			for (i = g_dwPos; i < dwEnd; i++)
+				g_pdwBlk[i] = (DWORD)(g_pdwBlk + i);
 			break;
 		case ST_CHKA:
-			for (i = g_pos; i < end; i++)
-				if (g_blk[i] != (DWORD)(g_blk + i))
+			for (i = g_dwPos; i < dwEnd; i++)
+				if (g_pdwBlk[i] != (DWORD)(g_pdwBlk + i))
 				{
-					Fail(i, g_blk[i], (DWORD)(g_blk + i));
+					Fail(i, g_pdwBlk[i], (DWORD)(g_pdwBlk + i));
 					return;
 				}
 			break;
 		case ST_FILL5:
-			for (i = g_pos; i < end; i++)
-				g_blk[i] = 0x55555555;
+			for (i = g_dwPos; i < dwEnd; i++)
+				g_pdwBlk[i] = 0x55555555;
 			break;
 		case ST_CHK5:
-			for (i = g_pos; i < end; i++)
-				if (g_blk[i] != 0x55555555)
+			for (i = g_dwPos; i < dwEnd; i++)
+				if (g_pdwBlk[i] != 0x55555555)
 				{
-					Fail(i, g_blk[i], 0x55555555);
+					Fail(i, g_pdwBlk[i], 0x55555555);
 					return;
 				}
 			break;
 		case ST_FILLB:
-			for (i = g_pos; i < end; i++)
-				g_blk[i] = 0xAAAAAAAA;
+			for (i = g_dwPos; i < dwEnd; i++)
+				g_pdwBlk[i] = 0xAAAAAAAA;
 			break;
 		case ST_CHKB:
-			for (i = g_pos; i < end; i++)
-				if (g_blk[i] != 0xAAAAAAAA)
+			for (i = g_dwPos; i < dwEnd; i++)
+				if (g_pdwBlk[i] != 0xAAAAAAAA)
 				{
-					Fail(i, g_blk[i], 0xAAAAAAAA);
+					Fail(i, g_pdwBlk[i], 0xAAAAAAAA);
 					return;
 				}
 			break;
 	}
 
-	g_pos = end;
-	if (g_pos >= g_words) // phase complete -> next
+	g_dwPos = dwEnd;
+	if (g_dwPos >= g_dwWords) // phase complete -> next
 	{
-		g_pos = 0;
-		g_state++; // ST_FILLA..ST_CHKB..ST_DONE
-		if (g_state == ST_DONE)
-			wsprintfW(g_msg, L"PASS - %u MB ok, 0 errors", (unsigned)(g_bytes >> 20));
+		g_dwPos = 0;
+		g_nState++; // ST_FILLA..ST_CHKB..ST_DONE
+		if (g_nState == ST_DONE)
+			wsprintfW(g_awchMsg, L"PASS - %u MB ok, 0 errors", (unsigned)(g_dwBytes >> 20));
 	}
 }
 
 static const WCHAR *PhaseName(void)
 {
-	switch (g_state)
+	switch (g_nState)
 	{
 		case ST_FILLA:
 			return L"addr-in-addr: writing";
@@ -166,43 +166,43 @@ static const WCHAR *PhaseName(void)
 // 0..100 across all 6 phases.
 static int Percent(void)
 {
-	int ph;
-	if (g_state < ST_FILLA)
+	int nPh;
+	if (g_nState < ST_FILLA)
 		return 0;
-	if (g_state > ST_CHKB)
+	if (g_nState > ST_CHKB)
 		return 100;
-	ph = g_state - ST_FILLA; // 0..5
-	if (!g_words)
+	nPh = g_nState - ST_FILLA; // 0..5
+	if (!g_dwWords)
 		return 0;
-	return (int)(((DWORD)ph * 1000 + (g_pos * 1000 / g_words)) / 60);
+	return (int)(((DWORD)nPh * 1000 + (g_dwPos * 1000 / g_dwWords)) / 60);
 }
 
 static void StartTest(void)
 {
-	if (g_blk)
+	if (g_pdwBlk)
 	{
-		VirtualFree(g_blk, 0, MEM_RELEASE);
-		g_blk = NULL;
+		VirtualFree(g_pdwBlk, 0, MEM_RELEASE);
+		g_pdwBlk = NULL;
 	}
-	g_blk = AllocBig(&g_bytes);
-	if (!g_blk)
+	g_pdwBlk = AllocBig(&g_dwBytes);
+	if (!g_pdwBlk)
 	{
-		g_words = 0;
-		g_state = ST_FAIL;
-		lstrcpyW(g_msg, L"VirtualAlloc failed (low RAM)");
+		g_dwWords = 0;
+		g_nState = ST_FAIL;
+		lstrcpyW(g_awchMsg, L"VirtualAlloc failed (low RAM)");
 		return;
 	}
-	g_words = g_bytes / 4;
-	g_pos = 0;
-	g_state = ST_FILLA;
-	g_msg[0] = 0;
+	g_dwWords = g_dwBytes / 4;
+	g_dwPos = 0;
+	g_nState = ST_FILLA;
+	g_awchMsg[0] = 0;
 }
 
 int WINAPI WinMain(HINSTANCE hInst, HINSTANCE hPrev, LPWSTR lpCmd, int nShow)
 {
 	DCWin *w;
-	DWORD key;
-	int drawnOnce = 0;
+	DWORD dwKey;
+	int nDrawnOnce = 0;
 
 	w = DCWinOpen(120, 70, CW, CH, L"Memory / MMU Test", ICON_APP);
 	if (!w)
@@ -214,69 +214,69 @@ int WINAPI WinMain(HINSTANCE hInst, HINSTANCE hPrev, LPWSTR lpCmd, int nShow)
 	for (;;)
 	{
 		MEMORYSTATUS ms;
-		WCHAR ram[72], row[72];
-		int busy, changed = 0, cw = CW, ch = CH;
-		changed |= DCWinClientSize(w, &cw, &ch); // resize/maximize -> redraw to fit
+		WCHAR awchRam[72], awchRow[72];
+		int nBusy, nChanged = 0, nCw = CW, nCh = CH;
+		nChanged |= DCWinClientSize(w, &nCw, &nCh); // resize/maximize -> redraw to fit
 
-		while (DCWinPollKey(w, &key))
+		while (DCWinPollKey(w, &dwKey))
 		{
-			if ((key == VK_RETURN || key == VK_SPACE) &&
-			    (g_state == ST_IDLE || g_state == ST_DONE || g_state == ST_FAIL))
+			if ((dwKey == VK_RETURN || dwKey == VK_SPACE) &&
+			    (g_nState == ST_IDLE || g_nState == ST_DONE || g_nState == ST_FAIL))
 				StartTest();
-			changed = 1;
+			nChanged = 1;
 		}
 
-		busy = (g_state >= ST_FILLA && g_state <= ST_CHKB);
-		if (busy)
+		nBusy = (g_nState >= ST_FILLA && g_nState <= ST_CHKB);
+		if (nBusy)
 		{
 			StepTest();
-			changed = 1;
+			nChanged = 1;
 		} // animate progress while testing
-		if ((g_state == ST_DONE || g_state == ST_FAIL) && g_blk)
+		if ((g_nState == ST_DONE || g_nState == ST_FAIL) && g_pdwBlk)
 		{ // free as soon as the run ends
-			VirtualFree(g_blk, 0, MEM_RELEASE);
-			g_blk = NULL;
+			VirtualFree(g_pdwBlk, 0, MEM_RELEASE);
+			g_pdwBlk = NULL;
 		}
 
-		if (changed || !drawnOnce)
+		if (nChanged || !nDrawnOnce)
 		{
-			int pc = Percent(), bw = cw - 24; // progress bar spans the width
-			drawnOnce = 1;
+			int nPc = Percent(), nBw = nCw - 24; // progress bar spans the width
+			nDrawnOnce = 1;
 			DCWinBeginFrame(w);
 			DCWinFillBg(w, RGB(192, 192, 192)); // background fills the window
 
 			memset(&ms, 0, sizeof(ms));
 			ms.dwLength = sizeof(ms);
 			GlobalMemoryStatus(&ms);
-			wsprintfW(ram, L"Total %u K   Free %u K", (unsigned)(ms.dwTotalPhys / 1024),
+			wsprintfW(awchRam, L"Total %u K   Free %u K", (unsigned)(ms.dwTotalPhys / 1024),
 			          (unsigned)(ms.dwAvailPhys / 1024));
-			DCWinText(w, 10, 8, RGB(0, 0, 0), RGB(192, 192, 192), ram);
+			DCWinText(w, 10, 8, RGB(0, 0, 0), RGB(192, 192, 192), awchRam);
 			DCWinText(w, 10, 24, RGB(0, 0, 96), RGB(192, 192, 192),
 			          L"Enter / A  =  run memory + MMU test");
 
 			// progress bar
-			DCWinFill(w, 12, 52, bw, 16, RGB(128, 128, 128));
-			if (pc > 0)
-				DCWinFill(w, 12, 52, bw * pc / 100, 16, RGB(0, 0, 160));
-			wsprintfW(row, L"%s  %d%%", busy ? PhaseName() : L"", pc);
-			DCWinText(w, 14, 74, RGB(0, 0, 0), RGB(192, 192, 192), row);
+			DCWinFill(w, 12, 52, nBw, 16, RGB(128, 128, 128));
+			if (nPc > 0)
+				DCWinFill(w, 12, 52, nBw * nPc / 100, 16, RGB(0, 0, 160));
+			wsprintfW(awchRow, L"%s  %d%%", nBusy ? PhaseName() : L"", nPc);
+			DCWinText(w, 14, 74, RGB(0, 0, 0), RGB(192, 192, 192), awchRow);
 
-			if (g_blk)
+			if (g_pdwBlk)
 			{
-				wsprintfW(row, L"block %u MB  @ %08X..%08X", (unsigned)(g_bytes >> 20),
-				          (unsigned)g_blk, (unsigned)((DWORD)g_blk + g_bytes));
-				DCWinText(w, 10, 96, RGB(0, 0, 0), RGB(192, 192, 192), row);
+				wsprintfW(awchRow, L"block %u MB  @ %08X..%08X", (unsigned)(g_dwBytes >> 20),
+				          (unsigned)g_pdwBlk, (unsigned)((DWORD)g_pdwBlk + g_dwBytes));
+				DCWinText(w, 10, 96, RGB(0, 0, 0), RGB(192, 192, 192), awchRow);
 			}
 
-			if (g_msg[0])
+			if (g_awchMsg[0])
 			{
-				COLORREF c = (g_state == ST_DONE) ? RGB(0, 110, 0) : RGB(170, 0, 0);
-				DCWinText(w, 10, 120, c, RGB(192, 192, 192), g_msg);
-				if (g_state == ST_FAIL && g_failAddr)
+				COLORREF c = (g_nState == ST_DONE) ? RGB(0, 110, 0) : RGB(170, 0, 0);
+				DCWinText(w, 10, 120, c, RGB(192, 192, 192), g_awchMsg);
+				if (g_nState == ST_FAIL && g_dwFailAddr)
 				{
-					wsprintfW(row, L"@ %08X  got %08X  exp %08X", (unsigned)g_failAddr,
-					          (unsigned)g_failGot, (unsigned)g_failExp);
-					DCWinText(w, 10, 136, RGB(170, 0, 0), RGB(192, 192, 192), row);
+					wsprintfW(awchRow, L"@ %08X  got %08X  exp %08X", (unsigned)g_dwFailAddr,
+					          (unsigned)g_dwFailGot, (unsigned)g_dwFailExp);
+					DCWinText(w, 10, 136, RGB(170, 0, 0), RGB(192, 192, 192), awchRow);
 					DCWinText(w, 10, 152, RGB(80, 0, 0), RGB(192, 192, 192),
 					          L"(aliased/mirrored RAM - not real 32MB)");
 				}
@@ -286,11 +286,11 @@ int WINAPI WinMain(HINSTANCE hInst, HINSTANCE hPrev, LPWSTR lpCmd, int nShow)
 
 		if (DCWinShouldClose(w))
 			break;
-		Sleep(busy ? 8 : 30);
+		Sleep(nBusy ? 8 : 30);
 	}
 
-	if (g_blk)
-		VirtualFree(g_blk, 0, MEM_RELEASE);
+	if (g_pdwBlk)
+		VirtualFree(g_pdwBlk, 0, MEM_RELEASE);
 	DCWinClose(w);
 	return 0;
 }

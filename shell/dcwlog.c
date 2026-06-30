@@ -13,9 +13,9 @@ int WINAPI WinMain(HINSTANCE hInst, HINSTANCE hPrev, LPWSTR lpCmd, int nShow)
 {
 	DCWin *w;
 	SysLogShared *sl;
-	DWORD key;
-	LONG lastHead = -1;
-	int scroll = 0;
+	DWORD dwKey;
+	LONG lLastHead = -1;
+	int nScroll = 0;
 
 	w = DCWinOpen(60, 60, LW, LH, L"System Log", ICON_APP);
 	if (!w)
@@ -27,56 +27,56 @@ int WINAPI WinMain(HINSTANCE hInst, HINSTANCE hPrev, LPWSTR lpCmd, int nShow)
 
 	for (;;)
 	{
-		int changed = 0, cw = LW, ch = LH, vis, i, y;
-		LONG head = sl ? sl->head : 0;
+		int nChanged = 0, nCw = LW, nCh = LH, nVis, i, y;
+		LONG lHead = sl ? sl->head : 0;
 
-		DCWinClientSize(w, &cw, &ch);
-		while (DCWinPollKey(w, &key))
+		DCWinClientSize(w, &nCw, &nCh);
+		while (DCWinPollKey(w, &dwKey))
 		{
-			if (key == VK_UP)
+			if (dwKey == VK_UP)
 			{
-				scroll++;
-				changed = 1;
+				nScroll++;
+				nChanged = 1;
 			}
-			else if (key == VK_DOWN && scroll > 0)
+			else if (dwKey == VK_DOWN && nScroll > 0)
 			{
-				scroll--;
-				changed = 1;
+				nScroll--;
+				nChanged = 1;
 			}
-			else if (key == VK_NEXT || key == VK_HOME)
+			else if (dwKey == VK_NEXT || dwKey == VK_HOME)
 			{
-				scroll = 0;
-				changed = 1;
+				nScroll = 0;
+				nChanged = 1;
 			} // jump to tail
 		}
-		if (head != lastHead)
+		if (lHead != lLastHead)
 		{
-			lastHead = head;
-			if (scroll == 0)
-				changed = 1;
+			lLastHead = lHead;
+			if (nScroll == 0)
+				nChanged = 1;
 		} // new lines (following tail)
 		if (DCWinResized(w))
-			changed = 1;
+			nChanged = 1;
 
-		if (changed)
+		if (nChanged)
 		{
-			vis = (ch - 2) / ROW;
-			if (vis < 1)
-				vis = 1;
-			if (vis > 44)
-				vis = 44; // command-budget cap
-			if (scroll > head - vis)
-				scroll = head > vis ? (int)(head - vis) : 0;
+			nVis = (nCh - 2) / ROW;
+			if (nVis < 1)
+				nVis = 1;
+			if (nVis > 44)
+				nVis = 44; // command-budget cap
+			if (nScroll > lHead - nVis)
+				nScroll = lHead > nVis ? (int)(lHead - nVis) : 0;
 			DCWinBeginFrame(w);
 			DCWinFillBg(w, RGB(0, 0, 0));
-			for (i = 0; i < vis; i++)
+			for (i = 0; i < nVis; i++)
 			{
-				LONG idx = head - vis - scroll + i; // bottom line = newest-scroll
-				if (idx < 0 || (head - idx) > SYSLOG_LINES)
+				LONG lIdx = lHead - nVis - nScroll + i; // bottom line = newest-scroll
+				if (lIdx < 0 || (lHead - lIdx) > SYSLOG_LINES)
 					continue; // before start / rolled off
 				y = 1 + i * ROW;
 				DCWinText(w, 4, y, RGB(0, 255, 80), RGB(0, 0, 0),
-				          sl->line[(DWORD)idx % SYSLOG_LINES]);
+				          sl->line[(DWORD)lIdx % SYSLOG_LINES]);
 			}
 			DCWinEndFrame(w);
 		}

@@ -30,43 +30,43 @@ typedef BOOL(WINAPI *PFN_HL)(HANDLE, LPHEAPLIST32);
 typedef BOOL(WINAPI *PFN_HF)(HANDLE, LPHEAPENTRY32, DWORD, DWORD);
 typedef BOOL(WINAPI *PFN_HN)(HANDLE, LPHEAPENTRY32);
 
-static PFN_Snap pSnap;
-static PFN_P32 pFirst, pNext;
-static PFN_Close pClose;
-static PFN_HL pHeapListFirst, pHeapListNext;
-static PFN_HF pHeapFirst;
-static PFN_HN pHeapNext;
+static PFN_Snap g_pfnSnap;
+static PFN_P32 g_pfnFirst, g_pfnNext;
+static PFN_Close g_pfnClose;
+static PFN_HL g_pfnHeapListFirst, g_pfnHeapListNext;
+static PFN_HF g_pfnHeapFirst;
+static PFN_HN g_pfnHeapNext;
 
-static DWORD g_pid[MAXP];
-static WCHAR g_name[MAXP][32];
-static DWORD g_mem[MAXP]; // heap bytes per process (0 = n/a)
-static int g_n, g_sel, g_top;
-static int g_drawnOnce = 0; // publish the first frame even if nothing "changed"
-static int g_memScan = 999; // incremental mem-walk cursor over visible rows (>=ROWS = done)
-static WCHAR g_status[44] = L"";
+static DWORD g_adwPid[MAXP];
+static WCHAR g_awchName[MAXP][32];
+static DWORD g_adwMem[MAXP]; // heap bytes per process (0 = n/a)
+static int g_n, g_nSel, g_nTop;
+static int g_nDrawnOnce = 0; // publish the first frame even if nothing "changed"
+static int g_nMemScan = 999; // incremental mem-walk cursor over visible rows (>=ROWS = done)
+static WCHAR g_awchStatus[44] = L"";
 
-static const WCHAR *Base(const WCHAR *p)
+static const WCHAR *Base(const WCHAR *psz)
 {
-	const WCHAR *b = p;
-	for (; *p; p++)
-		if (*p == L'\\')
-			b = p + 1;
-	return b;
+	const WCHAR *pszB = psz;
+	for (; *psz; psz++)
+		if (*psz == L'\\')
+			pszB = psz + 1;
+	return pszB;
 }
 
-static int IEq(const WCHAR *a, const WCHAR *b)
+static int IEq(const WCHAR *pszA, const WCHAR *pszB)
 {
-	for (; *a && *b; a++, b++)
-		if ((*a | 32) != (*b | 32))
+	for (; *pszA && *pszB; pszA++, pszB++)
+		if ((*pszA | 32) != (*pszB | 32))
 			return 0;
-	return *a == *b;
+	return *pszA == *pszB;
 }
 
 // Critical processes we refuse to terminate (killing them freezes the system).
-static int Protected(const WCHAR *n)
+static int Protected(const WCHAR *pszName)
 {
-	return IEq(n, L"nk.exe") || IEq(n, L"gwes.exe") || IEq(n, L"filesys.exe") ||
-	       IEq(n, L"device.exe") || IEq(n, L"dcshell.exe");
+	return IEq(pszName, L"nk.exe") || IEq(pszName, L"gwes.exe") || IEq(pszName, L"filesys.exe") ||
+	       IEq(pszName, L"device.exe") || IEq(pszName, L"dcshell.exe");
 }
 
 static void LoadToolhelp(void)
@@ -77,121 +77,121 @@ static void LoadToolhelp(void)
 		OutputDebugStringW(L"DCWTASK: toolhelp.dll load failed\r\n");
 		return;
 	}
-	pSnap = (PFN_Snap)GetProcAddress(h, L"CreateToolhelp32Snapshot");
-	pFirst = (PFN_P32)GetProcAddress(h, L"Process32First");
-	pNext = (PFN_P32)GetProcAddress(h, L"Process32Next");
-	pClose = (PFN_Close)GetProcAddress(h, L"CloseToolhelp32Snapshot");
-	pHeapListFirst = (PFN_HL)GetProcAddress(h, L"Heap32ListFirst");
-	pHeapListNext = (PFN_HL)GetProcAddress(h, L"Heap32ListNext");
-	pHeapFirst = (PFN_HF)GetProcAddress(h, L"Heap32First");
-	pHeapNext = (PFN_HN)GetProcAddress(h, L"Heap32Next");
-	if (!pSnap || !pFirst || !pNext)
+	g_pfnSnap = (PFN_Snap)GetProcAddress(h, L"CreateToolhelp32Snapshot");
+	g_pfnFirst = (PFN_P32)GetProcAddress(h, L"Process32First");
+	g_pfnNext = (PFN_P32)GetProcAddress(h, L"Process32Next");
+	g_pfnClose = (PFN_Close)GetProcAddress(h, L"CloseToolhelp32Snapshot");
+	g_pfnHeapListFirst = (PFN_HL)GetProcAddress(h, L"Heap32ListFirst");
+	g_pfnHeapListNext = (PFN_HL)GetProcAddress(h, L"Heap32ListNext");
+	g_pfnHeapFirst = (PFN_HF)GetProcAddress(h, L"Heap32First");
+	g_pfnHeapNext = (PFN_HN)GetProcAddress(h, L"Heap32Next");
+	if (!g_pfnSnap || !g_pfnFirst || !g_pfnNext)
 		OutputDebugStringW(L"DCWTASK: toolhelp procs missing\r\n");
 }
 
 // Sum the non-free heap blocks of one process = a usable per-process memory
 // estimate (CE 2.12 has no working-set API). Heavy, so call only for the selected
 // row. SEH-guarded in case this toolhelp build doesn't implement heap walking.
-static DWORD MemUsage(DWORD pid)
+static DWORD MemUsage(DWORD dwPid)
 {
-	DWORD total = 0;
-	if (!pSnap || !pHeapListFirst || !pHeapFirst || !pHeapNext)
+	DWORD dwTotal = 0;
+	if (!g_pfnSnap || !g_pfnHeapListFirst || !g_pfnHeapFirst || !g_pfnHeapNext)
 		return 0;
 	__try
 	{
-		HANDLE snap = pSnap(TH32CS_SNAPHEAPLIST, pid);
+		HANDLE hSnap = g_pfnSnap(TH32CS_SNAPHEAPLIST, dwPid);
 		HEAPLIST32 hl;
 		HEAPENTRY32 he;
-		if (!snap || snap == INVALID_HANDLE_VALUE)
+		if (!hSnap || hSnap == INVALID_HANDLE_VALUE)
 			return 0;
 		memset(&hl, 0, sizeof(hl));
 		hl.dwSize = sizeof(hl);
-		if (pHeapListFirst(snap, &hl))
+		if (g_pfnHeapListFirst(hSnap, &hl))
 		{
 			do
 			{
 				memset(&he, 0, sizeof(he));
 				he.dwSize = sizeof(he);
-				if (pHeapFirst(snap, &he, hl.th32ProcessID, hl.th32HeapID))
+				if (g_pfnHeapFirst(hSnap, &he, hl.th32ProcessID, hl.th32HeapID))
 					do
 					{
 						if (!(he.dwFlags & LF32_FREE))
-							total += he.dwBlockSize;
-					} while (pHeapNext(snap, &he));
-			} while (pHeapListNext && pHeapListNext(snap, &hl));
+							dwTotal += he.dwBlockSize;
+					} while (g_pfnHeapNext(hSnap, &he));
+			} while (g_pfnHeapListNext && g_pfnHeapListNext(hSnap, &hl));
 		}
-		if (pClose)
-			pClose(snap);
+		if (g_pfnClose)
+			g_pfnClose(hSnap);
 	}
 	__except (EXCEPTION_EXECUTE_HANDLER)
 	{
-		total = 0;
+		dwTotal = 0;
 	}
-	return total;
+	return dwTotal;
 }
 
 static void Scan(void)
 {
-	HANDLE snap;
+	HANDLE hSnap;
 	PROCESSENTRY32 pe;
 	g_n = 0;
-	if (!pSnap || !pFirst || !pNext)
+	if (!g_pfnSnap || !g_pfnFirst || !g_pfnNext)
 		return;
-	snap = pSnap(TH32CS_SNAPPROCESS, 0);
-	if (!snap || snap == INVALID_HANDLE_VALUE)
+	hSnap = g_pfnSnap(TH32CS_SNAPPROCESS, 0);
+	if (!hSnap || hSnap == INVALID_HANDLE_VALUE)
 		return;
 	memset(&pe, 0, sizeof(pe));
 	pe.dwSize = sizeof(pe);
-	if (pFirst(snap, &pe))
+	if (g_pfnFirst(hSnap, &pe))
 	{
 		do
 		{
-			const WCHAR *nm = Base(pe.szExeFile);
+			const WCHAR *pszNm = Base(pe.szExeFile);
 			int k;
 			if (g_n >= MAXP)
 				break;
-			for (k = 0; k < 31 && nm[k]; k++)
-				g_name[g_n][k] = nm[k];
-			g_name[g_n][k] = 0;
-			g_pid[g_n] = pe.th32ProcessID;
+			for (k = 0; k < 31 && pszNm[k]; k++)
+				g_awchName[g_n][k] = pszNm[k];
+			g_awchName[g_n][k] = 0;
+			g_adwPid[g_n] = pe.th32ProcessID;
 			g_n++;
-		} while (pNext(snap, &pe));
+		} while (g_pfnNext(hSnap, &pe));
 	}
-	if (pClose)
-		pClose(snap);
-	if (g_sel >= g_n)
-		g_sel = g_n ? g_n - 1 : 0;
-	g_memScan = 0; // kick a fresh (incremental) per-process mem pass over visible rows
+	if (g_pfnClose)
+		g_pfnClose(hSnap);
+	if (g_nSel >= g_n)
+		g_nSel = g_n ? g_n - 1 : 0;
+	g_nMemScan = 0; // kick a fresh (incremental) per-process mem pass over visible rows
 }
 
 static void EndTask(void)
 {
-	if (g_sel < 0 || g_sel >= g_n)
+	if (g_nSel < 0 || g_nSel >= g_n)
 		return;
-	if (Protected(g_name[g_sel]))
+	if (Protected(g_awchName[g_nSel]))
 	{
-		lstrcpyW(g_status, L"protected - won't end");
+		lstrcpyW(g_awchStatus, L"protected - won't end");
 		return;
 	}
 	__try
 	{
-		HANDLE h = OpenProcess(PROCESS_TERMINATE, FALSE, g_pid[g_sel]);
+		HANDLE h = OpenProcess(PROCESS_TERMINATE, FALSE, g_adwPid[g_nSel]);
 		if (h)
 		{
 			TerminateProcess(h, 0);
 			CloseHandle(h);
-			wsprintfW(g_status, L"ended %s", g_name[g_sel]);
+			wsprintfW(g_awchStatus, L"ended %s", g_awchName[g_nSel]);
 		}
 		else
-			lstrcpyW(g_status, L"can't open process");
+			lstrcpyW(g_awchStatus, L"can't open process");
 	}
 	__except (EXCEPTION_EXECUTE_HANDLER)
 	{
-		lstrcpyW(g_status, L"end-task unavailable");
+		lstrcpyW(g_awchStatus, L"end-task unavailable");
 	}
 }
 
-static void RamLine(WCHAR *out)
+static void RamLine(WCHAR *pszOut)
 {
 	MEMORYSTATUS ms;
 	memset(&ms, 0, sizeof(ms));
@@ -199,19 +199,19 @@ static void RamLine(WCHAR *out)
 	__try
 	{
 		GlobalMemoryStatus(&ms);
-		wsprintfW(out, L"RAM  %u K free / %u K  (%u%% used)", (unsigned)(ms.dwAvailPhys / 1024),
+		wsprintfW(pszOut, L"RAM  %u K free / %u K  (%u%% used)", (unsigned)(ms.dwAvailPhys / 1024),
 		          (unsigned)(ms.dwTotalPhys / 1024), (unsigned)ms.dwMemoryLoad);
 	}
 	__except (EXCEPTION_EXECUTE_HANDLER)
 	{
-		lstrcpyW(out, L"RAM  (unavailable)");
+		lstrcpyW(pszOut, L"RAM  (unavailable)");
 	}
 }
 
 int WINAPI WinMain(HINSTANCE hInst, HINSTANCE hPrev, LPWSTR lpCmd, int nShow)
 {
 	DCWin *w;
-	DWORD key, nextScan;
+	DWORD dwKey, dwNextScan;
 
 	w = DCWinOpen(150, 70, CW, CH, L"Task Manager", ICON_APP);
 	if (!w)
@@ -222,88 +222,89 @@ int WINAPI WinMain(HINSTANCE hInst, HINSTANCE hPrev, LPWSTR lpCmd, int nShow)
 
 	LoadToolhelp();
 	Scan();
-	nextScan = GetTickCount() + 1000;
+	dwNextScan = GetTickCount() + 1000;
 
 	for (;;)
 	{
-		WCHAR ram[64], row[64], mem[12];
-		int i, y, changed = 0, cw = CW, ch = CH;
-		changed |= DCWinClientSize(w, &cw, &ch); // resize/maximize -> redraw to fit
+		WCHAR awchRam[64], awchRow[64], awchMem[12];
+		int i, y, nChanged = 0, nCw = CW, nCh = CH;
+		nChanged |= DCWinClientSize(w, &nCw, &nCh); // resize/maximize -> redraw to fit
 
-		while (DCWinPollKey(w, &key))
+		while (DCWinPollKey(w, &dwKey))
 		{
-			int otop = g_top;
-			if (key == VK_UP && g_sel > 0)
-				g_sel--;
-			else if (key == VK_DOWN && g_sel < g_n - 1)
-				g_sel++;
-			else if (key == VK_DELETE || key == VK_RETURN)
+			int nOtop = g_nTop;
+			if (dwKey == VK_UP && g_nSel > 0)
+				g_nSel--;
+			else if (dwKey == VK_DOWN && g_nSel < g_n - 1)
+				g_nSel++;
+			else if (dwKey == VK_DELETE || dwKey == VK_RETURN)
 			{
 				EndTask();
 				Scan();
 			}
-			if (g_sel < g_top)
-				g_top = g_sel;
-			if (g_sel >= g_top + ROWS)
-				g_top = g_sel - ROWS + 1;
-			if (g_top != otop)
-				g_memScan = 0; // scrolled: refresh visible rows' mem
-			changed = 1;
+			if (g_nSel < g_nTop)
+				g_nTop = g_nSel;
+			if (g_nSel >= g_nTop + ROWS)
+				g_nTop = g_nSel - ROWS + 1;
+			if (g_nTop != nOtop)
+				g_nMemScan = 0; // scrolled: refresh visible rows' mem
+			nChanged = 1;
 		}
-		if (GetTickCount() >= nextScan)
+		if (GetTickCount() >= dwNextScan)
 		{
 			Scan();
-			nextScan += 1000;
-			changed = 1;
+			dwNextScan += 1000;
+			nChanged = 1;
 		}
 
 		// Per-process memory is an expensive toolhelp heap-walk, so do it ONE row
 		// per loop over just the visible rows (after a scan/scroll), never all at
 		// once - otherwise it hitches ~1x/s and stalls input. Redraw once the
 		// visible pass completes.
-		if (g_memScan < ROWS)
+		if (g_nMemScan < ROWS)
 		{
-			int idx = g_top + g_memScan;
-			if (idx < g_n)
-				g_mem[idx] = MemUsage(g_pid[idx]);
-			if (++g_memScan >= ROWS)
-				changed = 1;
+			int nIdx = g_nTop + g_nMemScan;
+			if (nIdx < g_n)
+				g_adwMem[nIdx] = MemUsage(g_adwPid[nIdx]);
+			if (++g_nMemScan >= ROWS)
+				nChanged = 1;
 		}
 
 		// Publish a frame ONLY when something changed (key, scan, status). Re-
 		// publishing every loop bumps our gen and forces the shell to recomposite
 		// the whole desktop 16x/s just because this window is open - the lag.
-		if (changed || !g_drawnOnce)
+		if (nChanged || !g_nDrawnOnce)
 		{
-			g_drawnOnce = 1;
+			g_nDrawnOnce = 1;
 			DCWinBeginFrame(w);
 			DCWinFillBg(w, RGB(192, 192, 192)); // background fills the window
-			RamLine(ram);
-			DCWinText(w, 8, 6, RGB(0, 0, 0), RGB(192, 192, 192), ram);
-			DCWinFill(w, 6, 22, cw - 12, ROWH, RGB(0, 0, 128)); // header spans the width
+			RamLine(awchRam);
+			DCWinText(w, 8, 6, RGB(0, 0, 0), RGB(192, 192, 192), awchRam);
+			DCWinFill(w, 6, 22, nCw - 12, ROWH, RGB(0, 0, 128)); // header spans the width
 			DCWinText(w, 10, 23, RGB(255, 255, 255), RGB(0, 0, 128), L"PID    Mem    Image");
 
-			for (i = 0; i < ROWS && g_top + i < g_n; i++)
+			for (i = 0; i < ROWS && g_nTop + i < g_n; i++)
 			{
-				int idx = g_top + i;
-				COLORREF bg = (idx == g_sel) ? RGB(0, 0, 160) : RGB(192, 192, 192);
-				COLORREF fg = (idx == g_sel) ? RGB(255, 255, 255) : RGB(0, 0, 0);
+				int nIdx = g_nTop + i;
+				COLORREF bg = (nIdx == g_nSel) ? RGB(0, 0, 160) : RGB(192, 192, 192);
+				COLORREF fg = (nIdx == g_nSel) ? RGB(255, 255, 255) : RGB(0, 0, 0);
 				y = LISTY + i * ROWH;
-				if (idx == g_sel)
+				if (nIdx == g_nSel)
 					DCWinFill(w, 6, y, CW - 12, ROWH, bg);
-				if (g_mem[idx])
-					wsprintfW(mem, L"%5uK", (unsigned)(g_mem[idx] / 1024));
+				if (g_adwMem[nIdx])
+					wsprintfW(awchMem, L"%5uK", (unsigned)(g_adwMem[nIdx] / 1024));
 				else
-					lstrcpyW(mem, L"   --");
-				wsprintfW(row, L"%5u %s %s", (unsigned)g_pid[idx], mem, g_name[idx]);
-				DCWinText(w, 10, y + 1, fg, bg, row);
+					lstrcpyW(awchMem, L"   --");
+				wsprintfW(awchRow, L"%5u %s %s", (unsigned)g_adwPid[nIdx], awchMem,
+				          g_awchName[nIdx]);
+				DCWinText(w, 10, y + 1, fg, bg, awchRow);
 			}
 
 			y = LISTY + ROWS * ROWH + 4;
-			wsprintfW(row, L"%d procs   Del/Enter: end task", g_n);
-			DCWinText(w, 8, y, RGB(0, 0, 0), RGB(192, 192, 192), row);
-			if (g_status[0])
-				DCWinText(w, 8, y + ROWH, RGB(128, 0, 0), RGB(192, 192, 192), g_status);
+			wsprintfW(awchRow, L"%d procs   Del/Enter: end task", g_n);
+			DCWinText(w, 8, y, RGB(0, 0, 0), RGB(192, 192, 192), awchRow);
+			if (g_awchStatus[0])
+				DCWinText(w, 8, y + ROWH, RGB(128, 0, 0), RGB(192, 192, 192), g_awchStatus);
 			DCWinEndFrame(w);
 		}
 
