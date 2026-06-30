@@ -12,7 +12,7 @@
 #include <windows.h>
 #include <wdm.h>
 
-DWORD SetKMode(DWORD fMode); // coredll export, not in the SDK public headers
+DWORD SetKMode(DWORD dwMode); // coredll export, not in the SDK public headers
 
 #ifndef CTL_CODE
 #define CTL_CODE(t, f, m, a) (((t) << 16) | ((a) << 14) | ((f) << 2) | (m))
@@ -31,7 +31,7 @@ DWORD SetKMode(DWORD fMode); // coredll export, not in the SDK public headers
 #define FIFO_AICA      0x0001
 #define FIFO_G2        0x0010
 
-static void g2_fifo_wait(void)
+static void G2FifoWait(void)
 {
 	int i;
 	for (i = 0; i < 0x1800; i++)
@@ -39,55 +39,55 @@ static void g2_fifo_wait(void)
 			break;
 }
 
-static BYTE g2_read_8(DWORD a)
+static BYTE G2Read8(DWORD dwA)
 {
-	g2_fifo_wait();
-	return *(volatile BYTE *)a;
+	G2FifoWait();
+	return *(volatile BYTE *)dwA;
 }
-static WORD g2_read_16(DWORD a)
+static WORD G2Read16(DWORD dwA)
 {
-	g2_fifo_wait();
-	return *(volatile WORD *)a;
+	G2FifoWait();
+	return *(volatile WORD *)dwA;
 }
-static DWORD g2_read_32(DWORD a)
+static DWORD G2Read32(DWORD dwA)
 {
-	g2_fifo_wait();
-	return *(volatile DWORD *)a;
+	G2FifoWait();
+	return *(volatile DWORD *)dwA;
 }
-static void g2_write_8(DWORD a, BYTE v)
+static void G2Write8(DWORD dwA, BYTE bV)
 {
-	g2_fifo_wait();
-	*(volatile BYTE *)a = v;
+	G2FifoWait();
+	*(volatile BYTE *)dwA = bV;
 }
-static void g2_write_16(DWORD a, WORD v)
+static void G2Write16(DWORD dwA, WORD wV)
 {
-	g2_fifo_wait();
-	*(volatile WORD *)a = v;
+	G2FifoWait();
+	*(volatile WORD *)dwA = wV;
 }
-static void g2_write_32(DWORD a, DWORD v)
+static void G2Write32(DWORD dwA, DWORD dwV)
 {
-	g2_fifo_wait();
-	*(volatile DWORD *)a = v;
+	G2FifoWait();
+	*(volatile DWORD *)dwA = dwV;
 }
 
-static void g2_read_block(BYTE *dst, DWORD addr, int n)
+static void G2ReadBlock(BYTE *pbDst, DWORD dwAddr, int n)
 {
 	int i;
 	for (i = 0; i < n; i++)
 	{
 		if (!(i & 31))
-			g2_fifo_wait();
-		dst[i] = *(volatile BYTE *)(addr + i);
+			G2FifoWait();
+		pbDst[i] = *(volatile BYTE *)(dwAddr + i);
 	}
 }
-static void g2_write_block(DWORD addr, const BYTE *src, int n)
+static void G2WriteBlock(DWORD dwAddr, const BYTE *pbSrc, int n)
 {
 	int i;
 	for (i = 0; i < n; i++)
 	{
 		if (!(i & 31))
-			g2_fifo_wait();
-		*(volatile BYTE *)(addr + i) = src[i];
+			G2FifoWait();
+		*(volatile BYTE *)(dwAddr + i) = pbSrc[i];
 	}
 }
 
@@ -133,259 +133,260 @@ static void g2_write_block(DWORD addr, const BYTE *src, int n)
 #define TX_LEN              0x800                 // 2K per TX buffer
 #define TX_N                4
 
-static BYTE g_mac[6];
-static BOOL g_present = FALSE;
-static DWORD g_curtx = 0, g_currx = 0;
+static BYTE g_abMac[6];
+static BOOL g_bPresent = FALSE;
+static DWORD g_dwCurtx = 0, g_dwCurrx = 0;
 
-static int gaps_init(void)
+static int GapsInit(void)
 {
-	char str[16];
+	char szStr[16];
 	int i;
-	g2_read_block((BYTE *)str, GAPS_BASE + 0x1400, 16);
-	if (memcmp(str, "GAPSPCI_BRIDGE_2", 16) != 0)
+	G2ReadBlock((BYTE *)szStr, GAPS_BASE + 0x1400, 16);
+	if (memcmp(szStr, "GAPSPCI_BRIDGE_2", 16) != 0)
 		return -1;
-	g2_write_32(GAPS_BASE + 0x1418, 0x5a14a501);
-	for (i = 10000; i > 0 && !(g2_read_32(GAPS_BASE + 0x1418) & 1); i--)
+	G2Write32(GAPS_BASE + 0x1418, 0x5a14a501);
+	for (i = 10000; i > 0 && !(G2Read32(GAPS_BASE + 0x1418) & 1); i--)
 		;
-	if (!(g2_read_32(GAPS_BASE + 0x1418) & 1))
+	if (!(G2Read32(GAPS_BASE + 0x1418) & 1))
 		return -2;
-	g2_write_32(GAPS_BASE + 0x1420, 0x01000000);
-	g2_write_32(GAPS_BASE + 0x1424, 0x01000000);
-	g2_write_32(GAPS_BASE + 0x1428, RTL_DMA);
-	g2_write_32(GAPS_BASE + 0x142c, RTL_DMA + 32 * 1024);
-	g2_write_32(GAPS_BASE + 0x1414, 0x00000001);
-	g2_write_32(GAPS_BASE + 0x1434, 0x00000001);
-	g2_write_16(GAPS_BASE + 0x1606, 0xf900);
-	g2_write_32(GAPS_BASE + 0x1630, 0x00000000);
-	g2_write_8(GAPS_BASE + 0x163c, 0x00);
-	g2_write_8(GAPS_BASE + 0x160d, 0xf0);
-	g2_write_16(GAPS_BASE + 0x1604, g2_read_16(GAPS_BASE + 0x1604) | 0x6);
-	g2_write_32(GAPS_BASE + 0x1614, 0x01000000);
-	if (g2_read_8(GAPS_BASE + 0x1650) & 0x1)
-		g2_write_16(GAPS_BASE + 0x1654, (g2_read_16(GAPS_BASE + 0x1654) & 0xfffc) | 0x8000);
-	g2_write_32(GAPS_BASE + 0x1414, 0x00000001);
+	G2Write32(GAPS_BASE + 0x1420, 0x01000000);
+	G2Write32(GAPS_BASE + 0x1424, 0x01000000);
+	G2Write32(GAPS_BASE + 0x1428, RTL_DMA);
+	G2Write32(GAPS_BASE + 0x142c, RTL_DMA + 32 * 1024);
+	G2Write32(GAPS_BASE + 0x1414, 0x00000001);
+	G2Write32(GAPS_BASE + 0x1434, 0x00000001);
+	G2Write16(GAPS_BASE + 0x1606, 0xf900);
+	G2Write32(GAPS_BASE + 0x1630, 0x00000000);
+	G2Write8(GAPS_BASE + 0x163c, 0x00);
+	G2Write8(GAPS_BASE + 0x160d, 0xf0);
+	G2Write16(GAPS_BASE + 0x1604, G2Read16(GAPS_BASE + 0x1604) | 0x6);
+	G2Write32(GAPS_BASE + 0x1614, 0x01000000);
+	if (G2Read8(GAPS_BASE + 0x1650) & 0x1)
+		G2Write16(GAPS_BASE + 0x1654, (G2Read16(GAPS_BASE + 0x1654) & 0xfffc) | 0x8000);
+	G2Write32(GAPS_BASE + 0x1414, 0x00000001);
 	return 0;
 }
 
-static void rtl_reset(void)
+static void RtlReset(void)
 {
 	int i;
-	g2_write_8(NIC(RT_CHIPCMD), RT_CMD_RESET);
-	for (i = 1000; i > 0 && (g2_read_8(NIC(RT_CHIPCMD)) & RT_CMD_RESET); i--)
+	G2Write8(NIC(RT_CHIPCMD), RT_CMD_RESET);
+	for (i = 1000; i > 0 && (G2Read8(NIC(RT_CHIPCMD)) & RT_CMD_RESET); i--)
 		;
 }
 
-static void rtl_read_mac(void)
+static void RtlReadMac(void)
 {
-	DWORD lo = g2_read_32(NIC(RT_IDR0));
-	DWORD hi = g2_read_32(NIC(RT_IDR0 + 4));
-	g_mac[0] = (BYTE)lo;
-	g_mac[1] = (BYTE)(lo >> 8);
-	g_mac[2] = (BYTE)(lo >> 16);
-	g_mac[3] = (BYTE)(lo >> 24);
-	g_mac[4] = (BYTE)hi;
-	g_mac[5] = (BYTE)(hi >> 8);
+	DWORD dwLo = G2Read32(NIC(RT_IDR0));
+	DWORD dwHi = G2Read32(NIC(RT_IDR0 + 4));
+	g_abMac[0] = (BYTE)dwLo;
+	g_abMac[1] = (BYTE)(dwLo >> 8);
+	g_abMac[2] = (BYTE)(dwLo >> 16);
+	g_abMac[3] = (BYTE)(dwLo >> 24);
+	g_abMac[4] = (BYTE)dwHi;
+	g_abMac[5] = (BYTE)(dwHi >> 8);
 }
 
 // Bring up the RX ring + TX descriptors and enable RX/TX.
-static void rtl_start(void)
+static void RtlStart(void)
 {
 	int i;
-	g2_write_32(NIC(RT_RXBUF), RTL_DMA);
+	G2Write32(NIC(RT_RXBUF), RTL_DMA);
 	for (i = 0; i < TX_N; i++)
-		g2_write_32(NIC(RT_TXADDR0 + i * 4), RTL_DMA + i * TX_LEN + TX_OFF);
-	g2_write_16(NIC(RT_INTRMASK), 0); // polled: no interrupts
-	g2_write_8(NIC(RT_CHIPCMD), RT_CMD_RX_ENABLE | RT_CMD_TX_ENABLE);
-	g2_write_32(NIC(RT_RXCONFIG), RX_CONFIG | RXC_APM | RXC_AB);
-	g2_write_32(NIC(RT_TXCONFIG), TX_CONFIG);
-	g2_write_8(NIC(RT_CHIPCMD), RT_CMD_RX_ENABLE | RT_CMD_TX_ENABLE);
-	g2_write_32(NIC(RT_MAR0), 0xffffffff); // accept all multicast
-	g2_write_32(NIC(RT_MAR4), 0xffffffff);
-	g2_write_16(NIC(RT_INTRSTATUS), 0xffff); // clear any latched status
-	g_curtx = 0;
-	g_currx = 0;
-	g2_write_16(NIC(RT_RXBUFTAIL), (WORD)(0 - 16));
+		G2Write32(NIC(RT_TXADDR0 + i * 4), RTL_DMA + i * TX_LEN + TX_OFF);
+	G2Write16(NIC(RT_INTRMASK), 0); // polled: no interrupts
+	G2Write8(NIC(RT_CHIPCMD), RT_CMD_RX_ENABLE | RT_CMD_TX_ENABLE);
+	G2Write32(NIC(RT_RXCONFIG), RX_CONFIG | RXC_APM | RXC_AB);
+	G2Write32(NIC(RT_TXCONFIG), TX_CONFIG);
+	G2Write8(NIC(RT_CHIPCMD), RT_CMD_RX_ENABLE | RT_CMD_TX_ENABLE);
+	G2Write32(NIC(RT_MAR0), 0xffffffff); // accept all multicast
+	G2Write32(NIC(RT_MAR4), 0xffffffff);
+	G2Write16(NIC(RT_INTRSTATUS), 0xffff); // clear any latched status
+	g_dwCurtx = 0;
+	g_dwCurrx = 0;
+	G2Write16(NIC(RT_RXBUFTAIL), (WORD)(0 - 16));
 }
 
 // Transmit one frame (<=1514 bytes). Pads runts to 60. Polled OWN wait.
-static BOOL bba_tx(const BYTE *pkt, int len)
+static BOOL BbaTx(const BYTE *pbPkt, int nLen)
 {
-	DWORD tsd = NIC(RT_TXSTATUS0 + 4 * g_curtx);
-	DWORD buf = RTL_CPU + g_curtx * TX_LEN + TX_OFF;
+	DWORD dwTsd = NIC(RT_TXSTATUS0 + 4 * g_dwCurtx);
+	DWORD dwBuf = RTL_CPU + g_dwCurtx * TX_LEN + TX_OFF;
 	int i;
-	if (len <= 0 || len > 1514)
+	if (nLen <= 0 || nLen > 1514)
 		return FALSE;
-	for (i = 0; i < 1000 && !(g2_read_32(tsd) & RT_TX_HOST_OWNS) && i == 0; i++)
+	for (i = 0; i < 1000 && !(G2Read32(dwTsd) & RT_TX_HOST_OWNS) && i == 0; i++)
 		; // first use: OWN not yet meaningful
-	g2_write_block(buf, pkt, len);
-	if (len < 60)
+	G2WriteBlock(dwBuf, pbPkt, nLen);
+	if (nLen < 60)
 	{
-		for (i = len; i < 60; i++)
-			g2_write_8(buf + i, 0);
-		len = 60;
+		for (i = nLen; i < 60; i++)
+			G2Write8(dwBuf + i, 0);
+		nLen = 60;
 	}
-	g2_write_32(tsd, (DWORD)len); // size + OWN=0 -> start TX
-	g_curtx = (g_curtx + 1) & (TX_N - 1);
+	G2Write32(dwTsd, (DWORD)nLen); // size + OWN=0 -> start TX
+	g_dwCurtx = (g_dwCurtx + 1) & (TX_N - 1);
 	return TRUE;
 }
 
-// Poll one received frame into buf. Returns payload length, 0 if none, -1 on error.
-static int bba_rx_poll(BYTE *buf, int maxlen)
+// Poll one received frame into pbBuf. Returns payload length, 0 if none, -1 on error.
+static int BbaRxPoll(BYTE *pbBuf, int nMaxlen)
 {
-	DWORD status, off;
-	int size, pkt;
-	if (g2_read_8(NIC(RT_CHIPCMD)) & RT_CMD_RX_BUF_EMPTY)
+	DWORD dwStatus, dwOff;
+	int nSize, nPkt;
+	if (G2Read8(NIC(RT_CHIPCMD)) & RT_CMD_RX_BUF_EMPTY)
 		return 0;
-	off = g_currx % RX_BUF_LEN;
-	status = g2_read_32(RTL_CPU + off);
-	size = (int)((status >> 16) & 0xffff);
-	if (size == 0xfff0) // early-receive: not ready
+	dwOff = g_dwCurrx % RX_BUF_LEN;
+	dwStatus = G2Read32(RTL_CPU + dwOff);
+	nSize = (int)((dwStatus >> 16) & 0xffff);
+	if (nSize == 0xfff0) // early-receive: not ready
 		return 0;
-	pkt = size - 4; // drop the 4-byte CRC
-	if (!(status & 1) || pkt < 14 || pkt > 1514)
+	nPkt = nSize - 4; // drop the 4-byte CRC
+	if (!(dwStatus & 1) || nPkt < 14 || nPkt > 1514)
 	{
-		rtl_reset();
-		rtl_start(); // ring desync -> re-init
+		RtlReset();
+		RtlStart(); // ring desync -> re-init
 		return -1;
 	}
-	if (pkt > maxlen)
-		pkt = maxlen;
-	g2_read_block(buf, RTL_CPU + off + 4, pkt);
-	g_currx = (g_currx + size + 4 + 3) & ~3;
-	g2_write_16(NIC(RT_RXBUFTAIL), (WORD)((g_currx - 16) & (RX_BUF_LEN - 1)));
-	return pkt;
+	if (nPkt > nMaxlen)
+		nPkt = nMaxlen;
+	G2ReadBlock(pbBuf, RTL_CPU + dwOff + 4, nPkt);
+	g_dwCurrx = (g_dwCurrx + nSize + 4 + 3) & ~3;
+	G2Write16(NIC(RT_RXBUFTAIL), (WORD)((g_dwCurrx - 16) & (RX_BUF_LEN - 1)));
+	return nPkt;
 }
 
 // --- big-endian helper + IPv4 header checksum (for the DHCP self-test) ---
-static void be16(BYTE *p, WORD v)
+static void Be16(BYTE *pb, WORD wV)
 {
-	p[0] = (BYTE)(v >> 8);
-	p[1] = (BYTE)v;
+	pb[0] = (BYTE)(wV >> 8);
+	pb[1] = (BYTE)wV;
 }
-static WORD ip_csum(const BYTE *p, int n)
+static WORD IpCsum(const BYTE *pb, int n)
 {
-	DWORD s = 0;
+	DWORD dwS = 0;
 	int i;
 	for (i = 0; i + 1 < n; i += 2)
-		s += (DWORD)((p[i] << 8) | p[i + 1]);
+		dwS += (DWORD)((pb[i] << 8) | pb[i + 1]);
 	if (i < n)
-		s += (DWORD)(p[i] << 8);
-	while (s >> 16)
-		s = (s & 0xffff) + (s >> 16);
-	return (WORD)~s;
+		dwS += (DWORD)(pb[i] << 8);
+	while (dwS >> 16)
+		dwS = (dwS & 0xffff) + (dwS >> 16);
+	return (WORD)~dwS;
 }
 
 // Build a broadcast DHCP DISCOVER (returns length). Subnet-agnostic, so it works
 // in a built-in test BBA DHCP/NAT mode regardless of the host's subnet.
-static int build_dhcp_discover(BYTE *out, DWORD xid)
+static int BuildDhcpDiscover(BYTE *pbOut, DWORD dwXid)
 {
-	BYTE *eth = out, *ip = out + 14, *udp = out + 34, *bp = out + 42;
-	int dhcplen = 250, i;
-	memset(out, 0, 400);
+	BYTE *pbEth = pbOut, *pbIp = pbOut + 14, *pbUdp = pbOut + 34, *pbBp = pbOut + 42;
+	int nDhcplen = 250, i;
+	memset(pbOut, 0, 400);
 	for (i = 0; i < 6; i++)
-		eth[i] = 0xff; // dst broadcast
+		pbEth[i] = 0xff; // dst broadcast
 	for (i = 0; i < 6; i++)
-		eth[6 + i] = g_mac[i];
-	be16(eth + 12, 0x0800);
-	bp[0] = 1;
-	bp[1] = 1;
-	bp[2] = 6; // op=BOOTREQUEST htype hlen
-	bp[4] = (BYTE)(xid >> 24);
-	bp[5] = (BYTE)(xid >> 16);
-	bp[6] = (BYTE)(xid >> 8);
-	bp[7] = (BYTE)xid;
-	be16(bp + 10, 0x8000); // flags = broadcast
+		pbEth[6 + i] = g_abMac[i];
+	Be16(pbEth + 12, 0x0800);
+	pbBp[0] = 1;
+	pbBp[1] = 1;
+	pbBp[2] = 6; // op=BOOTREQUEST htype hlen
+	pbBp[4] = (BYTE)(dwXid >> 24);
+	pbBp[5] = (BYTE)(dwXid >> 16);
+	pbBp[6] = (BYTE)(dwXid >> 8);
+	pbBp[7] = (BYTE)dwXid;
+	Be16(pbBp + 10, 0x8000); // flags = broadcast
 	for (i = 0; i < 6; i++)
-		bp[28 + i] = g_mac[i]; // chaddr
-	bp[236] = 0x63;
-	bp[237] = 0x82;
-	bp[238] = 0x53;
-	bp[239] = 0x63; // magic cookie
-	bp[240] = 53;
-	bp[241] = 1;
-	bp[242] = 1; // option 53: DHCP DISCOVER
-	bp[243] = 55;
-	bp[244] = 4;
-	bp[245] = 1;
-	bp[246] = 3;
-	bp[247] = 6;
-	bp[248] = 15;  // param req
-	bp[249] = 255; // end
-	be16(udp + 0, 68);
-	be16(udp + 2, 67); // UDP src 68 -> dst 67
-	be16(udp + 4, (WORD)(8 + dhcplen));
-	be16(udp + 6, 0); // len, csum 0 (legal for IPv4)
-	ip[0] = 0x45;
-	be16(ip + 2, (WORD)(20 + 8 + dhcplen)); // ver/ihl, total len
-	ip[8] = 128;
-	ip[9] = 17; // ttl, proto UDP
+		pbBp[28 + i] = g_abMac[i]; // chaddr
+	pbBp[236] = 0x63;
+	pbBp[237] = 0x82;
+	pbBp[238] = 0x53;
+	pbBp[239] = 0x63; // magic cookie
+	pbBp[240] = 53;
+	pbBp[241] = 1;
+	pbBp[242] = 1; // option 53: DHCP DISCOVER
+	pbBp[243] = 55;
+	pbBp[244] = 4;
+	pbBp[245] = 1;
+	pbBp[246] = 3;
+	pbBp[247] = 6;
+	pbBp[248] = 15;  // param req
+	pbBp[249] = 255; // end
+	Be16(pbUdp + 0, 68);
+	Be16(pbUdp + 2, 67); // UDP src 68 -> dst 67
+	Be16(pbUdp + 4, (WORD)(8 + nDhcplen));
+	Be16(pbUdp + 6, 0); // len, csum 0 (legal for IPv4)
+	pbIp[0] = 0x45;
+	Be16(pbIp + 2, (WORD)(20 + 8 + nDhcplen)); // ver/ihl, total len
+	pbIp[8] = 128;
+	pbIp[9] = 17; // ttl, proto UDP
 	for (i = 0; i < 4; i++)
-		ip[16 + i] = 0xff; // dst 255.255.255.255 (src stays 0)
-	be16(ip + 10, ip_csum(ip, 20));
-	return 14 + 20 + 8 + dhcplen;
+		pbIp[16 + i] = 0xff; // dst 255.255.255.255 (src stays 0)
+	Be16(pbIp + 10, IpCsum(pbIp, 20));
+	return 14 + 20 + 8 + nDhcplen;
 }
 
 // If frame is a DHCP reply (UDP->68, BOOTREPLY), return yiaddr ("your" IP), else 0.
-static DWORD parse_dhcp_offer(const BYTE *f, int n)
+static DWORD ParseDhcpOffer(const BYTE *pbF, int n)
 {
 	if (n < 62)
 		return 0;
-	if (f[12] != 0x08 || f[13] != 0x00)
+	if (pbF[12] != 0x08 || pbF[13] != 0x00)
 		return 0; // IPv4
-	if (f[23] != 17)
+	if (pbF[23] != 17)
 		return 0; // UDP
-	if (f[36] != 0 || f[37] != 68)
+	if (pbF[36] != 0 || pbF[37] != 68)
 		return 0; // UDP dst port 68
-	if (f[42] != 2)
-		return 0;                                                                     // BOOTREPLY
-	return ((DWORD)f[58] << 24) | ((DWORD)f[59] << 16) | ((DWORD)f[60] << 8) | f[61]; // yiaddr
+	if (pbF[42] != 2)
+		return 0; // BOOTREPLY
+	return ((DWORD)pbF[58] << 24) | ((DWORD)pbF[59] << 16) | ((DWORD)pbF[60] << 8) |
+	       pbF[61]; // yiaddr
 }
 
 // RX worker: poll the ring, log the first frames seen (proof of RX on the test's
 // bridged network), and periodically send an ARP probe (proof of TX).
-static DWORD WINAPI BbaRxThread(LPVOID param)
+static DWORD WINAPI BbaRxThread(LPVOID pvParam)
 {
-	static BYTE frame[1600];
-	static BYTE disc[400];
-	int logged = 0, poll = 0, dlen, gotip = 0;
-	DWORD total = 0;
+	static BYTE abFrame[1600];
+	static BYTE abDisc[400];
+	int nLogged = 0, nPoll = 0, nDlen, nGotip = 0;
+	DWORD dwTotal = 0;
 
 	SetKMode(TRUE);
-	dlen = build_dhcp_discover(disc, 0xDC0DC0DCu);
+	nDlen = BuildDhcpDiscover(abDisc, 0xDC0DC0DCu);
 
 	for (;;)
 	{
-		int n = bba_rx_poll(frame, sizeof(frame));
+		int n = BbaRxPoll(abFrame, sizeof(abFrame));
 		if (n > 14)
 		{
-			DWORD yi;
-			total++;
-			if (logged < 8)
+			DWORD dwYi;
+			dwTotal++;
+			if (nLogged < 8)
 			{
-				WCHAR b[112];
-				wsprintfW(b, L"BBA RX[%u]: len=%d src=%02x:%02x:%02x:%02x:%02x:%02x type=%04x\r\n",
-				          (unsigned)total, n, frame[6], frame[7], frame[8], frame[9], frame[10],
-				          frame[11], (frame[12] << 8) | frame[13]);
-				OutputDebugStringW(b);
-				if (++logged == 8)
+				WCHAR ab[112];
+				wsprintfW(ab, L"BBA RX[%u]: len=%d src=%02x:%02x:%02x:%02x:%02x:%02x type=%04x\r\n",
+				          (unsigned)dwTotal, n, abFrame[6], abFrame[7], abFrame[8], abFrame[9],
+				          abFrame[10], abFrame[11], (abFrame[12] << 8) | abFrame[13]);
+				OutputDebugStringW(ab);
+				if (++nLogged == 8)
 					OutputDebugStringW(L"BBA RX: (further frames counted silently)\r\n");
 			}
-			yi = parse_dhcp_offer(frame, n);
-			if (yi && !gotip)
+			dwYi = ParseDhcpOffer(abFrame, n);
+			if (dwYi && !nGotip)
 			{
-				WCHAR b[72];
-				wsprintfW(b, L"BBA: *** DHCP reply - your IP = %u.%u.%u.%u ***\r\n",
-				          (unsigned)((yi >> 24) & 0xff), (unsigned)((yi >> 16) & 0xff),
-				          (unsigned)((yi >> 8) & 0xff), (unsigned)(yi & 0xff));
-				OutputDebugStringW(b);
-				gotip = 1; // round-trip proven; stop probing
+				WCHAR ab[72];
+				wsprintfW(ab, L"BBA: *** DHCP reply - your IP = %u.%u.%u.%u ***\r\n",
+				          (unsigned)((dwYi >> 24) & 0xff), (unsigned)((dwYi >> 16) & 0xff),
+				          (unsigned)((dwYi >> 8) & 0xff), (unsigned)(dwYi & 0xff));
+				OutputDebugStringW(ab);
+				nGotip = 1; // round-trip proven; stop probing
 			}
 		}
 		else
 		{
-			if (!gotip && (poll++ % 200) == 0) // ~every 2s until we get a reply
+			if (!nGotip && (nPoll++ % 200) == 0) // ~every 2s until we get a reply
 			{
-				bba_tx(disc, dlen);
+				BbaTx(abDisc, nDlen);
 				OutputDebugStringW(L"BBA TX: DHCP DISCOVER\r\n");
 			}
 			Sleep(10);
@@ -394,22 +395,22 @@ static DWORD WINAPI BbaRxThread(LPVOID param)
 	return 0;
 }
 
-static BOOL bba_bringup(void)
+static BOOL BbaBringup(void)
 {
-	DWORD prev = SetKMode(TRUE);
-	BOOL ok = FALSE;
-	WCHAR b[80];
+	DWORD dwPrev = SetKMode(TRUE);
+	BOOL bOk = FALSE;
+	WCHAR ab[80];
 	__try
 	{
-		if (gaps_init() == 0)
+		if (GapsInit() == 0)
 		{
-			rtl_reset();
-			rtl_read_mac();
-			rtl_start();
-			ok = TRUE;
-			wsprintfW(b, L"BBA: up, MAC %02x:%02x:%02x:%02x:%02x:%02x\r\n", g_mac[0], g_mac[1],
-			          g_mac[2], g_mac[3], g_mac[4], g_mac[5]);
-			OutputDebugStringW(b);
+			RtlReset();
+			RtlReadMac();
+			RtlStart();
+			bOk = TRUE;
+			wsprintfW(ab, L"BBA: up, MAC %02x:%02x:%02x:%02x:%02x:%02x\r\n", g_abMac[0], g_abMac[1],
+			          g_abMac[2], g_abMac[3], g_abMac[4], g_abMac[5]);
+			OutputDebugStringW(ab);
 		}
 		else
 			OutputDebugStringW(L"BBA: no GAPS bridge / init failed (adapter present?)\r\n");
@@ -418,83 +419,83 @@ static BOOL bba_bringup(void)
 	{
 		OutputDebugStringW(L"BBA: probe faulted (G2 access) - skipping\r\n");
 	}
-	SetKMode(prev);
-	return ok;
+	SetKMode(dwPrev);
+	return bOk;
 }
 
 // ---------------------------------------------------------------------------
 // WDM dispatch (buffered I/O).
 // ---------------------------------------------------------------------------
-static NTSTATUS BbaDispatch(PDEVICE_OBJECT dev, PIRP irp)
+static NTSTATUS BbaDispatch(PDEVICE_OBJECT pDev, PIRP pIrp)
 {
-	PIO_STACK_LOCATION sp = IoGetCurrentIrpStackLocation(irp);
-	NTSTATUS st = STATUS_SUCCESS;
-	ULONG info = 0;
+	PIO_STACK_LOCATION pSp = IoGetCurrentIrpStackLocation(pIrp);
+	NTSTATUS nSt = STATUS_SUCCESS;
+	ULONG nInfo = 0;
 
-	if (sp->MajorFunction == IRP_MJ_DEVICE_CONTROL)
+	if (pSp->MajorFunction == IRP_MJ_DEVICE_CONTROL)
 	{
-		ULONG code = sp->Parameters.DeviceIoControl.IoControlCode;
-		ULONG inlen = sp->Parameters.DeviceIoControl.InputBufferLength;
-		ULONG outlen = sp->Parameters.DeviceIoControl.OutputBufferLength;
-		PVOID buf = irp->AssociatedIrp.SystemBuffer;
-		DWORD prev;
+		ULONG nCode = pSp->Parameters.DeviceIoControl.IoControlCode;
+		ULONG nInlen = pSp->Parameters.DeviceIoControl.InputBufferLength;
+		ULONG nOutlen = pSp->Parameters.DeviceIoControl.OutputBufferLength;
+		PVOID pvBuf = pIrp->AssociatedIrp.SystemBuffer;
+		DWORD dwPrev;
 
-		if (code == IOCTL_BBA_GET_MAC && buf && outlen >= 6)
+		if (nCode == IOCTL_BBA_GET_MAC && pvBuf && nOutlen >= 6)
 		{
-			memcpy(buf, g_mac, 6);
-			info = 6;
+			memcpy(pvBuf, g_abMac, 6);
+			nInfo = 6;
 		}
-		else if (code == IOCTL_BBA_GET_PRESENT && buf && outlen >= 4)
+		else if (nCode == IOCTL_BBA_GET_PRESENT && pvBuf && nOutlen >= 4)
 		{
-			*(DWORD *)buf = g_present ? 1 : 0;
-			info = 4;
+			*(DWORD *)pvBuf = g_bPresent ? 1 : 0;
+			nInfo = 4;
 		}
-		else if (code == IOCTL_BBA_SEND && buf && inlen >= 14 && g_present)
+		else if (nCode == IOCTL_BBA_SEND && pvBuf && nInlen >= 14 && g_bPresent)
 		{
-			prev = SetKMode(TRUE);
-			st = bba_tx((BYTE *)buf, (int)inlen) ? STATUS_SUCCESS : STATUS_IO_DEVICE_ERROR;
-			SetKMode(prev);
+			dwPrev = SetKMode(TRUE);
+			nSt = BbaTx((BYTE *)pvBuf, (int)nInlen) ? STATUS_SUCCESS : STATUS_IO_DEVICE_ERROR;
+			SetKMode(dwPrev);
 		}
-		else if (code == IOCTL_BBA_RECV && buf && outlen >= 14 && g_present)
+		else if (nCode == IOCTL_BBA_RECV && pvBuf && nOutlen >= 14 && g_bPresent)
 		{
 			int n;
-			prev = SetKMode(TRUE);
-			n = bba_rx_poll((BYTE *)buf, (int)outlen);
-			SetKMode(prev);
-			info = (n > 0) ? (ULONG)n : 0;
+			dwPrev = SetKMode(TRUE);
+			n = BbaRxPoll((BYTE *)pvBuf, (int)nOutlen);
+			SetKMode(dwPrev);
+			nInfo = (n > 0) ? (ULONG)n : 0;
 		}
 		else
-			st = STATUS_NOT_IMPLEMENTED;
+			nSt = STATUS_NOT_IMPLEMENTED;
 	}
 
-	irp->IoStatus.Status = st;
-	irp->IoStatus.Information = info;
-	IoCompleteRequest(irp, 0);
-	return st;
+	pIrp->IoStatus.Status = nSt;
+	pIrp->IoStatus.Information = nInfo;
+	IoCompleteRequest(pIrp, 0);
+	return nSt;
 }
 
-NTSTATUS DriverEntry(PDRIVER_OBJECT drv, PUNICODE_STRING regpath)
+NTSTATUS DriverEntry(PDRIVER_OBJECT pDrv, PUNICODE_STRING pRegpath)
 {
 	UNICODE_STRING name;
-	PDEVICE_OBJECT dev = NULL;
-	NTSTATUS st;
+	PDEVICE_OBJECT pDev = NULL;
+	NTSTATUS nSt;
 	int i;
 
 	OutputDebugStringW(L"BBA DriverEntry\r\n");
-	g_present = bba_bringup();
+	g_bPresent = BbaBringup();
 
 	RtlInitUnicodeString(&name, L"\\Device\\BBA1");
-	st = IoCreateDevice(drv, 0, &name, FILE_DEVICE_NETWORK, 0, FALSE, &dev);
-	if (!NT_SUCCESS(st))
+	nSt = IoCreateDevice(pDrv, 0, &name, FILE_DEVICE_NETWORK, 0, FALSE, &pDev);
+	if (!NT_SUCCESS(nSt))
 	{
 		OutputDebugStringW(L"BBA: IoCreateDevice failed\r\n");
-		return st;
+		return nSt;
 	}
 
 	for (i = 0; i <= IRP_MJ_MAXIMUM_FUNCTION; i++)
-		drv->MajorFunction[i] = BbaDispatch;
+		pDrv->MajorFunction[i] = BbaDispatch;
 
-	if (g_present)
+	if (g_bPresent)
 	{
 		HANDLE h = CreateThread(NULL, 0, BbaRxThread, NULL, 0, NULL);
 		if (h)

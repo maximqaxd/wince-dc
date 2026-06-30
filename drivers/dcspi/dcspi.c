@@ -7,7 +7,7 @@
 #include <windows.h>
 #include "dcspi.h"
 
-DWORD SetKMode(DWORD fMode); // coredll export (P4 control regs need kernel mode)
+DWORD SetKMode(DWORD dwMode); // coredll export (P4 control regs need kernel mode)
 
 // ---- SCIF (bit-bang on SCSPTR2) -------------------------------------------------
 #define R8(a)   (*(volatile BYTE *)(a))
@@ -60,10 +60,10 @@ DWORD SetKMode(DWORD fMode); // coredll export (P4 control regs need kernel mode
 	  // full-size RX frames drain before the 16K W5500 ring overflows.
 #define SCI_WAIT 500000
 
-static int s_scifUp, s_sciUp, s_sciCs;
-static WORD s_scsptr2; // shadow of SCSPTR2 (SCIF)
+static int s_nScifUp, s_nSciUp, s_nSciCs;
+static WORD s_wScsptr2; // shadow of SCSPTR2 (SCIF)
 
-static BYTE bitrev8(BYTE b)
+static BYTE Bitrev8(BYTE b)
 {
 	b = (BYTE)((b & 0xF0) >> 4 | (b & 0x0F) << 4);
 	b = (BYTE)((b & 0xCC) >> 2 | (b & 0x33) << 2);
@@ -75,65 +75,65 @@ static BYTE bitrev8(BYTE b)
 // Switching it to GPIO/SPI kills that console, so snapshot the UART regs on init and
 // restore them on shutdown: a FAILED SCIF probe (no chip) then leaves the console intact.
 // (If a chip IS found we keep SPI mode until shutdown -- the W5500 owns the SCIF.)
-static WORD s_savSmr, s_savScr, s_savFcr, s_savPtr, s_savLsr;
-static BYTE s_savBrr;
-static int s_scifSaved;
-static void scif_save_console(void)
+static WORD s_wSavSmr, s_wSavScr, s_wSavFcr, s_wSavPtr, s_wSavLsr;
+static BYTE s_bSavBrr;
+static int s_nScifSaved;
+static void ScifSaveConsole(void)
 {
-	s_savSmr = SCSMR2;
-	s_savBrr = SCBRR2;
-	s_savScr = SCSCR2;
-	s_savFcr = SCFCR2;
-	s_savPtr = SCSPTR2;
-	s_savLsr = SCLSR2;
-	s_scifSaved = 1;
+	s_wSavSmr = SCSMR2;
+	s_bSavBrr = SCBRR2;
+	s_wSavScr = SCSCR2;
+	s_wSavFcr = SCFCR2;
+	s_wSavPtr = SCSPTR2;
+	s_wSavLsr = SCLSR2;
+	s_nScifSaved = 1;
 }
-static void scif_restore_console(void)
+static void ScifRestoreConsole(void)
 {
-	if (!s_scifSaved)
+	if (!s_nScifSaved)
 		return;
 	SCSCR2 = 0; // stop TX/RX before reprogramming
 	SCFCR2 = 0x06;
-	SCFCR2 = s_savFcr; // reset then restore the FIFOs
-	SCSMR2 = s_savSmr;
-	SCBRR2 = s_savBrr;
-	SCSPTR2 = s_savPtr;
-	SCLSR2 = s_savLsr;
-	SCSCR2 = s_savScr; // re-enable TX (console resumes)
-	s_scifSaved = 0;
+	SCFCR2 = s_wSavFcr; // reset then restore the FIFOs
+	SCSMR2 = s_wSavSmr;
+	SCBRR2 = s_bSavBrr;
+	SCSPTR2 = s_wSavPtr;
+	SCLSR2 = s_wSavLsr;
+	SCSCR2 = s_wSavScr; // re-enable TX (console resumes)
+	s_nScifSaved = 0;
 }
 
 // ---- SCIF bit-bang (clock=CTSDT, MOSI/MISO=SPB2DT, CS=RTSDT), SPI mode 0 --------
-static void scif_init_raw(void)
+static void ScifInitRaw(void)
 {
-	scif_save_console(); // so a failed probe can resurrect the console
+	ScifSaveConsole(); // so a failed probe can resurrect the console
 	SCSCR2 = 0;
 	SCFCR2 = 0x06; // flush FIFOs
 	SCFCR2 = 0;
 	SCSMR2 = 0;
 	SCFSR2 = 0;
 	SCLSR2 = 0;
-	s_scsptr2 = P2_RTSIO | P2_RTSDT | P2_CTSIO | P2_SPB2IO; // RTS/CTS out, CS high, data out
-	SCSPTR2 = s_scsptr2;
+	s_wScsptr2 = P2_RTSIO | P2_RTSDT | P2_CTSIO | P2_SPB2IO; // RTS/CTS out, CS high, data out
+	SCSPTR2 = s_wScsptr2;
 }
-static void scif_setcs_raw(int active) // CS active-low: assert -> RTSDT 0
+static void ScifSetcsRaw(int nActive) // CS active-low: assert -> RTSDT 0
 {
-	if (active)
-		s_scsptr2 &= ~P2_RTSDT;
+	if (nActive)
+		s_wScsptr2 &= ~P2_RTSDT;
 	else
-		s_scsptr2 |= P2_RTSDT;
-	SCSPTR2 = s_scsptr2;
+		s_wScsptr2 |= P2_RTSDT;
+	SCSPTR2 = s_wScsptr2;
 }
 // Inter-edge settle for the SCIF bit-bang. KOS ships scif_spi_slow_rw_byte (1.5us/edge)
 // because back-to-back SCSPTR2 stores clock the bus faster than some W5500 wiring can meet
 // MISO setup/hold: a short VERSIONR read survives but a long MACRAW burst sporadically
-// samples MISO before the W5500 has driven the new bit -> garbled frames. s_spiSettle is the
+// samples MISO before the W5500 has driven the new bit -> garbled frames. s_nSpiSettle is the
 // per-half-bit spin count (volatile so the empty loop isn't optimized away); tune on HW,
 // 0 restores the old zero-delay fast path.
-volatile int s_spiSettle = 32;
-static void spi_settle(void)
+volatile int s_nSpiSettle = 32;
+static void SpiSettle(void)
 {
-	volatile int n = s_spiSettle;
+	volatile int n = s_nSpiSettle;
 	while (n-- > 0)
 	{
 	}
@@ -144,50 +144,50 @@ static void spi_settle(void)
 // Applies to the SCIF bit-bang path (W5500/SD); the SCI hardware path uses SCBRR instead.
 void SpiSetSettle(int n)
 {
-	s_spiSettle = (n < 0) ? 0 : n;
+	s_nSpiSettle = (n < 0) ? 0 : n;
 }
 
-static BYTE scif_rw_raw(BYTE b)
+static BYTE ScifRwRaw(BYTE b)
 {
-	WORD tmp = (WORD)(s_scsptr2 & ~P2_CTSDT & ~P2_SPB2DT);
-	BYTE bit, rv = 0;
+	WORD wTmp = (WORD)(s_wScsptr2 & ~P2_CTSDT & ~P2_SPB2DT);
+	BYTE bBit, bRv = 0;
 	int i;
 	for (i = 7; i >= 0; i--)
 	{
-		bit = (BYTE)((b >> i) & 1);
-		SCSPTR2 = (WORD)(tmp | bit);            // data out, clock low
-		spi_settle();                           // MOSI setup before the rising edge
-		SCSPTR2 = (WORD)(tmp | bit | P2_CTSDT); // clock high (rising edge)
-		spi_settle();                           // let the W5500 drive MISO before we sample
-		rv = (BYTE)((rv << 1) | (SCSPTR2 & P2_SPB2DT));
+		bBit = (BYTE)((b >> i) & 1);
+		SCSPTR2 = (WORD)(wTmp | bBit);            // data out, clock low
+		SpiSettle();                              // MOSI setup before the rising edge
+		SCSPTR2 = (WORD)(wTmp | bBit | P2_CTSDT); // clock high (rising edge)
+		SpiSettle();                              // let the W5500 drive MISO before we sample
+		bRv = (BYTE)((bRv << 1) | (SCSPTR2 & P2_SPB2DT));
 	}
-	SCSPTR2 = tmp; // leave SCK idle LOW (SPI mode 0) so the
-	               // next byte's first rising edge isn't a glitch
-	return rv;
+	SCSPTR2 = wTmp; // leave SCK idle LOW (SPI mode 0) so the
+	                // next byte's first rising edge isn't a glitch
+	return bRv;
 }
 
 // ---- SCI hardware sync mode (MSB-first SPI via internal bit-reverse) ------------
-static void sci_setcs_raw(int active)
+static void SciSetcsRaw(int nActive)
 {
-	if (s_sciCs == DCSPI_CS_GPIO)
+	if (s_nSciCs == DCSPI_CS_GPIO)
 	{
-		if (active)
+		if (nActive)
 			PDTRA &= ~(1 << PA7_BIT); // CS low
 		else
 			PDTRA |= (1 << PA7_BIT); // CS high
 	}
 	else // CS via SCIF RTS
 	{
-		if (active)
+		if (nActive)
 			SCSPTR2 &= ~P2_RTSDT;
 		else
 			SCSPTR2 |= P2_RTSDT;
 	}
 }
-static int sci_init_raw(int csmode)
+static int SciInitRaw(int nCsmode)
 {
-	DWORD t = 0;
-	BYTE d;
+	DWORD dwT = 0;
+	BYTE bD;
 	if (STBCR & STBCR_SCI)
 	{
 		STBCR &= ~STBCR_SCI;
@@ -195,12 +195,13 @@ static int sci_init_raw(int csmode)
 	} // wake the SCI module
 	SCSCR1 = 0;
 	SCSPTR1 = 0;
-	if (csmode == DCSPI_CS_AUTO) // resolve CS source by board (KOS parity):
-		csmode = (((SYSMODE >> 4) & 0x0F) == DCSPI_HW_RETAIL) // retail DC has PA7; Naomi/Set5 don't
-		             ? DCSPI_CS_GPIO
-		             : DCSPI_CS_RTS;
-	s_sciCs = csmode;
-	if (csmode == DCSPI_CS_GPIO) // PA7 as output, CS idle high (retail Dreamcast)
+	if (nCsmode == DCSPI_CS_AUTO) // resolve CS source by board (KOS parity):
+		nCsmode =
+		    (((SYSMODE >> 4) & 0x0F) == DCSPI_HW_RETAIL) // retail DC has PA7; Naomi/Set5 don't
+		        ? DCSPI_CS_GPIO
+		        : DCSPI_CS_RTS;
+	s_nSciCs = nCsmode;
+	if (nCsmode == DCSPI_CS_GPIO) // PA7 as output, CS idle high (retail Dreamcast)
 	{
 		PCTRA = (PCTRA & ~(3u << (PA7_BIT * 2))) | (1u << (PA7_BIT * 2));
 		PDTRA |= (1 << PA7_BIT);
@@ -216,37 +217,37 @@ static int sci_init_raw(int csmode)
 	SCSSR1 &= ~(SC_ORER | SCSSR_FER | SCSSR_PER); // clear all RX errors
 	if (SCSSR1 & SC_RDRF)
 	{
-		d = SCRDR1;
-		(void)d;
-	}                       // flush
+		bD = SCRDR1;
+		(void)bD;
+	} // flush
 	SCSCR1 = SC_TE | SC_RE; // internal clock, full-duplex
 	do
 	{
-		if (++t > SCI_WAIT)
+		if (++dwT > SCI_WAIT)
 			return -1;
 	} while (!(SCSSR1 & SC_TDRE));
 	return 0;
 }
-static BYTE sci_rw_raw(BYTE b)
+static BYTE SciRwRaw(BYTE b)
 {
-	DWORD t = 0;
-	BYTE v = bitrev8(b); // SCI shifts LSB-first; reverse for MSB-first SPI
+	DWORD dwT = 0;
+	BYTE bV = Bitrev8(b); // SCI shifts LSB-first; reverse for MSB-first SPI
 	while (!(SCSSR1 & SC_TDRE))
-		if (++t > SCI_WAIT)
+		if (++dwT > SCI_WAIT)
 			return 0xFF;
-	SCTDR1 = v;
+	SCTDR1 = bV;
 	SCSSR1 &= ~SC_TDRE; // start the 8-bit clocked exchange
-	t = 0;
+	dwT = 0;
 	while (!(SCSSR1 & SC_RDRF))
 	{
 		if (SCSSR1 & SC_ORER)
 			SCSSR1 &= ~SC_ORER;
-		if (++t > SCI_WAIT)
+		if (++dwT > SCI_WAIT)
 			return 0xFF;
 	}
-	v = SCRDR1;
+	bV = SCRDR1;
 	SCSSR1 &= ~SC_RDRF;
-	return bitrev8(v);
+	return Bitrev8(bV);
 }
 
 // ---- public API (SetKMode-wrapped) ---------------------------------------------
@@ -255,129 +256,129 @@ static BYTE sci_rw_raw(BYTE b)
 // SCI-SPI chip-select source (PA7 GPIO on DC, SCIF RTS on Naomi/Set5).
 int DcspiHwType(void)
 {
-	DWORD prev = SetKMode(TRUE);
-	int ty = DCSPI_HW_RETAIL;
+	DWORD dwPrev = SetKMode(TRUE);
+	int nTy = DCSPI_HW_RETAIL;
 	__try
 	{
-		ty = (int)((SYSMODE >> 4) & 0x0F);
+		nTy = (int)((SYSMODE >> 4) & 0x0F);
 	}
 	__except (EXCEPTION_EXECUTE_HANDLER)
 	{
-		ty = DCSPI_HW_RETAIL;
+		nTy = DCSPI_HW_RETAIL;
 	}
-	SetKMode(prev);
-	return ty;
+	SetKMode(dwPrev);
+	return nTy;
 }
 
-int SpiInit(int bus, int csmode)
+int SpiInit(int nBus, int nCsmode)
 {
-	DWORD prev = SetKMode(TRUE);
-	int rc = -1;
+	DWORD dwPrev = SetKMode(TRUE);
+	int nRc = -1;
 	__try
 	{
-		if (bus == DCSPI_BUS_SCIF)
+		if (nBus == DCSPI_BUS_SCIF)
 		{
-			scif_init_raw();
-			s_scifUp = 1;
-			rc = 0;
+			ScifInitRaw();
+			s_nScifUp = 1;
+			nRc = 0;
 		}
-		else if (bus == DCSPI_BUS_SCI)
+		else if (nBus == DCSPI_BUS_SCI)
 		{
-			rc = sci_init_raw(csmode);
-			if (rc == 0)
-				s_sciUp = 1;
+			nRc = SciInitRaw(nCsmode);
+			if (nRc == 0)
+				s_nSciUp = 1;
 		}
 	}
 	__except (EXCEPTION_EXECUTE_HANDLER)
 	{
-		rc = -1;
+		nRc = -1;
 	}
-	SetKMode(prev);
-	return rc;
+	SetKMode(dwPrev);
+	return nRc;
 }
-void SpiShutdown(int bus)
+void SpiShutdown(int nBus)
 {
-	DWORD prev = SetKMode(TRUE);
+	DWORD dwPrev = SetKMode(TRUE);
 	__try
 	{
-		if (bus == DCSPI_BUS_SCI && s_sciUp)
+		if (nBus == DCSPI_BUS_SCI && s_nSciUp)
 		{
 			SCSCR1 = 0;
 			STBCR |= STBCR_SCI;
-			s_sciUp = 0;
+			s_nSciUp = 0;
 		}
-		else if (bus == DCSPI_BUS_SCIF)
+		else if (nBus == DCSPI_BUS_SCIF)
 		{
-			scif_restore_console();
-			s_scifUp = 0;
+			ScifRestoreConsole();
+			s_nScifUp = 0;
 		}
 	}
 	__except (EXCEPTION_EXECUTE_HANDLER)
 	{
 	}
-	SetKMode(prev);
+	SetKMode(dwPrev);
 }
-void SpiSetCS(int bus, int active)
+void SpiSetCS(int nBus, int nActive)
 {
-	DWORD prev = SetKMode(TRUE);
+	DWORD dwPrev = SetKMode(TRUE);
 	__try
 	{
-		if (bus == DCSPI_BUS_SCIF)
-			scif_setcs_raw(active);
+		if (nBus == DCSPI_BUS_SCIF)
+			ScifSetcsRaw(nActive);
 		else
-			sci_setcs_raw(active);
+			SciSetcsRaw(nActive);
 	}
 	__except (EXCEPTION_EXECUTE_HANDLER)
 	{
 	}
-	SetKMode(prev);
+	SetKMode(dwPrev);
 }
-unsigned char SpiRwByte(int bus, unsigned char tx)
+unsigned char SpiRwByte(int nBus, unsigned char bTx)
 {
-	DWORD prev = SetKMode(TRUE);
-	BYTE rv = 0xFF;
+	DWORD dwPrev = SetKMode(TRUE);
+	BYTE bRv = 0xFF;
 	__try
 	{
-		rv = (bus == DCSPI_BUS_SCIF) ? scif_rw_raw(tx) : sci_rw_raw(tx);
+		bRv = (nBus == DCSPI_BUS_SCIF) ? ScifRwRaw(bTx) : SciRwRaw(bTx);
 	}
 	__except (EXCEPTION_EXECUTE_HANDLER)
 	{
-		rv = 0xFF;
+		bRv = 0xFF;
 	}
-	SetKMode(prev);
-	return rv;
+	SetKMode(dwPrev);
+	return bRv;
 }
-void SpiRwData(int bus, const unsigned char *tx, unsigned char *rx, int len)
+void SpiRwData(int nBus, const unsigned char *pbTx, unsigned char *pbRx, int nLen)
 {
-	DWORD prev = SetKMode(TRUE);
+	DWORD dwPrev = SetKMode(TRUE);
 	int i;
 	__try
 	{
-		if (bus == DCSPI_BUS_SCIF)
-			for (i = 0; i < len; i++)
+		if (nBus == DCSPI_BUS_SCIF)
+			for (i = 0; i < nLen; i++)
 			{
-				BYTE r = scif_rw_raw(tx ? tx[i] : 0xFF);
-				if (rx)
-					rx[i] = r;
+				BYTE bR = ScifRwRaw(pbTx ? pbTx[i] : 0xFF);
+				if (pbRx)
+					pbRx[i] = bR;
 			}
 		else
-			for (i = 0; i < len; i++)
+			for (i = 0; i < nLen; i++)
 			{
-				BYTE r = sci_rw_raw(tx ? tx[i] : 0xFF);
-				if (rx)
-					rx[i] = r;
+				BYTE bR = SciRwRaw(pbTx ? pbTx[i] : 0xFF);
+				if (pbRx)
+					pbRx[i] = bR;
 			}
 	}
 	__except (EXCEPTION_EXECUTE_HANDLER)
 	{
 	}
-	SetKMode(prev);
+	SetKMode(dwPrev);
 }
 
-BOOL WINAPI DllMain(HANDLE h, DWORD reason, LPVOID r)
+BOOL WINAPI DllMain(HANDLE h, DWORD dwReason, LPVOID pvReserved)
 {
 	(void)h;
-	(void)reason;
-	(void)r;
+	(void)dwReason;
+	(void)pvReserved;
 	return TRUE;
 }
