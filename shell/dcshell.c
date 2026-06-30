@@ -610,7 +610,8 @@ static void Render(void)
         RebuildDesktopCache();
     GfxBlitDesktopCache();
 
-    // layers 1..N: app windows, back-to-front, each composited fully
+    // layers 1..N: app windows, back-to-front, each composited fully. The quad arrays grow on
+    // demand (dcgfx), so a text-heavy window can't starve the taskbar/cursor drawn after it.
     if (s_shared)
     {
         for (i = 0; i < DCWIN_MAXWIN; i++)

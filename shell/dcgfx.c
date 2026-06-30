@@ -28,13 +28,14 @@ typedef struct { int width, height, stride; unsigned long physicalAddr; } GDISur
 #define GLAST     126
 #define GN        (GLAST - GFIRST + 1)
 #define GH        16               // glyph cell height
-// Retained-quad buffer sizes. D3DTLVERTEX is 32 bytes, so each *_vb is QUADS*4*32 bytes -
-// at the old 2048 that was 256KB EACH (512KB+ of BSS) for a UI that uses a fraction of it.
-// The live scene (s_vb) holds the desktop replay (~150) + open-window quads; the desktop
-// cache (s_dvb) holds ONLY the desktop. Right-sized; PushQuad/EndDesktopCache clamp, so an
-// over-busy frame just drops trailing quads rather than overflowing. Reclaims ~370KB RAM.
-#define MAX_QUADS  1024              // live scene (desktop + windows)
-#define DESK_QUADS 384               // desktop cache only (icons + labels + taskbar)
+// Quad storage is DYNAMIC: the scene + desktop-cache arrays grow on demand (PushQuad doubles them)
+// and shrink back after the scene stays small, so RAM tracks the busiest recent frame instead of a
+// worst-case BSS reservation. Text renders one quad per character, so a couple of text-heavy
+// windows can need a few thousand quads; with on-demand growth nothing is ever dropped (no
+// taskbar/cursor loss) up to a ceiling no real UI reaches. The WORD index buffer caps a single
+// same-texture batch at 16384 quads (index 16384*4 = 65536 would overflow), which is the ceiling.
+#define QUAD_INIT  256               // initial capacity (one modest window)
+#define QUAD_MAX   16384             // hard ceiling (WORD index limit); far above any real scene
 
 static HWND                s_hwnd    = NULL;
 static LPDIRECTDRAW        s_dd      = NULL;
@@ -58,18 +59,14 @@ static D3DTEXTUREHANDLE    s_hPage    = 0;
 #define PAGE_TW 1024                              // page texture is pow2 and >= 640x480
 #define PAGE_TH 512
 
-// Retained quad list (the scene), replayed every frame. Indices are base-relative.
-static D3DTLVERTEX s_vb[MAX_QUADS * 4];
-static WORD        s_ib[MAX_QUADS * 6];
-static BYTE        s_qtex[MAX_QUADS];            // 0 = solid fill, 1 = atlas
-static int         s_nQuad = 0;
+// Retained quad list (the scene), replayed every frame; grown on demand. Indices are base-relative.
+static D3DTLVERTEX *s_vb;   static WORD *s_ib;   static BYTE *s_qtex;   // tex: 0=solid 1=atlas 2=page
+static int          s_cap, s_nQuad;
 
-// Desktop cache: a cached vertex SUB-LIST (not pixels) prepended each frame.
-static D3DTLVERTEX s_dvb[DESK_QUADS * 4];
-static WORD        s_dib[DESK_QUADS * 6];
-static BYTE        s_dtex[DESK_QUADS];
-static int         s_dQuad = 0;
-static BOOL        s_recDesk = FALSE;
+// Desktop cache: a cached vertex SUB-LIST (not pixels) prepended each frame; also grown on demand.
+static D3DTLVERTEX *s_dvb;  static WORD *s_dib;  static BYTE *s_dtex;
+static int          s_dcap, s_dQuad;
+static BOOL         s_recDesk = FALSE;
 
 typedef struct { float u0, v0, u1, v1; BYTE adv; } GlyphUV;
 static GlyphUV s_glyph[3][GN];
@@ -174,6 +171,52 @@ void GfxSetClip(int x0, int y0, int x1, int y1)
 { s_clipX0 = (float)x0; s_clipY0 = (float)y0; s_clipX1 = (float)x1; s_clipY1 = (float)y1; s_clipOn = 1; }
 void GfxClearClip(void) { s_clipOn = 0; }
 
+// --- dynamic quad arrays --------------------------------------------------------
+// Grow the three parallel arrays (verts / indices / tex-flags) to hold >= need quads, preserving
+// the first `keep`. Doubling from QUAD_INIT -> amortized O(1) across a frame. Returns 0 only at the
+// QUAD_MAX ceiling or on OOM (PushQuad then drops, which no real scene reaches).
+static int GrowQuads(D3DTLVERTEX **vb, WORD **ib, BYTE **qt, int *cap, int need, int keep)
+{
+    int nc; D3DTLVERTEX *nvb; WORD *nib; BYTE *nqt;
+    if (need <= *cap) return 1;
+    if (need > QUAD_MAX) return 0;
+    nc = *cap ? *cap : QUAD_INIT;
+    while (nc < need) nc <<= 1;
+    if (nc > QUAD_MAX) nc = QUAD_MAX;
+    nvb = (D3DTLVERTEX *)LocalAlloc(LMEM_FIXED, (DWORD)nc * 4 * sizeof(D3DTLVERTEX));
+    nib = (WORD *)       LocalAlloc(LMEM_FIXED, (DWORD)nc * 6 * sizeof(WORD));
+    nqt = (BYTE *)       LocalAlloc(LMEM_FIXED, (DWORD)nc);
+    if (!nvb || !nib || !nqt) { if (nvb) LocalFree(nvb); if (nib) LocalFree(nib); if (nqt) LocalFree(nqt); return 0; }
+    if (keep > 0 && *vb)
+    {
+        memcpy(nvb, *vb, (DWORD)keep * 4 * sizeof(D3DTLVERTEX));
+        memcpy(nib, *ib, (DWORD)keep * 6 * sizeof(WORD));
+        memcpy(nqt, *qt, (DWORD)keep);
+    }
+    if (*vb) LocalFree(*vb);
+    if (*ib) LocalFree(*ib);
+    if (*qt) LocalFree(*qt);
+    *vb = nvb; *ib = nib; *qt = nqt; *cap = nc;
+    return 1;
+}
+
+// Reclaim the live scene after it has stayed small: realloc DOWN to fit `want` (no copy - the frame
+// is drawn and the next rebuilds from scratch). No-op if it wouldn't shrink or if the alloc fails.
+static void ShrinkScene(int want)
+{
+    int nc = QUAD_INIT; D3DTLVERTEX *nvb; WORD *nib; BYTE *nqt;
+    while (nc < want) nc <<= 1;
+    if (nc >= s_cap) return;
+    nvb = (D3DTLVERTEX *)LocalAlloc(LMEM_FIXED, (DWORD)nc * 4 * sizeof(D3DTLVERTEX));
+    nib = (WORD *)       LocalAlloc(LMEM_FIXED, (DWORD)nc * 6 * sizeof(WORD));
+    nqt = (BYTE *)       LocalAlloc(LMEM_FIXED, (DWORD)nc);
+    if (!nvb || !nib || !nqt) { if (nvb) LocalFree(nvb); if (nib) LocalFree(nib); if (nqt) LocalFree(nqt); return; }
+    if (s_vb) LocalFree(s_vb);
+    if (s_ib) LocalFree(s_ib);
+    if (s_qtex) LocalFree(s_qtex);
+    s_vb = nvb; s_ib = nib; s_qtex = nqt; s_cap = nc;
+}
+
 // --- quad list ------------------------------------------------------------------
 static void PushQuad(float x0, float y0, float x1, float y1,
                      float u0, float v0, float u1, float v1, D3DCOLOR col, BYTE tex)
@@ -181,7 +224,7 @@ static void PushQuad(float x0, float y0, float x1, float y1,
     D3DTLVERTEX *v;
     WORD        *ix;
     int          b, q;
-    if (s_nQuad >= MAX_QUADS) return;
+    if (!GrowQuads(&s_vb, &s_ib, &s_qtex, &s_cap, s_nQuad + 1, s_nQuad)) return;  // only at the ceiling
     // Software clip to the active clip rect, adjusting UVs so textured quads (glyphs/icons)
     // clip cleanly instead of spilling outside a window's client area.
     if (s_clipOn)
@@ -498,6 +541,10 @@ void GfxShutdown(void)
 {
     DestroyD3D();
     DestroySurfaces();
+    if (s_vb)  LocalFree(s_vb);   if (s_ib)  LocalFree(s_ib);   if (s_qtex) LocalFree(s_qtex);
+    if (s_dvb) LocalFree(s_dvb);  if (s_dib) LocalFree(s_dib);  if (s_dtex) LocalFree(s_dtex);
+    s_vb = s_dvb = NULL; s_ib = s_dib = NULL; s_qtex = s_dtex = NULL;
+    s_cap = s_dcap = s_nQuad = s_dQuad = 0;
 }
 
 // --- public draw API: enqueue quads (no pixels touched) -------------------------
@@ -579,10 +626,13 @@ void GfxBeginDesktopCache(void)
 void GfxEndDesktopCache(void)
 {
     s_dQuad = s_nQuad;
-    if (s_dQuad > DESK_QUADS) s_dQuad = DESK_QUADS;   // cache holds the desktop only; never overflow it
-    memcpy(s_dvb, s_vb, s_dQuad * 4 * sizeof(D3DTLVERTEX));
-    memcpy(s_dib, s_ib, s_dQuad * 6 * sizeof(WORD));
-    memcpy(s_dtex, s_qtex, s_dQuad);
+    if (!GrowQuads(&s_dvb, &s_dib, &s_dtex, &s_dcap, s_dQuad, 0)) s_dQuad = s_dcap;  // fit the desktop
+    if (s_dQuad > 0)
+    {
+        memcpy(s_dvb, s_vb, s_dQuad * 4 * sizeof(D3DTLVERTEX));
+        memcpy(s_dib, s_ib, s_dQuad * 6 * sizeof(WORD));
+        memcpy(s_dtex, s_qtex, s_dQuad);
+    }
     s_recDesk = FALSE;
     s_nQuad = 0;
 }
@@ -590,6 +640,7 @@ void GfxEndDesktopCache(void)
 void GfxBlitDesktopCache(void)
 {
     if (s_dQuad <= 0) { s_nQuad = 0; return; }
+    if (!GrowQuads(&s_vb, &s_ib, &s_qtex, &s_cap, s_dQuad, 0)) { s_nQuad = 0; return; }  // room for it
     memcpy(s_vb, s_dvb, s_dQuad * 4 * sizeof(D3DTLVERTEX));
     memcpy(s_ib, s_dib, s_dQuad * 6 * sizeof(WORD));   // base-relative indices stay valid at slot 0
     memcpy(s_qtex, s_dtex, s_dQuad);
@@ -650,6 +701,18 @@ BOOL GfxPresent(int cursorX, int cursorY, BOOL showCursor)
             i = j;
         }
         IDirect3DDevice2_EndScene(s_dev);
+    }
+
+    {   // reclaim RAM when the scene has stayed well under capacity (hysteresis: a ~120-frame window
+        // so a brief burst of windows doesn't thrash grow<->shrink). want = recent peak + ~50% slack.
+        static int peak, frames;
+        if (s_nQuad > peak) peak = s_nQuad;
+        if (++frames >= 120)
+        {
+            int want = peak + (peak >> 1) + 32;
+            if (s_cap > QUAD_INIT && want < s_cap / 2) ShrinkScene(want);
+            peak = 0; frames = 0;
+        }
     }
     s_nQuad = 0;
 
