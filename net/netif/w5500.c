@@ -253,14 +253,28 @@ int W5500RxPoll(unsigned char *buf, int max)
     BYTE hdr[2];
     rsr = w5_r16s(BSB_S0_REG, Sn_RX_RSR);
     if (rsr < 2) return 0;
+    if (rsr > 12288)                                     // >3/4 of the 16K RX buffer: we're draining too
+    {                                                    // slowly (SCIF bit-bang SPI is the bottleneck)
+        static int s_full;
+        if ((++s_full & 0x1f) == 1) SysLog(L"w5500: RX backlog rsr=%u (SPI too slow to drain)", rsr);
+    }
     rd = w5_r16(BSB_S0_REG, Sn_RX_RD);
     w5_read(BSB_S0_RX, rd, hdr, 2);                       // MACRAW per-packet 2-byte length (incl header)
     plen = (WORD)((hdr[0] << 8) | hdr[1]);
-    if (plen < 3 || plen > rsr)                           // ring desync -> resync to write ptr
-    {
-        w5_w16(BSB_S0_REG, Sn_RX_RD, (WORD)(rd + rsr));
-        w5_w1(BSB_S0_REG, Sn_CR, CMD_RECV);
-        return -1;
+    if (plen < 3 || plen > rsr)                           // bad length - on SCIF this is usually a TORN
+    {                                                    // read of the 2-byte header, not a real desync
+        BYTE h2[2]; WORD p2;                              // so re-read it once before discarding the ring
+        w5_read(BSB_S0_RX, rd, h2, 2);
+        p2 = (WORD)((h2[0] << 8) | h2[1]);
+        if (p2 >= 3 && p2 <= rsr) plen = p2;             // re-read agrees + valid -> recovered, no data lost
+        else                                             // genuine desync -> resync to write ptr (lose ring)
+        {
+            static int s_desync;
+            if ((++s_desync & 0x1f) == 1) SysLog(L"w5500: RX desync #%d plen=%u rsr=%u", s_desync, plen, rsr);
+            w5_w16(BSB_S0_REG, Sn_RX_RD, (WORD)(rd + rsr));
+            w5_w1(BSB_S0_REG, Sn_CR, CMD_RECV);
+            return -1;
+        }
     }
     flen = plen - 2;
     if (flen > max) flen = max;

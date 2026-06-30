@@ -90,6 +90,8 @@ static ulong g_myIP, g_mask, g_gw;       // kept in network-order-as-LE (wire/AR
 static ulong g_offDns[5];                // DHCP option-6 DNS servers (network order)
 static int   g_offDnsN;
 static int   s_txLog, s_rxLog;           // limit TX/RX diagnostics
+static DWORD g_rxBytes, g_txBytes;       // cumulative link RX (delivered) / TX (microstk produced)
+static DWORD g_statTick, g_rxPrev, g_txPrev;   // periodic throughput log (spot where a stream stalls)
 
 // ---- revival / game-server redirection (mirrors Flycast picoppp + DreamPi) ---------
 // Online DC games reach now-dead first-party master servers two ways, so we redirect both:
@@ -366,6 +368,7 @@ static ulong OurTransmit(ifnet *ifn, NDIS_PACKET *pkt, ulong nextHop)
     (void)nextHop;                              // microstk has no routes; use the IP header dest
     for (b = pkt->Private.Head; b && off + (int)b->BufferLength <= (int)sizeof(ipbuf); b = b->Next)
     { memcpy(ipbuf + off, b->VirtualAddress, b->BufferLength); off += (int)b->BufferLength; }
+    g_txBytes += (DWORD)off;                    // microstk's TX intent (ACKs/data) - even if dropped below
 
     memcpy(&dst, ipbuf + 16, 4);                // IP dest (network order = our g_* rep)
     {                                           // (B) game-master DNAT: dead hardcoded IP -> revival
@@ -530,7 +533,8 @@ static void ReadRevivalConfig(void)
     HKEY h; WCHAR s[32]; DWORD t, cb;
     if (g_revivalRead) return;
     g_revivalRead   = 1;
-    g_revivalDns    = dns_ip(178, 156, 255, 64);   // dns.flyca.st (set RevivalDns to override)
+    g_revivalDns    = dns_ip(178, 156, 255, 64);   // dns.flyca.st == dcnet.flyca.st == DCNet's resolver
+                                                   // (set RevivalDns in HKLM\Comm\Netif to override)
     g_revivalMaster = 0;
     if (RegOpenKeyExW(HKEY_LOCAL_MACHINE, L"Comm\\Netif", 0, KEY_READ, &h) == ERROR_SUCCESS)
     {
@@ -736,8 +740,14 @@ static DWORD WINAPI NetWorker(LPVOID p)
     for (;;)
     {
         int n = s_link->poll ? s_link->poll(buf, sizeof(buf)) : 0;
-        if (n > 0) RxFrame(buf, n);
+        if (n > 0) { g_rxBytes += (DWORD)n; RxFrame(buf, n); }
         if (!g_haveIP && GetTickCount() - lastDhcp > 1500) { DhcpStep(); lastDhcp = GetTickCount(); }
+        if (GetTickCount() - g_statTick > 2000)     // throughput tick: only while bytes are moving, so
+        {                                           // a stalled stream's last line shows where rx/tx froze
+            g_statTick = GetTickCount();
+            if (g_rxBytes != g_rxPrev || g_txBytes != g_txPrev)
+            { SysLog(L"netif: rx=%u tx=%u bytes", g_rxBytes, g_txBytes); g_rxPrev = g_rxBytes; g_txPrev = g_txBytes; }
+        }
         if (n <= 0) Sleep(2);
     }
 }
