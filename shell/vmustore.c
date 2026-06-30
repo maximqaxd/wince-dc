@@ -17,12 +17,12 @@
 static GUID s_guid;
 static int s_found;
 
-static BOOL PASCAL EnumCb(LPCMAPLEDEVICEINSTANCE inst, LPVOID ctx)
+static BOOL PASCAL EnumCb(LPCMAPLEDEVICEINSTANCE pInst, LPVOID pvCtx)
 {
-	(void)ctx;
-	if (!s_found && inst)
+	(void)pvCtx;
+	if (!s_found && pInst)
 	{
-		s_guid = inst->guidDevice;
+		s_guid = pInst->guidDevice;
 		s_found = 1;
 	}
 	return TRUE; // keep going; we just take the first
@@ -45,29 +45,29 @@ static IFlashDevice *OpenDev(void)
 	return pDev;
 }
 
-static void FillDesc(FSFILEDESC *fd, int bytes)
+static void FillDesc(FSFILEDESC *pFd, int bytes)
 {
-	int blk = (bytes + 511) & ~511;
-	memset(fd, 0, sizeof(*fd));
-	fd->dwSize = sizeof(*fd);
-	fd->dwFlags = FSFD_CREATE_FILE;
-	fd->dwBytesRequired = blk < 512 ? 512 : blk;
-	strcpy(fd->szFileName, VMU_FILE);
-	strcpy(fd->szVMSComment, "DCWin");
-	strcpy(fd->szBootROMComment, "DCWin desktop shortcuts");
-	fd->bStatus = FS_STATUS_DATA_FILE;
-	fd->bCopy = FS_COPY_ENABLED;
-	fd->fsfileicon.bAnimationFrames = 1; // minimal (solid) icon, palette[0]=white
-	fd->fsfileicon.palette[0] = (FSARGB4)0xFFFF;
+	int nBlk = (bytes + 511) & ~511;
+	memset(pFd, 0, sizeof(*pFd));
+	pFd->dwSize = sizeof(*pFd);
+	pFd->dwFlags = FSFD_CREATE_FILE;
+	pFd->dwBytesRequired = nBlk < 512 ? 512 : nBlk;
+	strcpy(pFd->szFileName, VMU_FILE);
+	strcpy(pFd->szVMSComment, "DCWin");
+	strcpy(pFd->szBootROMComment, "DCWin desktop shortcuts");
+	pFd->bStatus = FS_STATUS_DATA_FILE;
+	pFd->bCopy = FS_COPY_ENABLED;
+	pFd->fsfileicon.bAnimationFrames = 1; // minimal (solid) icon, palette[0]=white
+	pFd->fsfileicon.palette[0] = (FSARGB4)0xFFFF;
 }
 
-int VmuSave(const void *data, int len)
+int VmuSave(const void *pvData, int len)
 {
 	IFlashDevice *pDev = NULL;
 	IFlashFile *pFile = NULL;
 	FSFILEDESC fd;
-	BYTE blk[512];
-	int ok = 0;
+	BYTE abBlk[512];
+	int bOk = 0;
 
 	if (len < 0 || len > 512)
 		return 0;
@@ -86,10 +86,10 @@ int VmuSave(const void *data, int len)
 			}
 			if (SUCCEEDED(hr) && pFile)
 			{
-				memset(blk, 0, sizeof(blk));
-				memcpy(blk, data, len);
-				if (SUCCEEDED(pFile->lpVtbl->Write(pFile, 0, sizeof(blk), blk)))
-					ok = 1;
+				memset(abBlk, 0, sizeof(abBlk));
+				memcpy(abBlk, pvData, len);
+				if (SUCCEEDED(pFile->lpVtbl->Write(pFile, 0, sizeof(abBlk), abBlk)))
+					bOk = 1;
 				pFile->lpVtbl->Release(pFile);
 				pDev->lpVtbl->Flush(pDev);
 			}
@@ -97,20 +97,20 @@ int VmuSave(const void *data, int len)
 	}
 	__except (EXCEPTION_EXECUTE_HANDLER)
 	{
-		ok = 0;
+		bOk = 0;
 	}
 
 	if (pDev)
 		pDev->lpVtbl->Release(pDev);
-	return ok;
+	return bOk;
 }
 
-int VmuLoad(void *data, int maxlen, int *outlen)
+int VmuLoad(void *pvData, int maxlen, int *outlen)
 {
 	IFlashDevice *pDev = NULL;
 	IFlashFile *pFile = NULL;
-	BYTE blk[512];
-	int ok = 0, n;
+	BYTE abBlk[512];
+	int bOk = 0, n;
 
 	if (outlen)
 		*outlen = 0;
@@ -120,23 +120,23 @@ int VmuLoad(void *data, int maxlen, int *outlen)
 		pDev = OpenDev();
 		if (pDev && SUCCEEDED(pDev->lpVtbl->OpenFlashFileByName(pDev, &pFile, VMU_FILE)) && pFile)
 		{
-			if (SUCCEEDED(pFile->lpVtbl->Read(pFile, 0, sizeof(blk), blk)))
+			if (SUCCEEDED(pFile->lpVtbl->Read(pFile, 0, sizeof(abBlk), abBlk)))
 			{
-				n = (maxlen < (int)sizeof(blk)) ? maxlen : (int)sizeof(blk);
-				memcpy(data, blk, n);
+				n = (maxlen < (int)sizeof(abBlk)) ? maxlen : (int)sizeof(abBlk);
+				memcpy(pvData, abBlk, n);
 				if (outlen)
 					*outlen = n;
-				ok = 1;
+				bOk = 1;
 			}
 			pFile->lpVtbl->Release(pFile);
 		}
 	}
 	__except (EXCEPTION_EXECUTE_HANDLER)
 	{
-		ok = 0;
+		bOk = 0;
 	}
 
 	if (pDev)
 		pDev->lpVtbl->Release(pDev);
-	return ok;
+	return bOk;
 }
