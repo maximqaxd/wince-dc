@@ -5,8 +5,8 @@
 #include "dcwlib.h"
 #include "syslog.h"
 
-#define LW  380
-#define LH  240
+#define LW  560        // wide enough for the longest netif/dns/tcp lines (~59 chars) without clipping
+#define LH  300
 #define ROW 13
 
 int WINAPI WinMain(HINSTANCE hInst, HINSTANCE hPrev, LPWSTR lpCmd, int nShow)
